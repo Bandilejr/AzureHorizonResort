@@ -1,0 +1,268 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function getUserRole() {
+      return getUserData().role;
+    }
+    
+    function getUserSubRole() {
+      return getUserData().subRole;
+    }
+    
+    function isAdmin() {
+      return getUserRole() == 'admin';
+    }
+    
+    function isStaff() {
+      return getUserRole() == 'staff';
+    }
+    
+    function isEventManager() {
+      return getUserSubRole() == 'event_manager';
+    }
+    
+    function isFrontDesk() {
+      return getUserSubRole() == 'front_desk';
+    }
+    
+    function isMaintenance() {
+      return getUserSubRole() == 'maintenance';
+    }
+    
+    function isCateringStaff() {
+      return getUserSubRole() == 'catering_staff';
+    }
+    
+    function isHousekeeping() {
+      return getUserSubRole() == 'housekeeping';
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isEventHost(eventId) {
+      return exists(/databases/$(database)/documents/event_bookings/$(eventId)) &&
+             get(/databases/$(database)/documents/event_bookings/$(eventId)).data.guestId == request.auth.uid;
+    }
+    
+    function isEventStaff(eventId) {
+      return isEventManager() || isFrontDesk() || isAdmin();
+    }
+
+    // USERS COLLECTION
+    match /users/{userId} {
+      allow read: if isSignedIn() && (isOwner(userId) || isAdmin() || isStaff());
+      allow write: if isSignedIn() && (isOwner(userId) || isAdmin());
+      allow create: if isSignedIn() && isOwner(userId);
+    }
+
+    // EVENT BOOKINGS
+    match /event_bookings/{bookingId} {
+      allow read: if isSignedIn() && (isEventHost(bookingId) || isEventStaff(bookingId));
+      allow create: if isSignedIn() && getUserRole() == 'guest';
+      allow update: if isSignedIn() && (isEventHost(bookingId) || isEventManager() || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // EVENT INVITATIONS (UC26)
+    match /event_invitations/{invitationId} {
+      allow read: if isSignedIn() && (
+        isEventHost(resource.data.eventId) || 
+        isEventStaff(resource.data.eventId) ||
+        resource.data.inviteeEmail == request.auth.token.email
+      );
+      allow create: if isSignedIn() && isEventHost(request.resource.data.eventId);
+      allow update: if isSignedIn() && (
+        isEventHost(resource.data.eventId) ||
+        isEventStaff(resource.data.eventId) ||
+        (resource.data.inviteeEmail == request.auth.token.email && request.resource.data.status == 'declined')
+      );
+    }
+
+    // EVENT FEEDBACK (UC32)
+    match /event_feedback/{feedbackId} {
+      allow read: if isSignedIn() && (isEventHost(resource.data.eventId) || isAdmin());
+      allow create: if isSignedIn() && 
+        getUserRole() == 'guest' && 
+        exists(/databases/$(database)/documents/event_bookings/$(request.resource.data.eventId)) &&
+        get(/databases/$(database)/documents/event_bookings/$(request.resource.data.eventId)).data.guestId == request.auth.uid;
+    }
+
+    // LIVE COMPLAINTS (UC33)
+    match /live_complaints/{complaintId} {
+      allow read: if isSignedIn() && (
+        isOwner(resource.data.guestId) ||
+        isEventStaff(resource.data.eventId) ||
+        (isMaintenance() && resource.data.assignedTo == request.auth.uid)
+      );
+      allow create: if isSignedIn() && 
+        getUserRole() == 'guest' &&
+        exists(/databases/$(database)/documents/event_bookings/$(request.resource.data.eventId));
+      allow update: if isSignedIn() && (
+        isEventManager() || isFrontDesk() || isMaintenance() || isAdmin()
+      ) && (
+        // Only allowed fields for staff updates
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'assignedTo', 'updatedAt', 'resolvedAt'])
+      );
+    }
+
+    // STAFF SHIFT ASSIGNMENTS (UC27)
+    match /staff_shift_assignments/{assignmentId} {
+      allow read: if isSignedIn() && (
+        isOwner(resource.data.staffId) ||
+        isEventStaff(resource.data.eventId) ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && (isEventManager() || isAdmin());
+      allow update: if isSignedIn() && (
+        isOwner(resource.data.staffId) || // Staff can check themselves in
+        isEventManager() || 
+        isAdmin()
+      );
+    }
+
+    // EVENT INSPECTIONS (UC28, UC30)
+    match /event_inspections/{inspectionId} {
+      allow read: if isSignedIn() && (
+        isEventStaff(resource.data.eventId) ||
+        isOwner(resource.data.inspectorId) ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && (isEventManager() || isMaintenance() || isAdmin());
+      allow update: if isSignedIn() && (
+        isOwner(resource.data.inspectorId) ||
+        isEventManager() ||
+        isAdmin()
+      );
+    }
+
+    // ATTENDEE CHECK-INS (UC29)
+    match /attendee_checkins/{checkinId} {
+      allow read: if isSignedIn() && (isEventStaff(resource.data.eventId) || isAdmin());
+      allow create: if isSignedIn() && (isFrontDesk() || isEventManager() || isAdmin());
+    }
+
+    // DAMAGE RECORDS (UC30, UC31)
+    match /damage_records/{recordId} {
+      allow read: if isSignedIn() && (
+        isOwner(resource.data.guestId) ||
+        isEventStaff(resource.data.eventId) ||
+        (isMaintenance() && resource.data.assignedTechnicianId == request.auth.uid) ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && (isEventManager() || isMaintenance() || isAdmin());
+      allow update: if isSignedIn() && (
+        isEventManager() || 
+        isMaintenance() || 
+        isAdmin()
+      ) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'assignedTechnicianId', 'updatedAt', 'resolvedAt']);
+    }
+
+    // REFUND REQUESTS (UC34)
+    match /refund_requests/{requestId} {
+      allow read: if isSignedIn() && (
+        isOwner(resource.data.guestId) ||
+        isEventManager() ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && getUserRole() == 'guest';
+      allow update: if isSignedIn() && (isEventManager() || isAdmin());
+    }
+
+    // ROOM CREDENTIALS (Digital Key)
+    match /room_credentials/{credentialId} {
+      allow read: if isSignedIn() && (
+        isOwner(resource.data.guestId) ||
+        isEventManager() ||
+        isFrontDesk() ||
+        isAdmin()
+      );
+      allow write: if isSignedIn() && (isEventManager() || isAdmin());
+    }
+
+    // NOTIFICATIONS
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && isOwner(resource.data.userId);
+      allow update: if isSignedIn() && isOwner(resource.data.userId);
+    }
+
+    // LOYALTY LOGS
+    match /loyalty_logs/{logId} {
+      allow read: if isSignedIn() && (
+        isOwner(resource.data.guestId) ||
+        isAdmin() ||
+        (isStaff() && getUserSubRole() == 'front_desk')
+      );
+    }
+
+    // MAINTENANCE WORK ORDERS
+    match /maintenance_work_orders/{orderId} {
+      allow read: if isSignedIn() && (
+        isOwner(resource.data.technicianId) ||
+        isEventManager() ||
+        isMaintenance() ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && (isEventManager() || isAdmin());
+      allow update: if isSignedIn() && (
+        isOwner(resource.data.technicianId) ||
+        isEventManager() ||
+        isAdmin()
+      );
+    }
+
+    // INVOICES
+    match /invoices/{invoiceId} {
+      allow read: if isSignedIn() && (
+        isOwner(resource.data.guestId) ||
+        isEventManager() ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && (isEventManager() || isAdmin());
+      allow update: if isSignedIn() && (isEventManager() || isAdmin());
+    }
+
+    // REFUND TRANSACTIONS
+    match /refund_transactions/{transactionId} {
+      allow read: if isSignedIn() && (
+        isOwner(resource.data.guestId) ||
+        isEventManager() ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && (isEventManager() || isAdmin());
+    }
+
+    // LOYALTY SCAN LOGS
+    match /loyalty_scan_logs/{logId} {
+      allow read: if isSignedIn() && (isFrontDesk() || isEventManager() || isAdmin());
+      allow create: if isSignedIn() && (isFrontDesk() || isEventManager() || isAdmin());
+    }
+
+    // STAFF CHECKINS
+    match /staff_checkins/{checkinId} {
+      allow read: if isSignedIn() && (isEventStaff(resource.data.eventId) || isAdmin());
+      allow create: if isSignedIn() && (isFrontDesk() || isEventManager() || isAdmin());
+    }
+
+    // SERVICE REQUESTS (Existing)
+    match /service_requests/{requestId} {
+      allow read: if isSignedIn() && (
+        isOwner(resource.data.guestId) ||
+        isHousekeeping() ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && getUserRole() == 'guest';
+      allow update: if isSignedIn() && (isHousekeeping() || isAdmin());
+    }
+  }
+}
