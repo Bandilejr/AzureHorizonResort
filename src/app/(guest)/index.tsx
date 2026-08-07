@@ -1,68 +1,55 @@
 import React from 'react';
-import { 
-  StyleSheet, 
-  Text, 
-  View, 
-  TouchableOpacity, 
-  ImageBackground,
-  SafeAreaView,
-  StatusBar 
-} from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ImageBackground, StatusBar, SafeAreaView } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { getTheme, useColorScheme } from '@/constants/theme';
 
 export default function MobileLandingPage() {
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
+  
   return (
-    <>
-      <StatusBar barStyle="light-content" />
-      {/* Immersive Full-Screen Background Image */}
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
       <ImageBackground 
         source={{ uri: 'https://images.unsplash.com/photo-1582719508461-905c673771fd?q=80&w=1000&auto=format&fit=crop' }} 
         style={styles.backgroundImage}
       >
-        {/* Dark overlay to make text readable */}
-        <View style={styles.overlay}>
-          <SafeAreaView style={styles.safeArea}>
-            
-            {/* Top Section: Logo & Branding */}
+        <View style={styles.container}>
+          <View style={styles.safeArea}>
             <View style={styles.headerContainer}>
-              <Ionicons name="star" size={32} color="#c9a227" style={styles.icon} />
-              <Text style={styles.title}>Azure Horizon</Text>
-              <Text style={styles.subtitle}>Your Digital Resort Companion</Text>
+              <Ionicons name="star" size={32} color={theme.colors.primary} style={styles.icon} />
+              <Text style={[styles.title, { color: theme.colors.text, fontFamily: theme.typography.fontFamilies.sans }]}>Azure Horizon</Text>
+              <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Your Digital Resort Companion</Text>
             </View>
 
-            {/* Bottom Section: Quick Actions */}
-            <View style={styles.actionCard}>
-              <Text style={styles.welcomeText}>Welcome to Paradise</Text>
+            <View style={[styles.actionCard, { backgroundColor: theme.colors.surface }]}>
+              <Text style={[styles.welcomeText, { color: theme.colors.text }]}>Welcome to Paradise</Text>
               
-              {/* Primary Action */}
               <TouchableOpacity 
-                style={styles.primaryButton} 
+                style={[styles.primaryButton, { backgroundColor: theme.colors.primary }]} 
                 onPress={() => router.push('/login' as any)}
               >
                 <Ionicons name="log-in-outline" size={20} color="#fff" />
                 <Text style={styles.primaryButtonText}>Sign In to Your Stay</Text>
               </TouchableOpacity>
 
-              {/* Secondary Action */}
               <TouchableOpacity 
-                style={styles.secondaryButton} 
+                style={[styles.secondaryButton, { backgroundColor: theme.colors.surfaceVariant, borderWidth: 1, borderColor: theme.colors.border }]} 
                 onPress={() => router.push('/guest-portal' as any)}
               >
-                <Ionicons name="compass-outline" size={20} color="#1e3a5f" />
-                <Text style={styles.secondaryButtonText}>Explore the Resort</Text>
+                <Ionicons name="compass-outline" size={20} color={theme.colors.secondary} />
+                <Text style={[styles.secondaryButtonText, { color: theme.colors.secondary }]}>Explore the Resort</Text>
               </TouchableOpacity>
 
-              {/* Tertiary Action */}
               <TouchableOpacity 
                 style={styles.textButton} 
                 onPress={() => router.push('/register' as any)}
               >
-                <Text style={styles.textButtonText}>Don't have an account? Create one</Text>
+                <Text style={[styles.textButtonText, { color: theme.colors.textSecondary }]}>Don't have an account? Create one</Text>
               </TouchableOpacity>
             </View>
 
-            {/* Hidden Staff Portal Link at the very bottom */}
             <TouchableOpacity 
               style={styles.staffLink} 
               onPress={() => router.push('/staff-login' as any)}
@@ -70,11 +57,10 @@ export default function MobileLandingPage() {
               <Ionicons name="lock-closed" size={12} color="rgba(255,255,255,0.5)" />
               <Text style={styles.staffLinkText}>Staff & Admin Access</Text>
             </TouchableOpacity>
-
-          </SafeAreaView>
+          </View>
         </View>
       </ImageBackground>
-    </>
+    </SafeAreaView>
   );
 }
 
@@ -84,9 +70,9 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  overlay: {
+  container: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.65)', // Elegant dark tint
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
     justifyContent: 'space-between',
   },
   safeArea: {
@@ -95,7 +81,7 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     alignItems: 'center',
-    marginTop: 80,
+    marginTop: 60,
   },
   icon: {
     marginBottom: 16,
@@ -103,19 +89,15 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 42,
     fontWeight: 'bold',
-    color: '#ffffff',
-    fontFamily: 'serif',
     letterSpacing: 1,
   },
   subtitle: {
     fontSize: 16,
-    color: '#e2e8f0',
     fontStyle: 'italic',
     marginTop: 8,
     letterSpacing: 0.5,
   },
   actionCard: {
-    backgroundColor: '#ffffff',
     marginHorizontal: 20,
     borderRadius: 24,
     padding: 24,
@@ -129,12 +111,10 @@ const styles = StyleSheet.create({
   welcomeText: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1e3a5f',
     marginBottom: 20,
     textAlign: 'center',
   },
   primaryButton: {
-    backgroundColor: '#c9a227',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -144,12 +124,11 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   primaryButtonText: {
-    color: '#ffffff',
+    color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
   },
   secondaryButton: {
-    backgroundColor: '#f1f5f9',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -159,7 +138,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   secondaryButtonText: {
-    color: '#1e3a5f',
     fontSize: 16,
     fontWeight: 'bold',
   },
@@ -168,7 +146,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   textButtonText: {
-    color: '#64748b',
     fontSize: 14,
     fontWeight: '500',
   },
@@ -177,7 +154,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 30,
-    gap: 4,
+    marginTop: 20,
+    gap: 12,
   },
   staffLinkText: {
     color: 'rgba(255,255,255,0.5)',

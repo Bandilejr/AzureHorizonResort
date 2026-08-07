@@ -1,28 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { CameraView, Camera } from 'expo-camera';
 import { validateLoyaltyQR } from '@/services/firebase-services';
-
-// Dynamic import for barcode scanner (doesn't work in Expo Go)
-const getBarCodeScanner = async () => {
-  if (Platform.OS === 'web') return null;
-  try {
-    const { BarCodeScanner } = await import('expo-barcode-scanner');
-    return BarCodeScanner;
-  } catch {
-    console.warn('expo-barcode-scanner not available (Expo Go)');
-    return null;
-  }
-};
-
-const getConstants = async () => {
-  try {
-    const Constants = await import('expo-constants');
-    return Constants.default;
-  } catch {
-    return null;
-  }
-};
 
 export default function LoyaltyScannerScreen() {
   const [hasPermission, setHasPermission] = useState<null | boolean>(null);
@@ -30,26 +10,22 @@ export default function LoyaltyScannerScreen() {
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [isExpoGo, setIsExpoGo] = useState(false);
-  const [BarCodeScanner, setBarCodeScanner] = useState<any>(null);
 
   useEffect(() => {
     checkEnvironment();
   }, []);
 
   const checkEnvironment = async () => {
-    const Constants = await getConstants();
-    setIsExpoGo(Constants?.appOwnership === 'expo');
-    
+    try {
+      const Constants = await import('expo-constants');
+      setIsExpoGo(Constants.default.appOwnership === 'expo');
+    } catch {
+      setIsExpoGo(false);
+    }
+
     if (!isExpoGo) {
-      const BarCodeScannerModule = await getBarCodeScanner();
-      setBarCodeScanner(BarCodeScannerModule);
-      
-      if (BarCodeScannerModule) {
-        const { status } = await BarCodeScannerModule.requestPermissionsAsync();
-        setHasPermission(status === 'granted');
-      } else {
-        setHasPermission(false);
-      }
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      setHasPermission(status === 'granted');
     } else {
       setHasPermission(false);
     }
@@ -110,17 +86,6 @@ export default function LoyaltyScannerScreen() {
     );
   }
 
-  if (!BarCodeScanner) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.expoGoNotice}>
-          <Ionicons name="warning" size={24} color="#c9a227" style={{ marginBottom: 12 }} />
-          <Text style={styles.expoGoNoticeText}>Barcode scanner module not available</Text>
-        </View>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -129,8 +94,11 @@ export default function LoyaltyScannerScreen() {
       </View>
 
       <View style={styles.scannerContainer}>
-        <BarCodeScanner
-          onBarCodeScanned={handleBarCodeScanned}
+        <CameraView
+          onBarcodeScanned={handleBarCodeScanned}
+          barcodeScannerSettings={{
+            barcodeTypes: ['qr', 'pdf417', 'ean13', 'ean8', 'code128', 'code39', 'code93', 'aztec', 'datamatrix'],
+          }}
           style={StyleSheet.absoluteFillObject}
         />
         <View style={styles.overlay}>

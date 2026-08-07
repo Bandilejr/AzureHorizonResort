@@ -12,8 +12,6 @@ const STAFF_TABS_CONFIG = {
   'damage-resolution': { title: 'Damages', icon: 'alert' },
   'live-complaints': { title: 'Live Complaints', icon: 'warning' },
   'refund-management': { title: 'Refunds', icon: 'cash' },
-  'kitchen-orders': { title: 'Kitchen', icon: 'restaurant' },
-  'room-service': { title: 'Housekeeping', icon: 'bed' },
 };
 
 export default function StaffLayout() {
@@ -35,8 +33,6 @@ export default function StaffLayout() {
   if (permissions.includes('damage_resolution')) availableTabs.push('damage-resolution');
   if (permissions.includes('live_complaints')) availableTabs.push('live-complaints');
   if (permissions.includes('refund_approve')) availableTabs.push('refund-management');
-  if (permissions.includes('kitchen_orders')) availableTabs.push('kitchen-orders');
-  if (permissions.includes('room_service')) availableTabs.push('room-service');
 
   return (
     <Tabs

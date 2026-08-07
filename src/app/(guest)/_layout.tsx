@@ -1,7 +1,11 @@
 import { Tabs } from 'expo-router';
+import { View, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '@/context/AuthContext';
 
 export default function GuestLayout() {
+  const { isGuest } = useAuth();
+
   return (
     <Tabs
       screenOptions={({ route }) => {
@@ -27,15 +31,16 @@ export default function GuestLayout() {
               loyalty: 'Rewards',
               profile: 'Profile',
             };
-            return labels[route.name] || route.name;
+            return <Text style={{ fontSize: 11, fontWeight: '600' }}>{labels[route.name] || route.name}</Text>;
           },
         };
       }}
       tabBarOptions={{
         activeTintColor: '#c9a227',
         inactiveTintColor: '#94a3b8',
-        style: { backgroundColor: '#fff', elevation: 8 },
+        style: { backgroundColor: '#fff', elevation: 8, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
         labelStyle: { fontSize: 11, fontWeight: '600' },
+        indicatorStyle: { backgroundColor: '#c9a227', height: 3 },
       }}
     >
       <Tabs.Screen name="index" />

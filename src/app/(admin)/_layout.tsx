@@ -7,7 +7,6 @@ export default function AdminLayout() {
       screenOptions={({ route }) => {
         const icons: Record<string, string> = {
           'refund-management': 'cash',
-          reports: 'bar-chart',
         };
         return {
           headerShown: false,
@@ -17,7 +16,6 @@ export default function AdminLayout() {
           tabBarLabel: ({ focused }) => {
             const labels: Record<string, string> = {
               'refund-management': 'Refunds',
-              reports: 'Reports',
             };
             return labels[route.name] || route.name;
           },
@@ -31,7 +29,6 @@ export default function AdminLayout() {
       }}
     >
       <Tabs.Screen name="refund-management" />
-      <Tabs.Screen name="reports" />
     </Tabs>
   );
 }

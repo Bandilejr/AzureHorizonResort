@@ -1,0 +1,96 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.apk
+*.aab
+*.ipa
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+.nyc_output/
+
+# Cache
+.cache/
+.eslintcache
+*.tsbuildinfo
+
+# Expo
+.expo/
+.expo-shared/
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# IDE configs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# TypeScript
+*.tsbuildinfo
+
+# Functions
+functions/node_modules/
+functions/lib/
+
+# Assets that are too large (optional - review these)
+assets/images/rooms/
+assets/images/venues/
+assets/images/catering/
+assets/images/food/
+
+# Large documentation
+docs/
+documentation/
+
+# Test files
+__tests__/
+ tests/
+
+# Type definitions
+*.d.ts
+
+# Source maps
+*.map
+
+# Expo artifacts
+.expo/
+.expo-shared/
+
+# Git
+.git/
+.gitignore
+
+# Expo Dev Client
+expo-dev-client/

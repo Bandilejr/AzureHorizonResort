@@ -12,7 +12,8 @@ import {
   updateDoc,
   deleteDoc,
   serverTimestamp,
-  Timestamp
+  Timestamp,
+  setDoc
 } from 'firebase/firestore';
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -157,16 +158,55 @@ export const loginMobileUser = async (email: string, password: string) => {
     // Prefer UID lookup because the Firestore user document may not be keyed by email.
     const uidProfile = await findUserProfileByUid(user.uid);
     if (uidProfile) {
+      // Update last login time
+      await updateDoc(doc(db, 'users', uidProfile.id), { 
+        lastLoginAt: serverTimestamp(),
+        displayName: user.displayName || uidProfile.displayName,
+        photoURL: user.photoURL || uidProfile.photoURL,
+      });
       return { uid: user.uid, ...uidProfile };
     }
     
     // Fallback to email lookup
     const emailProfile = user.email ? await findUserProfileByEmail(user.email) : null;
     if (emailProfile) {
+      // Update the document with the UID if it was keyed by email
+      await updateDoc(doc(db, 'users', emailProfile.id), { 
+        uid: user.uid,
+        lastLoginAt: serverTimestamp(),
+        displayName: user.displayName || emailProfile.displayName,
+        photoURL: user.photoURL || emailProfile.photoURL,
+      });
       return { uid: user.uid, ...emailProfile };
     }
     
-    throw new Error("User profile not found in database.");
+    // Create a new user profile if it doesn't exist
+    console.log('Creating new user profile for:', user.uid);
+    const newProfile = {
+      uid: user.uid,
+      email: user.email,
+      displayName: user.displayName || 'Guest',
+      role: 'guest',
+      subRole: null,
+      loyaltyPoints: 0,
+      loyaltyTier: 'bronze',
+      phoneNumber: user.phoneNumber || '',
+      photoURL: user.photoURL || '',
+      roomNumber: 'N/A',
+      status: 'guest',
+      preferences: {
+        language: 'en',
+        notifications: true,
+      },
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      lastLoginAt: serverTimestamp(),
+    };
+    
+    const userRef = doc(db, 'users', user.uid);
+    await setDoc(userRef, newProfile);
+    
+    return { uid: user.uid, ...newProfile };
   } catch (error: any) {
     console.error("Login Error:", error.message);
     throw error;

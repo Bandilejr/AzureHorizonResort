@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView, SafeAreaView } from 'react-native';
 import { useRouter } from 'expo-router';
-import { loginMobileUser, logoutMobileUser } from '@/services/firebase-services';
+import { loginMobileUser } from '@/services/firebase-services';
 import { useColorScheme } from 'react-native';
 import { getTheme } from '@/constants/theme';
 
-export default function LoginScreen() {
+export default function StaffLoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -13,7 +13,7 @@ export default function LoginScreen() {
   const colorScheme = useColorScheme();
   const theme = getTheme(colorScheme as any);
 
-  const handleLogin = async () => {
+  const handleStaffLogin = async () => {
     if (!email || !password) {
       Alert.alert('Error', 'Please enter both email and password.');
       return;
@@ -36,31 +36,22 @@ export default function LoginScreen() {
     }
   };
 
-  const handleExploreResort = async () => {
-    try {
-      await logoutMobileUser();
-    } catch (error) {
-      console.error("Error clearing cached session:", error);
-    }
-    router.replace('/(guest)');
-  };
-
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <ScrollView 
+      <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={[styles.title, { color: theme.colors.text }]}>Azure Horizon</Text>
-        <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Sign In to Your Stay</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>Staff & Admin Access</Text>
+        <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Sign in to manage resort operations</Text>
 
         <TextInput
-          style={[styles.input, { 
+          style={[styles.input, {
             backgroundColor: theme.colors.surface,
             borderColor: theme.colors.border,
             color: theme.colors.text
           }]}
-          placeholder="Email Address"
+          placeholder="Work Email Address"
           placeholderTextColor={theme.colors.textMuted}
           value={email}
           onChangeText={setEmail}
@@ -69,7 +60,7 @@ export default function LoginScreen() {
         />
 
         <TextInput
-          style={[styles.input, { 
+          style={[styles.input, {
             backgroundColor: theme.colors.surface,
             borderColor: theme.colors.border,
             color: theme.colors.text
@@ -81,16 +72,12 @@ export default function LoginScreen() {
           secureTextEntry
         />
 
-        <TouchableOpacity style={[styles.button, { backgroundColor: theme.colors.primary }]} onPress={handleLogin} disabled={loading}>
+        <TouchableOpacity style={[styles.button, { backgroundColor: theme.colors.primary }]} onPress={handleStaffLogin} disabled={loading}>
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
             <Text style={styles.buttonText}>Sign In</Text>
           )}
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.visitorButton} onPress={handleExploreResort} disabled={loading}>
-          <Text style={[styles.visitorButtonText, { color: theme.colors.secondary }]}>Explore Resort as Visitor</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
@@ -112,13 +99,15 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   title: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
     marginBottom: 8,
+    textAlign: 'center',
   },
   subtitle: {
     fontSize: 16,
     marginBottom: 32,
+    textAlign: 'center',
   },
   input: {
     width: '100%',
@@ -140,20 +129,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
-  },
-  visitorButton: {
-    width: '100%',
-    height: 50,
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 12,
-  },
-  visitorButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
   },
   backButton: {
     marginTop: 24,
