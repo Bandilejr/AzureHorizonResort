@@ -7,15 +7,17 @@ import {
   TouchableOpacity, 
   Image,
   Modal,
-  Alert,
   ActivityIndicator,
+  SafeAreaView,
   ScrollView,
-  SafeAreaView
+  useColorScheme
 } from 'react-native';
-import { router } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useColorScheme } from 'react-native';
 import { getTheme } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
+import { auth } from '../../services/firebase-services';
+import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 
 interface Room {
   id: string;
@@ -25,115 +27,176 @@ interface Room {
   capacity: number;
   description: string;
   amenities: string[];
+  imageUrl: string;
+  galleryUrls: string[];
 }
 
-const formatDate = (date: Date) => {
-  return date.toLocaleDateString('en-ZA', { weekday: 'short', month: 'short', day: 'numeric' });
-};
-
-const generateDateArray = (startDate: Date, count: number) => {
-  return Array.from({ length: count }).map((_, i) => {
-    const d = new Date(startDate);
-    d.setDate(d.getDate() + i);
-    return d;
-  });
-};
+const SUITE_DATA: Room[] = [
+  {
+    id: '1',
+    name: 'Oceanfront Sunset Suite',
+    type: 'Deluxe Suite',
+    price: 349,
+    capacity: 2,
+    description: 'Breathtaking panoramic views of the Atlantic ocean with private balcony, king canopy bed, and freestanding marble bathtub.',
+    amenities: ['Private Balcony', 'Ocean View', 'Free High-Speed WiFi', 'Complimentary Breakfast', 'Mini Bar'],
+    imageUrl: 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=800&q=80',
+    galleryUrls: [
+      'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1618773928121-c32242e63f39?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1590490360182-c33d57733427?auto=format&fit=crop&w=800&q=80',
+    ],
+  },
+  {
+    id: '2',
+    name: 'Royal Palm Garden Villa',
+    type: 'Private Villa',
+    price: 520,
+    capacity: 4,
+    description: 'Secluded luxury villa surrounded by lush tropical gardens, features a private heated plunge pool and personal butler service.',
+    amenities: ['Private Plunge Pool', 'Personal Butler', 'Private Garden', 'Espresso Machine', 'Spa Rain Shower'],
+    imageUrl: 'https://images.unsplash.com/photo-1591088398332-8a7791972843?auto=format&fit=crop&w=800&q=80',
+    galleryUrls: [
+      'https://images.unsplash.com/photo-1591088398332-8a7791972843?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=800&q=80',
+    ],
+  },
+  {
+    id: '3',
+    name: 'Presidential Sky Penthouse',
+    type: 'Penthouse',
+    price: 950,
+    capacity: 6,
+    description: 'The pinnacle of resort living. 300sqm rooftop penthouse featuring 360-degree coast views, private infinity jacuzzi, and wine cellar.',
+    amenities: ['Rooftop Jacuzzi', 'Wine Cellar', '360° Coast View', '24/7 Concierge', 'Helipad Access'],
+    imageUrl: 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?auto=format&fit=crop&w=800&q=80',
+    galleryUrls: [
+      'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1566665797739-1674de7a421a?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=800&q=80',
+    ],
+  },
+  {
+    id: '4',
+    name: 'Coral Reef Family Suite',
+    type: 'Executive Family',
+    price: 430,
+    capacity: 5,
+    description: 'Spacious interconnecting suite designed for families, steps away from the main resort infinity pool and kids lounge.',
+    amenities: ['Direct Pool Access', '2 Master Bedrooms', 'Kids Lounge Access', 'Kitchenette', 'Gaming Console'],
+    imageUrl: 'https://images.unsplash.com/photo-1578683010236-d716f9a3f461?auto=format&fit=crop&w=800&q=80',
+    galleryUrls: [
+      'https://images.unsplash.com/photo-1578683010236-d716f9a3f461?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?auto=format&fit=crop&w=800&q=80',
+    ],
+  },
+];
 
 export default function RoomGalleryScreen() {
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  
+  const router = useRouter();
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
+  const styles = createStyles(theme);
+
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [showGalleryModal, setShowGalleryModal] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
-  const [showBookingModal, setShowBookingModal] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [guests, setGuests] = useState<number>(1);
-  
-  const today = new Date();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1); 
-  
-  const [checkInDate, setCheckInDate] = useState<Date>(tomorrow);
-  const [checkOutDate, setCheckOutDate] = useState<Date>(() => {
-    const d = new Date(tomorrow);
-    d.setDate(d.getDate() + 3); 
-    return d;
+  const [alertConfig, setAlertConfig] = useState<AlertConfig>({
+    visible: false,
+    title: '',
+    message: '',
   });
 
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-
-  useEffect(() => {
-    const simulateRooms = async () => {
-      await new Promise(r => setTimeout(r, 1000));
-      setRooms([
-        { id: '1', name: 'Ocean Suite', type: 'Deluxe', price: 299, capacity: 2, description: 'Stunning ocean views', amenities: ['Pool', 'WiFi'] },
-        { id: '2', name: 'Garden Villa', type: 'Premium', price: 399, capacity: 4, description: 'Private garden access', amenities: ['Garden', 'WiFi'] },
-        { id: '3', name: 'Presidential Suite', type: 'Luxury', price: 899, capacity: 6, description: 'Ultimate luxury experience', amenities: ['Terrace', 'WiFi', 'Spa'] },
-      ]);
-      setIsLoading(false);
-    };
-    simulateRooms();
-  }, []);
+  const showAlert = (config: Omit<AlertConfig, 'visible'>) => {
+    setAlertConfig({ ...config, visible: true });
+  };
 
   const openGallery = (room: Room) => {
     setSelectedRoom(room);
+    setCurrentImageIndex(0);
     setShowGalleryModal(true);
   };
 
-  const handleProceedToPayment = () => {
-    if (!selectedRoom) return;
-    setShowBookingModal(false);
-    Alert.alert("Booking", `Room ${selectedRoom.name} selected!`);
+  const { profile } = useAuth();
+  const user = auth.currentUser;
+  const isVisitor = !user || profile?.status === 'visitor';
+
+  const handleSelectRoom = (room: Room) => {
+    if (isVisitor) {
+      showAlert({
+        title: '🔒 Resident Sign-In Required',
+        message: 'Please sign in to your room stay account to complete suite reservations and room bookings.',
+        type: 'warning',
+        confirmText: 'Sign In Now',
+        cancelText: 'Cancel',
+        onConfirm: () => {
+          router.push('/login');
+        },
+      });
+      return;
+    }
+
+    showAlert({
+      title: `Reserve ${room.name}`,
+      message: `Nightly Rate: R${room.price}/night\nMax Capacity: ${room.capacity} Guests\n\nWould you like to proceed to room reservation booking?`,
+      type: 'info',
+      confirmText: 'Proceed to Book',
+      cancelText: 'Cancel',
+      onConfirm: () => {
+        router.push('/(guest)/reservations' as any);
+      },
+    });
   };
 
-  if (isLoading) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </SafeAreaView>
-    );
-  }
-
-  const nightsCount = 3;
-
   const renderRoomItem = ({ item: room }: { item: Room }) => (
-    <View style={[styles.card, { backgroundColor: theme.colors.surface }]}>
+    <View style={styles.card}>
       <TouchableOpacity 
         activeOpacity={0.9} 
         onPress={() => openGallery(room)}
         style={styles.imageContainer}
       >
-        <View style={[styles.cardImage, { backgroundColor: theme.colors.surfaceVariant }]} />
+        <Image source={{ uri: room.imageUrl }} style={styles.cardImage} resizeMode="cover" />
         <View style={styles.priceBadge}>
           <Text style={styles.priceBadgeText}>R {room.price} / night</Text>
+        </View>
+        <View style={styles.photoCountBadge}>
+          <Ionicons name="images-outline" size={14} color="#ffffff" />
+          <Text style={styles.photoCountText}>{room.galleryUrls.length} Photos</Text>
         </View>
       </TouchableOpacity>
 
       <View style={styles.cardBody}>
-        <Text style={[styles.roomName, { color: theme.colors.text }]}>{room.name}</Text>
-        <Text style={[styles.roomCapacity, { color: theme.colors.textSecondary }]}>Up to {room.capacity} Guests</Text>
-        <Text style={[styles.roomDesc, { color: theme.colors.textMuted }]} numberOfLines={2}>{room.description}</Text>
+        <View style={styles.typeBadge}>
+          <Text style={styles.typeBadgeText}>{room.type}</Text>
+        </View>
+        <Text style={styles.roomName}>{room.name}</Text>
+        <Text style={styles.roomCapacity}>Up to {room.capacity} Guests · Premium Oceanfront</Text>
+        <Text style={styles.roomDesc} numberOfLines={2}>{room.description}</Text>
+
+        <View style={styles.amenityRow}>
+          {room.amenities.slice(0, 3).map((am, i) => (
+            <View key={i} style={styles.amenityPill}>
+              <Text style={styles.amenityText}>{am}</Text>
+            </View>
+          ))}
+        </View>
 
         <View style={styles.cardFooter}>
           <TouchableOpacity 
-            style={[styles.galleryBtn, { backgroundColor: theme.colors.surfaceVariant }]} 
+            style={styles.galleryBtn} 
             onPress={() => openGallery(room)}
           >
-            <Ionicons name="eye-outline" size={16} color={theme.colors.secondary} />
-            <Text style={[styles.galleryBtnText, { color: theme.colors.secondary }]}>View Photos</Text>
+            <Ionicons name="eye-outline" size={16} color="#c9a227" />
+            <Text style={styles.galleryBtnText}>Photo Tour</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
-            style={[styles.bookBtn, { backgroundColor: theme.colors.primary }]} 
-            onPress={() => {
-              setSelectedRoom(room);
-              setShowBookingModal(true);
-            }}
+            style={styles.bookBtn} 
+            onPress={() => handleSelectRoom(room)}
           >
-            <Text style={styles.bookBtnText}>Select</Text>
+            <Text style={styles.bookBtnText}>Reserve Suite</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -141,90 +204,116 @@ export default function RoomGalleryScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.headerRow}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
         </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Suites Collection</Text>
-          <Text style={[styles.headerSubtitle, { color: theme.colors.textSecondary }]}>Select Your Sanctuary</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>Suites & Villa Gallery</Text>
+          <Text style={styles.subtitle}>Explore oceanfront luxury accommodations</Text>
         </View>
       </View>
 
       <FlatList
-        data={rooms}
+        data={SUITE_DATA}
         keyExtractor={(item) => item.id}
         renderItem={renderRoomItem}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
       />
+
+      {/* FULLSCREEN PHOTO GALLERY MODAL */}
+      <Modal visible={showGalleryModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalHeader}>
+            <View>
+              <Text style={styles.modalTitle}>{selectedRoom?.name}</Text>
+              <Text style={styles.modalSubtitle}>Photo {currentImageIndex + 1} of {selectedRoom?.galleryUrls.length || 1}</Text>
+            </View>
+            <TouchableOpacity onPress={() => setShowGalleryModal(false)} style={styles.closeModalBtn}>
+              <Ionicons name="close" size={24} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+
+          {selectedRoom && (
+            <View style={styles.modalBody}>
+              <Image
+                source={{ uri: selectedRoom.galleryUrls[currentImageIndex] }}
+                style={styles.modalImage}
+                resizeMode="cover"
+              />
+
+              <View style={styles.thumbnailRow}>
+                {selectedRoom.galleryUrls.map((url, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    onPress={() => setCurrentImageIndex(index)}
+                    style={[styles.thumbnailWrap, currentImageIndex === index && styles.thumbnailWrapActive]}
+                  >
+                    <Image source={{ uri: url }} style={styles.thumbnailImage} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+        </View>
+      </Modal>
+
+      <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    justifyContent: 'space-between', 
-    paddingTop: 60, 
-    paddingHorizontal: 20, 
-    paddingBottom: 16, 
-    borderBottomWidth: 1 
-  },
-  backButton: { padding: 4, marginLeft: -8 },
-  headerCenter: { alignItems: 'center' },
-  headerTitle: { fontSize: 20, fontWeight: 'bold' },
-  headerSubtitle: { fontSize: 12 },
-  scrollContent: { padding: 16, paddingBottom: 40 },
-  card: { 
-    backgroundColor: '#ffffff', 
-    borderRadius: 20, 
-    overflow: 'hidden', 
-    marginBottom: 20, 
-    shadowColor: '#000', 
-    shadowOffset: { width: 0, height: 4 }, 
-    shadowOpacity: 0.08, 
-    shadowRadius: 10, 
-    elevation: 4 
-  },
-  imageContainer: { height: 200, position: 'relative' },
-  cardImage: { width: '100%', height: '100%', resizeMode: 'cover' },
-  priceBadge: { 
-    position: 'absolute', 
-    top: 12, 
-    left: 12, 
-    backgroundColor: '#1e3a5f', 
-    paddingHorizontal: 12, 
-    paddingVertical: 6, 
-    borderRadius: 8 
-  },
-  priceBadgeText: { color: '#fff', fontWeight: 'bold', fontSize: 13 },
-  cardBody: { padding: 20 },
-  roomName: { fontSize: 20, fontWeight: 'bold', marginBottom: 4 },
-  roomCapacity: { fontSize: 13, fontWeight: '600', marginBottom: 8 },
-  roomDesc: { fontSize: 14, lineHeight: 20, marginBottom: 16 },
-  cardFooter: { flexDirection: 'row', gap: 12 },
-  galleryBtn: { 
-    flex: 1, 
-    backgroundColor: '#f1f5f9', 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    paddingVertical: 12, 
-    borderRadius: 10, 
-    gap: 6 
-  },
-  galleryBtnText: { fontWeight: 'bold', fontSize: 13 },
-  bookBtn: { 
-    flex: 1, 
-    backgroundColor: '#c9a227', 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    paddingVertical: 12, 
-    borderRadius: 10 
-  },
-  bookBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 13 },
-});
+const createStyles = (theme: any) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.colors.background },
+    headerRow: { flexDirection: 'row', alignItems: 'center', paddingTop: 56, paddingHorizontal: 20, paddingBottom: 16, gap: 12 },
+    backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center' },
+    title: { fontSize: 22, fontWeight: '800', color: theme.colors.text },
+    subtitle: { fontSize: 13, color: theme.colors.textSecondary, marginTop: 2 },
+
+    listContent: { padding: 20, paddingTop: 10, paddingBottom: 40 },
+    card: { backgroundColor: theme.colors.surface, borderRadius: 24, marginBottom: 20, overflow: 'hidden', borderWidth: 1, borderColor: theme.colors.border, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 },
+    imageContainer: { height: 220, width: '100%', position: 'relative' },
+    cardImage: { width: '100%', height: '100%' },
+
+    priceBadge: { position: 'absolute', top: 14, right: 14, backgroundColor: '#0f172a', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#c9a227' },
+    priceBadgeText: { color: '#c9a227', fontWeight: '900', fontSize: 13 },
+
+    photoCountBadge: { position: 'absolute', bottom: 14, left: 14, backgroundColor: 'rgba(15, 23, 42, 0.75)', flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+    photoCountText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
+
+    cardBody: { padding: 20 },
+    typeBadge: { alignSelf: 'flex-start', backgroundColor: theme.colors.primaryLight, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginBottom: 8 },
+    typeBadgeText: { color: theme.colors.primary, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
+
+    roomName: { fontSize: 20, fontWeight: '800', color: theme.colors.text },
+    roomCapacity: { fontSize: 13, color: theme.colors.textSecondary, marginTop: 2, fontWeight: '600' },
+    roomDesc: { fontSize: 13, color: theme.colors.textMuted, marginTop: 8, lineHeight: 18 },
+
+    amenityRow: { flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap' },
+    amenityPill: { backgroundColor: theme.colors.surfaceVariant, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+    amenityText: { fontSize: 11, color: theme.colors.textSecondary, fontWeight: '600' },
+
+    cardFooter: { flexDirection: 'row', gap: 10, marginTop: 20 },
+    galleryBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: '#c9a227', borderRadius: 14, paddingVertical: 12 },
+    galleryBtnText: { color: '#c9a227', fontWeight: '800', fontSize: 13 },
+    bookBtn: { flex: 1, backgroundColor: '#c9a227', alignItems: 'center', justifyContent: 'center', borderRadius: 14, paddingVertical: 12 },
+    bookBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 14 },
+
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.95)', padding: 20, paddingTop: 50, justifyContent: 'space-between' },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    modalTitle: { color: '#ffffff', fontSize: 20, fontWeight: '800' },
+    modalSubtitle: { color: '#94a3b8', fontSize: 12, marginTop: 2 },
+    closeModalBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' },
+
+    modalBody: { flex: 1, justifyContent: 'center', alignItems: 'center', marginVertical: 20 },
+    modalImage: { width: '100%', height: 320, borderRadius: 20, marginBottom: 20 },
+
+    thumbnailRow: { flexDirection: 'row', gap: 10, justifyContent: 'center' },
+    thumbnailWrap: { width: 70, height: 50, borderRadius: 10, overflow: 'hidden', borderWidth: 2, borderColor: 'transparent' },
+    thumbnailWrapActive: { borderColor: '#c9a227' },
+    thumbnailImage: { width: '100%', height: '100%' },
+  });

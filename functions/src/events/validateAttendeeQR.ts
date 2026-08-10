@@ -9,14 +9,14 @@ const INVITATION_SIGNING_KEY = process.env.INVITATION_SIGNING_KEY || "";
  * Validates an attendee QR code at event check-in.
  * Called by staff scanner app.
  */
-export const validateAttendeeQR = functions.https.onCall(async (data, context) => {
+export const validateAttendeeQR = functions.region("europe-west1").https.onCall(async (data, context) => {
   // Staff must be authenticated
-  if (!context.auth) {
+  if (!context.auth?.token?.email) {
     throw new functions.https.HttpsError("unauthenticated", "Staff must be authenticated");
   }
 
   // Verify staff role
-  const staffRef = db.collection("users").doc(context.auth.uid);
+  const staffRef = db.collection("users").doc(context.auth.token.email);
   const staffSnap = await staffRef.get();
 
   if (!staffSnap.exists) {

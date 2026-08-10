@@ -7,13 +7,13 @@ const db = admin.firestore();
  * Processes a refund request after validation.
  * Called by admin/financial admin after reviewing claim.
  */
-export const processRefund = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
+export const processRefund = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth?.token?.email) {
     throw new functions.https.HttpsError("unauthenticated", "User must be authenticated");
   }
 
   // Verify user is admin or event_manager
-  const userRef = db.collection("users").doc(context.auth.uid);
+  const userRef = db.collection("users").doc(context.auth.token.email);
   const userSnap = await userRef.get();
 
   if (!userSnap.exists) {

@@ -9,10 +9,12 @@ import {
   ActivityIndicator,
   Image,
   Modal,
-  Alert
+  Alert,
+  useColorScheme
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { getTheme } from '@/constants/theme';
 
 // Firebase Imports
 import { auth, db, rtdb } from '../../services/firebase-services';
@@ -95,6 +97,10 @@ export default function DiningScreen() {
   const [activeReservation, setActiveReservation] = useState<any>(null);
 
   const user = auth.currentUser;
+
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
+  const styles = createStyles(theme);
   
   useEffect(() => {
     // 1. Fetch Menu from RTDB
@@ -235,7 +241,7 @@ export default function DiningScreen() {
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#c9a227" />
+        <ActivityIndicator size="large" color={theme.colors.primary} />
         <Text style={styles.loadingText}>Loading Menu...</Text>
       </View>
     );
@@ -247,14 +253,14 @@ export default function DiningScreen() {
       {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={28} color="#1e3a5f" />
+          <Ionicons name="chevron-back" size={28} color={theme.colors.secondary} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>The Ocean Grill</Text>
           <Text style={styles.headerSubtitle}>Fine Dining & Room Service</Text>
         </View>
         <TouchableOpacity style={styles.cartIconContainer} onPress={() => setShowCart(true)}>
-          <Ionicons name="cart-outline" size={26} color="#1e3a5f" />
+          <Ionicons name="cart-outline" size={26} color={theme.colors.secondary} />
           {cart.length > 0 && (
             <View style={styles.cartBadge}>
               <Text style={styles.cartBadgeText}>{cart.reduce((a, b) => a + b.quantity, 0)}</Text>
@@ -280,7 +286,7 @@ export default function DiningScreen() {
               <Ionicons 
                 name={type.icon as any} 
                 size={18} 
-                color={orderType === type.id ? '#fff' : '#64748b'} 
+                color={orderType === type.id ? theme.colors.textInverse : theme.colors.textMuted} 
               />
               <Text style={[styles.typeButtonText, orderType === type.id && styles.typeButtonTextActive]}>
                 {type.label}
@@ -293,7 +299,7 @@ export default function DiningScreen() {
         {hasActiveReservation && activeReservation && (
           <View style={styles.reservationWidget}>
             <View style={styles.reservationIcon}>
-              <Ionicons name="checkmark-circle" size={24} color="#10b981" />
+              <Ionicons name="checkmark-circle" size={24} color={theme.colors.success} />
             </View>
             <View style={styles.reservationInfo}>
               <Text style={styles.reservationTitle}>Table Reserved</Text>
@@ -353,7 +359,7 @@ export default function DiningScreen() {
                       <View style={styles.menuFooter}>
                         <Text style={styles.menuPrice}>R {item.price}</Text>
                         <TouchableOpacity style={styles.addButton} onPress={() => addToCart(item)}>
-                          <Ionicons name="add" size={20} color="#fff" />
+                          <Ionicons name="add" size={20} color={theme.colors.textInverse} />
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -372,7 +378,7 @@ export default function DiningScreen() {
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>Your Order</Text>
               <TouchableOpacity onPress={() => setShowCart(false)}>
-                <Ionicons name="close-circle" size={28} color="#94a3b8" />
+                <Ionicons name="close-circle" size={28} color={theme.colors.textMuted} />
               </TouchableOpacity>
             </View>
             
@@ -388,11 +394,11 @@ export default function DiningScreen() {
                     </View>
                     <View style={styles.quantityControls}>
                       <TouchableOpacity onPress={() => updateQuantity(item.id, -1)} style={styles.qtyBtn}>
-                        <Ionicons name="remove" size={18} color="#1e3a5f" />
-                      </TouchableOpacity>
-                      <Text style={styles.qtyText}>{item.quantity}</Text>
-                      <TouchableOpacity onPress={() => updateQuantity(item.id, 1)} style={styles.qtyBtn}>
-                        <Ionicons name="add" size={18} color="#1e3a5f" />
+<Ionicons name="remove" size={18} color={theme.colors.secondary} />
+                        </TouchableOpacity>
+                        <Text style={styles.qtyText}>{item.quantity}</Text>
+                        <TouchableOpacity onPress={() => updateQuantity(item.id, 1)} style={styles.qtyBtn}>
+                          <Ionicons name="add" size={18} color={theme.colors.secondary} />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -421,7 +427,7 @@ export default function DiningScreen() {
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? (
-                    <ActivityIndicator color="#fff" />
+                    <ActivityIndicator color={theme.colors.textInverse} />
                   ) : (
                     <Text style={styles.checkoutButtonText}>
                       {orderType === 'dine_in' && !hasActiveReservation ? 'Reserve Table to Continue' : 'Confirm Order'}
@@ -444,6 +450,7 @@ export default function DiningScreen() {
             <TextInput 
               style={styles.input} 
               placeholder="e.g. 2026-10-15"
+              placeholderTextColor={theme.colors.textMuted}
               value={tableReservation.date}
               onChangeText={(t) => setTableReservation({...tableReservation, date: t})}
             />
@@ -452,6 +459,7 @@ export default function DiningScreen() {
             <TextInput 
               style={styles.input} 
               placeholder="17:00 - 22:00"
+              placeholderTextColor={theme.colors.textMuted}
               value={tableReservation.time}
               onChangeText={(t) => setTableReservation({...tableReservation, time: t})}
             />
@@ -460,6 +468,7 @@ export default function DiningScreen() {
             <TextInput 
               style={styles.input} 
               keyboardType="number-pad"
+              placeholderTextColor={theme.colors.textMuted}
               value={tableReservation.partySize.toString()}
               onChangeText={(t) => setTableReservation({...tableReservation, partySize: parseInt(t) || 1})}
             />
@@ -469,7 +478,7 @@ export default function DiningScreen() {
                 <Text style={styles.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.confirmBtn} onPress={handleBookTable}>
-                {isSubmitting ? <ActivityIndicator color="#fff"/> : <Text style={styles.confirmBtnText}>Book Now</Text>}
+                {isSubmitting ? <ActivityIndicator color={theme.colors.textInverse}/> : <Text style={styles.confirmBtnText}>Book Now</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -480,7 +489,7 @@ export default function DiningScreen() {
       <Modal visible={showOrderSuccess} animationType="fade" transparent>
         <View style={styles.modalOverlayCenter}>
           <View style={styles.successModal}>
-            <Ionicons name="checkmark-circle" size={60} color="#10b981" />
+            <Ionicons name="checkmark-circle" size={60} color={theme.colors.success} />
             <Text style={styles.successTitle}>Order Sent to Kitchen!</Text>
             <Text style={styles.successText}>
               Your {orderType.replace('_', ' ')} order is being prepared. 
@@ -497,20 +506,20 @@ export default function DiningScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.colors.background,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.colors.background,
   },
   loadingText: {
     marginTop: 12,
-    color: '#64748b',
+    color: theme.colors.textMuted,
   },
   header: {
     flexDirection: 'row',
@@ -519,9 +528,9 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingHorizontal: 20,
     paddingBottom: 16,
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: theme.colors.border,
   },
   backButton: {
     padding: 4,
@@ -533,11 +542,11 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
   },
   headerSubtitle: {
     fontSize: 12,
-    color: '#64748b',
+    color: theme.colors.textMuted,
   },
   cartIconContainer: {
     position: 'relative',
@@ -547,7 +556,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     right: 0,
-    backgroundColor: '#c9a227',
+    backgroundColor: theme.colors.primary,
     borderRadius: 10,
     minWidth: 18,
     height: 18,
@@ -555,7 +564,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cartBadgeText: {
-    color: '#fff',
+    color: theme.colors.textInverse,
     fontSize: 10,
     fontWeight: 'bold',
   },
@@ -564,7 +573,7 @@ const styles = StyleSheet.create({
   },
   orderTypeContainer: {
     flexDirection: 'row',
-    backgroundColor: '#e2e8f0',
+    backgroundColor: theme.colors.border,
     margin: 16,
     borderRadius: 12,
     padding: 4,
@@ -579,7 +588,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   typeButtonActive: {
-    backgroundColor: '#1e3a5f',
+    backgroundColor: theme.colors.secondary,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -589,21 +598,21 @@ const styles = StyleSheet.create({
   typeButtonText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#64748b',
+    color: theme.colors.textMuted,
   },
   typeButtonTextActive: {
-    color: '#fff',
+    color: theme.colors.textInverse,
   },
   reservationWidget: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ecfdf5',
+    backgroundColor: theme.colors.successLight,
     marginHorizontal: 16,
     marginBottom: 16,
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#a7f3d0',
+    borderColor: theme.colors.success,
   },
   reservationIcon: {
     marginRight: 12,
@@ -612,12 +621,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   reservationTitle: {
-    color: '#065f46',
+    color: theme.colors.success,
     fontWeight: 'bold',
     fontSize: 14,
   },
   reservationDetails: {
-    color: '#059669',
+    color: theme.colors.success,
     fontSize: 12,
     marginTop: 2,
   },
@@ -628,23 +637,23 @@ const styles = StyleSheet.create({
   filterPill: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     borderRadius: 20,
     marginRight: 8,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.colors.border,
   },
   filterPillActive: {
-    backgroundColor: '#1e3a5f',
-    borderColor: '#1e3a5f',
+    backgroundColor: theme.colors.secondary,
+    borderColor: theme.colors.secondary,
   },
   filterText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#64748b',
+    color: theme.colors.textMuted,
   },
   filterTextActive: {
-    color: '#fff',
+    color: theme.colors.textInverse,
   },
   categorySection: {
     marginBottom: 24,
@@ -653,13 +662,13 @@ const styles = StyleSheet.create({
   categoryTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
     marginBottom: 12,
     textTransform: 'capitalize',
   },
   menuCard: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     borderRadius: 16,
     marginBottom: 12,
     overflow: 'hidden',
@@ -672,7 +681,7 @@ const styles = StyleSheet.create({
   menuImage: {
     width: 100,
     height: '100%',
-    backgroundColor: '#e2e8f0',
+    backgroundColor: theme.colors.border,
   },
   menuDetails: {
     flex: 1,
@@ -681,7 +690,7 @@ const styles = StyleSheet.create({
   menuName: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#0f172a',
+    color: theme.colors.text,
     marginBottom: 4,
   },
   tagsContainer: {
@@ -691,20 +700,20 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   tagBadge: {
-    backgroundColor: '#f0fdf4',
+    backgroundColor: theme.colors.surfaceVariant,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
   tagText: {
     fontSize: 10,
-    color: '#166534',
+    color: theme.colors.success,
     fontWeight: 'bold',
     textTransform: 'uppercase',
   },
   menuDesc: {
     fontSize: 12,
-    color: '#64748b',
+    color: theme.colors.textMuted,
     marginBottom: 12,
   },
   menuFooter: {
@@ -716,10 +725,10 @@ const styles = StyleSheet.create({
   menuPrice: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#c9a227',
+    color: theme.colors.primary,
   },
   addButton: {
-    backgroundColor: '#1e3a5f',
+    backgroundColor: theme.colors.secondary,
     padding: 6,
     borderRadius: 8,
   },
@@ -736,7 +745,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   bottomSheet: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     minHeight: '50%',
@@ -752,7 +761,7 @@ const styles = StyleSheet.create({
   sheetTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
   },
   cartItemsScroll: {
     maxHeight: 250,
@@ -760,7 +769,7 @@ const styles = StyleSheet.create({
   },
   emptyCartText: {
     textAlign: 'center',
-    color: '#94a3b8',
+    color: theme.colors.textMuted,
     marginTop: 40,
   },
   cartItem: {
@@ -774,10 +783,10 @@ const styles = StyleSheet.create({
   },
   cartItemName: {
     fontWeight: 'bold',
-    color: '#0f172a',
+    color: theme.colors.text,
   },
   cartItemPrice: {
-    color: '#64748b',
+    color: theme.colors.textMuted,
     fontSize: 13,
     marginTop: 2,
   },
@@ -785,7 +794,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.colors.border,
     borderRadius: 8,
   },
   qtyBtn: {
@@ -798,7 +807,7 @@ const styles = StyleSheet.create({
   },
   cartFooter: {
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
+    borderTopColor: theme.colors.border,
     paddingTop: 16,
     marginTop: 16,
   },
@@ -808,41 +817,41 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   totalsLabel: {
-    color: '#64748b',
+    color: theme.colors.textMuted,
   },
   totalsValue: {
-    color: '#0f172a',
+    color: theme.colors.text,
   },
   grandTotalRow: {
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: theme.colors.border,
   },
   grandTotalLabel: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
   },
   grandTotalValue: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#c9a227',
+    color: theme.colors.primary,
   },
   checkoutButton: {
-    backgroundColor: '#1e3a5f',
+    backgroundColor: theme.colors.secondary,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
     marginTop: 20,
   },
   checkoutButtonText: {
-    color: '#fff',
+    color: theme.colors.textInverse,
     fontSize: 16,
     fontWeight: 'bold',
   },
   centerModal: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     width: '100%',
     padding: 24,
     borderRadius: 20,
@@ -850,21 +859,22 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
     marginBottom: 20,
   },
   inputLabel: {
     fontSize: 12,
-    color: '#64748b',
+    color: theme.colors.textMuted,
     marginBottom: 6,
     marginTop: 12,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.colors.border,
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
+    color: theme.colors.text,
   },
   modalActions: {
     flexDirection: 'row',
@@ -876,10 +886,10 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
-    backgroundColor: '#f1f5f9',
+    backgroundColor: theme.colors.surfaceVariant,
   },
   cancelBtnText: {
-    color: '#64748b',
+    color: theme.colors.textMuted,
     fontWeight: 'bold',
   },
   confirmBtn: {
@@ -887,14 +897,14 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
-    backgroundColor: '#1e3a5f',
+    backgroundColor: theme.colors.secondary,
   },
   confirmBtnText: {
-    color: '#fff',
+    color: theme.colors.textInverse,
     fontWeight: 'bold',
   },
   successModal: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     width: '100%',
     padding: 32,
     borderRadius: 24,
@@ -903,25 +913,25 @@ const styles = StyleSheet.create({
   successTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
     marginTop: 16,
     marginBottom: 8,
   },
   successText: {
     textAlign: 'center',
-    color: '#64748b',
+    color: theme.colors.textMuted,
     marginBottom: 24,
     lineHeight: 22,
   },
   successBtn: {
-    backgroundColor: '#c9a227',
+    backgroundColor: theme.colors.primary,
     width: '100%',
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
   },
   successBtnText: {
-    color: '#fff',
+    color: theme.colors.textInverse,
     fontSize: 16,
     fontWeight: 'bold',
   }

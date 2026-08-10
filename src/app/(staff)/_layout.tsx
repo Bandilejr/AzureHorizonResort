@@ -1,38 +1,55 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useColorScheme } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { usePermissions } from '@/context/PermissionsContext';
+import { getTheme } from '@/constants/theme';
 
 const STAFF_TABS_CONFIG = {
   'staff-dashboard': { title: 'Dashboard', icon: 'speedometer' },
-  'staff-checkin': { title: 'Staff Check-in', icon: 'id-card' },
-  'pre-event-inspection': { title: 'Pre-Inspection', icon: 'clipboard' },
-  'attendee-checkin': { title: 'Attendee Check-in', icon: 'qr-code' },
-  'post-event-inspection': { title: 'Post-Inspection', icon: 'construct' },
-  'damage-resolution': { title: 'Damages', icon: 'alert' },
-  'live-complaints': { title: 'Live Complaints', icon: 'warning' },
-  'refund-management': { title: 'Refunds', icon: 'cash' },
+  'attendee-checkin': { title: 'Event Ops', icon: 'qr-code' },
+  'pre-event-inspection': { title: 'Inspections', icon: 'clipboard' },
+  'live-complaints': { title: 'Complaints', icon: 'warning' },
 };
+
+const HIDDEN_SCREENS = [
+  'staff-checkin',
+  'post-event-inspection',
+  'damage-resolution',
+  'refund-management',
+  'today-events',
+  'event-ops',
+  'clock-in-out',
+  'loyalty-scanner',
+];
 
 export default function StaffLayout() {
   const { profile, loading } = useAuth();
-  const { hasPermission, getPermissions } = usePermissions();
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
 
   if (loading) {
-    return <Tabs screenOptions={{ headerShown: false }}><Tabs.Screen name="staff-dashboard" /></Tabs>;
+    return (
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: theme.colors.primary,
+          tabBarInactiveTintColor: theme.colors.textMuted,
+          tabBarStyle: { backgroundColor: theme.colors.surface, borderTopWidth: 1, borderTopColor: theme.colors.border },
+        }}
+      >
+        <Tabs.Screen name="staff-dashboard" />
+      </Tabs>
+    );
   }
 
-  const permissions = getPermissions();
-  const availableTabs = ['staff-dashboard'];
-
-  // Add tabs based on permissions
-  if (permissions.includes('staff_checkin')) availableTabs.push('staff-checkin');
-  if (permissions.includes('pre_inspection')) availableTabs.push('pre-event-inspection');
-  if (permissions.includes('attendee_checkin')) availableTabs.push('attendee-checkin');
-  if (permissions.includes('post_inspection')) availableTabs.push('post-event-inspection');
-  if (permissions.includes('damage_resolution')) availableTabs.push('damage-resolution');
-  if (permissions.includes('live_complaints')) availableTabs.push('live-complaints');
-  if (permissions.includes('refund_approve')) availableTabs.push('refund-management');
+  // 4 Core Main Tabs for Staff Navigation
+  const availableTabs = [
+    'staff-dashboard',
+    'attendee-checkin',
+    'pre-event-inspection',
+    'live-complaints',
+  ];
 
   return (
     <Tabs
@@ -41,22 +58,36 @@ export default function StaffLayout() {
         return {
           headerShown: false,
           tabBarIcon: ({ focused, color, size }) => (
-            <Ionicons name={config?.icon || 'help'} size={size} color={color} />
+            <Ionicons name={(config?.icon || 'help') as any} size={size} color={color} />
           ),
           tabBarLabel: config?.title || route.name,
+          tabBarActiveTintColor: theme.colors.primary,
+          tabBarInactiveTintColor: theme.colors.textMuted,
+          tabBarStyle: {
+            backgroundColor: theme.colors.surface,
+            borderTopWidth: 1,
+            borderTopColor: theme.colors.border,
+            height: 64,
+            paddingBottom: 8,
+            paddingTop: 6,
+          },
+          tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
         };
       }}
-      tabBarOptions={{
-        activeTintColor: '#c9a227',
-        inactiveTintColor: '#94a3b8',
-        style: { backgroundColor: '#fff', elevation: 8 },
-        labelStyle: { fontSize: 11, fontWeight: '600' },
-        scrollEnabled: true,
-      }}
     >
-      {availableTabs.map((name) => (
-        <Tabs.Screen key={name} name={name} />
-      ))}
+      <Tabs.Screen name="staff-dashboard" options={{ title: 'Dashboard' }} />
+      <Tabs.Screen name="attendee-checkin" options={{ title: 'Event Ops' }} />
+      <Tabs.Screen name="pre-event-inspection" options={{ title: 'Inspections' }} />
+      <Tabs.Screen name="live-complaints" options={{ title: 'Complaints' }} />
+
+      <Tabs.Screen name="staff-checkin" options={{ href: null }} />
+      <Tabs.Screen name="post-event-inspection" options={{ href: null }} />
+      <Tabs.Screen name="damage-resolution" options={{ href: null }} />
+      <Tabs.Screen name="refund-management" options={{ href: null }} />
+      <Tabs.Screen name="today-events" options={{ href: null }} />
+      <Tabs.Screen name="event-ops" options={{ href: null }} />
+      <Tabs.Screen name="clock-in-out" options={{ href: null }} />
+      <Tabs.Screen name="loyalty-scanner" options={{ href: null }} />
     </Tabs>
   );
 }

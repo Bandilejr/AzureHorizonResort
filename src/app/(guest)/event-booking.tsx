@@ -10,13 +10,15 @@ import {
   Alert,
   ActivityIndicator,
   Switch,
-  Platform
+  Platform,
+  useColorScheme
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { auth, db } from '../../services/firebase-services';
 import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
+import { getTheme } from '@/constants/theme';
 
 // Define the Venue structure
 interface Venue {
@@ -135,6 +137,10 @@ const generateDateArray = () => {
 
 export default function EventBookingScreen() {
   const user = auth.currentUser;
+
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
+  const styles = createStyles(theme);
   
   // Search & Filter States
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
@@ -175,7 +181,11 @@ export default function EventBookingScreen() {
         const q = query(bookingsRef, where('eventDateStr', '==', dateString));
         const snapshot = await getDocs(q);
         
-        const bookedIds = snapshot.docs.map(doc => doc.data().venueId);
+        // Filter out cancelled or rejected bookings so slots become available again
+        const bookedIds = snapshot.docs
+          .map(doc => doc.data())
+          .filter(data => data.status !== 'cancelled' && data.status !== 'rejected')
+          .map(data => data.venueId);
         setBookedVenueIds(bookedIds);
       } catch (error) {
         console.error("Failed to fetch venue availability:", error);
@@ -227,6 +237,27 @@ export default function EventBookingScreen() {
       const depositAmount = Math.round(selectedVenue.pricePerDay * 0.5); 
       const dateString = selectedDate.toISOString().split('T')[0];
 
+      // Duplicate booking guard: verify user doesn't already have an active booking on the same date
+      const existingQuery = query(
+        collection(db, 'event_bookings'),
+        where('guestId', '==', user.uid),
+        where('eventDateStr', '==', dateString)
+      );
+      const existingSnap = await getDocs(existingQuery);
+      const activeExisting = existingSnap.docs.filter(d => {
+        const status = d.data().status;
+        return status !== 'cancelled' && status !== 'rejected';
+      });
+
+      if (activeExisting.length > 0) {
+        Alert.alert(
+          '🔒 Duplicate Reservation Guard',
+          `You already have an active event booking scheduled for ${dateString}. Guests cannot create multiple venue bookings on the same date.`
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
       const bookingRef = await addDoc(collection(db, 'event_bookings'), {
         guestId: user.uid,
         guestName: user.displayName || 'Event Organizer',
@@ -271,7 +302,7 @@ export default function EventBookingScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={28} color="#1e3a5f" />
+          <Ionicons name="chevron-back" size={28} color={theme.colors.secondary} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>Reserve Event Space</Text>
@@ -284,14 +315,14 @@ export default function EventBookingScreen() {
       <View style={styles.filterEngine}>
         
         <View style={styles.filterRow}>
-          <Ionicons name="calendar-outline" size={16} color="#64748b" style={styles.filterIcon} />
+          <Ionicons name="calendar-outline" size={16} color={theme.colors.textMuted} style={styles.filterIcon} />
           
           {/* Calendar Picker Trigger */}
           <TouchableOpacity 
             style={styles.calendarTriggerBtn}
             onPress={() => setShowDatePicker(true)}
           >
-            <Ionicons name="calendar" size={18} color="#1e3a5f" />
+            <Ionicons name="calendar" size={18} color={theme.colors.secondary} />
           </TouchableOpacity>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateScroll}>
@@ -323,7 +354,7 @@ export default function EventBookingScreen() {
         </View>
 
         <View style={styles.filterRow}>
-          <Ionicons name="briefcase-outline" size={16} color="#64748b" style={styles.filterIcon} />
+          <Ionicons name="briefcase-outline" size={16} color={theme.colors.textMuted} style={styles.filterIcon} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateScroll}>
             {EVENT_TYPES.map((type, idx) => (
               <TouchableOpacity 
@@ -338,15 +369,15 @@ export default function EventBookingScreen() {
         </View>
 
         <View style={[styles.filterRow, { borderBottomWidth: 0, paddingBottom: 0 }]}>
-          <Ionicons name="people-outline" size={16} color="#64748b" style={styles.filterIcon} />
+          <Ionicons name="people-outline" size={16} color={theme.colors.textMuted} style={styles.filterIcon} />
           <Text style={styles.stepperLabel}>Expected Attendance:</Text>
           <View style={styles.stepperContainer}>
             <TouchableOpacity style={styles.stepperBtn} onPress={() => setExpectedAttendance(prev => Math.max(10, prev - 10))}>
-              <Ionicons name="remove" size={18} color="#1e3a5f" />
+              <Ionicons name="remove" size={18} color={theme.colors.secondary} />
             </TouchableOpacity>
             <Text style={styles.stepperValue}>{expectedAttendance}</Text>
             <TouchableOpacity style={styles.stepperBtn} onPress={() => setExpectedAttendance(prev => prev + 10)}>
-              <Ionicons name="add" size={18} color="#1e3a5f" />
+              <Ionicons name="add" size={18} color={theme.colors.secondary} />
             </TouchableOpacity>
           </View>
         </View>
@@ -356,12 +387,12 @@ export default function EventBookingScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {isCheckingAvailability ? (
           <View style={styles.emptyState}>
-            <ActivityIndicator size="large" color="#1e3a5f" />
+            <ActivityIndicator size="large" color={theme.colors.secondary} />
             <Text style={styles.emptyStateTitle}>Checking Resort Availability...</Text>
           </View>
         ) : filteredVenues.length === 0 ? (
           <View style={styles.emptyState}>
-            <Ionicons name="calendar-clear-outline" size={48} color="#cbd5e1" />
+            <Ionicons name="calendar-clear-outline" size={48} color={theme.colors.textMuted} />
             <Text style={styles.emptyStateTitle}>Fully Booked</Text>
             <Text style={styles.emptyStateSub}>There are no venues matching your criteria for this date. They may already be reserved. Try adjusting your date or headcount.</Text>
           </View>
@@ -483,7 +514,7 @@ export default function EventBookingScreen() {
                 <View style={styles.sheetHeader}>
                   <Text style={styles.sheetTitle}>Review Reservation</Text>
                   <TouchableOpacity onPress={() => setShowBookingModal(false)}>
-                    <Ionicons name="close-circle" size={28} color="#94a3b8" />
+                    <Ionicons name="close-circle" size={28} color={theme.colors.textMuted} />
                   </TouchableOpacity>
                 </View>
 
@@ -511,20 +542,20 @@ export default function EventBookingScreen() {
 
                 <View style={styles.policyBox}>
                   <View style={styles.policyHeader}>
-                    <Ionicons name="document-text-outline" size={18} color="#1e3a5f" />
+                    <Ionicons name="document-text-outline" size={18} color={theme.colors.secondary} />
                     <Text style={styles.policyTitle}>Resort Rental Policies</Text>
                   </View>
                   <Text style={styles.policyText}>• A 50% non-refundable deposit is required to lock in your date.</Text>
                   <Text style={styles.policyText}>• Setup and breakdown must occur within your reserved 24-hour block.</Text>
                   <Text style={styles.policyText}>• After-parties and heavy noise must conclude strictly by 02:00 AM.</Text>
-                  <Text style={styles.policyText}>• Food & Beverage must be handled via the Resort's internal Event Catering team.</Text>
+                  <Text style={styles.policyText}>• Food & Beverage must be handled via the Resort&apos;s internal Event Catering team.</Text>
                   <Text style={styles.policyText}>• A refundable breakage deposit of R5,000 will be added to your final folio.</Text>
                   
                   <View style={styles.termsToggleRow}>
                     <Text style={styles.termsToggleText}>I have read and accept the rental conditions.</Text>
                     <Switch
-                      trackColor={{ false: '#cbd5e1', true: '#e8aa42' }}
-                      thumbColor={termsAccepted ? '#fff' : '#f8fafc'}
+                      trackColor={{ false: theme.colors.borderStrong, true: theme.colors.primary }}
+                      thumbColor={termsAccepted ? theme.colors.surface : theme.colors.surfaceVariant}
                       onValueChange={setTermsAccepted}
                       value={termsAccepted}
                     />
@@ -537,7 +568,7 @@ export default function EventBookingScreen() {
                   disabled={isSubmitting || !termsAccepted}
                 >
                   {isSubmitting ? (
-                    <ActivityIndicator color="#fff" />
+                    <ActivityIndicator color={theme.colors.textInverse} />
                   ) : (
                     <Text style={styles.confirmBtnText}>Proceed to Secure Deposit</Text>
                   )}
@@ -551,34 +582,34 @@ export default function EventBookingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 60, paddingHorizontal: 20, paddingBottom: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', zIndex: 10 },
+const createStyles = (theme: any) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.colors.background },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 60, paddingHorizontal: 20, paddingBottom: 16, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.border, zIndex: 10 },
   backButton: { padding: 4, marginLeft: -8 },
   headerCenter: { alignItems: 'center' },
-  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1e3a5f' },
-  headerSubtitle: { fontSize: 12, color: '#64748b' },
-  filterEngine: { backgroundColor: '#fff', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 3, zIndex: 5 },
-  filterRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingBottom: 12 },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: theme.colors.text },
+  headerSubtitle: { fontSize: 12, color: theme.colors.textMuted },
+  filterEngine: { backgroundColor: theme.colors.surface, paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 3, zIndex: 5 },
+  filterRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingBottom: 12 },
   filterIcon: { marginRight: 12, marginTop: 2 },
-  calendarTriggerBtn: { backgroundColor: '#f1f5f9', padding: 8, borderRadius: 8, marginRight: 8, borderWidth: 1, borderColor: '#e2e8f0' },
+  calendarTriggerBtn: { backgroundColor: theme.colors.surfaceVariant, padding: 8, borderRadius: 8, marginRight: 8, borderWidth: 1, borderColor: theme.colors.border },
   dateScroll: { gap: 8, paddingRight: 20 },
-  dateChip: { paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#f1f5f9', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-  dateChipActive: { backgroundColor: '#1e3a5f', borderColor: '#1e3a5f' },
-  dateChipText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
-  dateChipTextActive: { color: '#fff' },
-  typeChip: { paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#fff', borderRadius: 20, borderWidth: 1, borderColor: '#cbd5e1' },
-  typeChipActive: { backgroundColor: '#e8aa42', borderColor: '#e8aa42' },
-  typeChipText: { fontSize: 12, fontWeight: '600', color: '#475569' },
-  stepperLabel: { flex: 1, fontSize: 14, color: '#475569', fontWeight: '500' },
-  stepperContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', padding: 4 },
-  stepperBtn: { padding: 4, backgroundColor: '#fff', borderRadius: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
-  stepperValue: { fontSize: 14, fontWeight: 'bold', color: '#1e3a5f', width: 40, textAlign: 'center' },
+  dateChip: { paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.colors.surfaceVariant, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border },
+  dateChipActive: { backgroundColor: theme.colors.secondary, borderColor: theme.colors.secondary },
+  dateChipText: { fontSize: 12, fontWeight: '600', color: theme.colors.textMuted },
+  dateChipTextActive: { color: theme.colors.textInverse },
+  typeChip: { paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.colors.surface, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.borderStrong },
+  typeChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  typeChipText: { fontSize: 12, fontWeight: '600', color: theme.colors.textSecondary },
+  stepperLabel: { flex: 1, fontSize: 14, color: theme.colors.textSecondary, fontWeight: '500' },
+  stepperContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surfaceVariant, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border, padding: 4 },
+  stepperBtn: { padding: 4, backgroundColor: theme.colors.surface, borderRadius: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
+  stepperValue: { fontSize: 14, fontWeight: 'bold', color: theme.colors.text, width: 40, textAlign: 'center' },
   scrollContent: { padding: 16, paddingBottom: 40 },
   emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, paddingHorizontal: 20 },
-  emptyStateTitle: { fontSize: 18, fontWeight: 'bold', color: '#64748b', marginTop: 16, marginBottom: 8 },
-  emptyStateSub: { fontSize: 14, color: '#94a3b8', textAlign: 'center', lineHeight: 20 },
-  card: { backgroundColor: '#fff', borderRadius: 16, overflow: 'hidden', marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 4 },
+  emptyStateTitle: { fontSize: 18, fontWeight: 'bold', color: theme.colors.textMuted, marginTop: 16, marginBottom: 8 },
+  emptyStateSub: { fontSize: 14, color: theme.colors.textMuted, textAlign: 'center', lineHeight: 20 },
+  card: { backgroundColor: theme.colors.surface, borderRadius: 16, overflow: 'hidden', marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 4 },
   imageContainer: { height: 180, position: 'relative' },
   cardImage: { width: '100%', height: '100%', resizeMode: 'cover' },
   capacityBadge: { position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.7)', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
@@ -587,16 +618,16 @@ const styles = StyleSheet.create({
   photoCountText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
   cardBody: { padding: 16 },
   cardHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
-  venueName: { flex: 1, fontSize: 18, fontWeight: 'bold', color: '#0f172a', marginRight: 8 },
-  venuePrice: { fontSize: 18, fontWeight: 'bold', color: '#e8aa42' },
-  priceSubtext: { fontSize: 11, color: '#94a3b8', textAlign: 'right', marginBottom: 12 },
-  venueDesc: { fontSize: 13, color: '#64748b', lineHeight: 20, marginBottom: 16 },
+  venueName: { flex: 1, fontSize: 18, fontWeight: 'bold', color: theme.colors.text, marginRight: 8 },
+  venuePrice: { fontSize: 18, fontWeight: 'bold', color: theme.colors.primary },
+  priceSubtext: { fontSize: 11, color: theme.colors.textMuted, textAlign: 'right', marginBottom: 12 },
+  venueDesc: { fontSize: 13, color: theme.colors.textMuted, lineHeight: 20, marginBottom: 16 },
   amenitiesRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 20 },
-  amenityChip: { backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  amenityText: { fontSize: 10, color: '#475569', fontWeight: '500' },
-  amenityPlus: { fontSize: 10, color: '#94a3b8', fontWeight: 'bold', marginLeft: 4 },
-  bookBtn: { backgroundColor: '#1e3a5f', paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
-  bookBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
+  amenityChip: { backgroundColor: theme.colors.surfaceVariant, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  amenityText: { fontSize: 10, color: theme.colors.textSecondary, fontWeight: '500' },
+  amenityPlus: { fontSize: 10, color: theme.colors.textMuted, fontWeight: 'bold', marginLeft: 4 },
+  bookBtn: { backgroundColor: theme.colors.secondary, paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
+  bookBtnText: { color: theme.colors.textInverse, fontWeight: 'bold', fontSize: 14 },
   galleryOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center' },
   galleryContainer: { flex: 1, justifyContent: 'flex-start', paddingTop: 60, paddingBottom: 40 },
   galleryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: 20, marginBottom: 20 },
@@ -614,24 +645,24 @@ const styles = StyleSheet.create({
   galleryAmenityChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
   galleryAmenityText: { color: '#fff', fontSize: 12, fontWeight: '500' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  bottomSheet: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '90%' },
+  bottomSheet: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '90%' },
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  sheetTitle: { fontSize: 18, fontWeight: 'bold', color: '#64748b' },
-  modalVenueName: { fontSize: 22, fontWeight: 'bold', color: '#1e3a5f', marginBottom: 20 },
-  summaryBox: { backgroundColor: '#f8fafc', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 20 },
+  sheetTitle: { fontSize: 18, fontWeight: 'bold', color: theme.colors.textMuted },
+  modalVenueName: { fontSize: 22, fontWeight: 'bold', color: theme.colors.text, marginBottom: 20 },
+  summaryBox: { backgroundColor: theme.colors.surfaceVariant, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 20 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  summaryLabel: { fontSize: 13, color: '#64748b' },
-  summaryValue: { fontSize: 13, fontWeight: '600', color: '#1e293b' },
-  summaryDivider: { height: 1, backgroundColor: '#e2e8f0', marginVertical: 8 },
-  summaryLabelDeposit: { fontSize: 14, fontWeight: 'bold', color: '#d97706' },
-  summaryValueDeposit: { fontSize: 16, fontWeight: 'bold', color: '#d97706' },
-  policyBox: { backgroundColor: '#fffbeb', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#fde68a', marginBottom: 24 },
+  summaryLabel: { fontSize: 13, color: theme.colors.textMuted },
+  summaryValue: { fontSize: 13, fontWeight: '600', color: theme.colors.text },
+  summaryDivider: { height: 1, backgroundColor: theme.colors.border, marginVertical: 8 },
+  summaryLabelDeposit: { fontSize: 14, fontWeight: 'bold', color: theme.colors.warning },
+  summaryValueDeposit: { fontSize: 16, fontWeight: 'bold', color: theme.colors.warning },
+  policyBox: { backgroundColor: theme.colors.warningLight, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: theme.colors.warning, marginBottom: 24 },
   policyHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  policyTitle: { fontSize: 15, fontWeight: 'bold', color: '#92400e' },
-  policyText: { fontSize: 12, color: '#b45309', lineHeight: 18, marginBottom: 6 },
-  termsToggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#fcd34d' },
-  termsToggleText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#92400e', marginRight: 16 },
-  confirmBtn: { backgroundColor: '#16a34a', paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginBottom: 10 },
-  confirmBtnDisabled: { backgroundColor: '#cbd5e1' },
-  confirmBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' }
+  policyTitle: { fontSize: 15, fontWeight: 'bold', color: theme.colors.warning },
+  policyText: { fontSize: 12, color: theme.colors.warning, lineHeight: 18, marginBottom: 6 },
+  termsToggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: theme.colors.warning },
+  termsToggleText: { flex: 1, fontSize: 13, fontWeight: '600', color: theme.colors.warning, marginRight: 16 },
+  confirmBtn: { backgroundColor: theme.colors.success, paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginBottom: 10 },
+  confirmBtnDisabled: { backgroundColor: theme.colors.borderStrong },
+  confirmBtnText: { color: theme.colors.textInverse, fontSize: 16, fontWeight: 'bold' }
 });

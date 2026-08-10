@@ -9,7 +9,7 @@ const INVITATION_SIGNING_KEY = process.env.INVITATION_SIGNING_KEY || "";
  * Generates a signed QR code payload for event invitation.
  * Called when guest sends invitations.
  */
-export const generateInvitationQR = functions.https.onCall(async (data, context) => {
+export const generateInvitationQR = functions.region("europe-west1").https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "User must be authenticated");
   }

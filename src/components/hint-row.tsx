@@ -15,7 +15,7 @@ export function HintRow({ title = 'Try editing', hint = 'app/index.tsx' }: HintR
   return (
     <View style={styles.stepRow}>
       <ThemedText type="small">{title}</ThemedText>
-      <ThemedView type="backgroundSelected" style={styles.codeSnippet}>
+      <ThemedView type="surfaceVariant" style={styles.codeSnippet}>
         <ThemedText themeColor="textSecondary">{hint}</ThemedText>
       </ThemedView>
     </View>
@@ -29,7 +29,7 @@ const styles = StyleSheet.create({
   },
   codeSnippet: {
     borderRadius: Spacing.two,
-    paddingVertical: Spacing.half,
+    paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.two,
   },
 });

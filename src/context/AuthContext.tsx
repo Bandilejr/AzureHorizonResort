@@ -48,41 +48,61 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  console.log('🟢 AuthProvider: Initial render, loading=', loading);
-
   const fetchProfile = async (firebaseUser: FirebaseUser) => {
-    console.log('🟢 AuthProvider: fetchProfile called for', firebaseUser.uid);
     try {
-      const userRef = doc(db, "users", firebaseUser.uid);
-      const userSnap = await getDoc(userRef);
+      // 1. Try UID doc
+      let userSnap = await getDoc(doc(db, "users", firebaseUser.uid));
 
       if (userSnap.exists()) {
         const data = userSnap.data() as UserProfile;
-        console.log('🟢 AuthProvider: Profile found in Firestore');
-        setProfile(data);
-      } else {
-        console.log('🟢 AuthProvider: No profile in Firestore, creating default');
-        const newProfile: UserProfile = {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email || "",
-          displayName: firebaseUser.displayName || "",
-          role: "guest",
-          subRole: null,
-          loyaltyPoints: 0,
-          loyaltyTier: "bronze",
-          phoneNumber: firebaseUser.phoneNumber || "",
-          photoURL: firebaseUser.photoURL || "",
-          roomNumber: "N/A",
-          status: "guest",
-          preferences: {
-            language: "en",
-            notifications: true,
-          },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        setProfile(newProfile);
+        setProfile({ ...data, uid: firebaseUser.uid });
+        return;
       }
+
+      // 2. Try Email doc fallback
+      if (firebaseUser.email) {
+        const cleanEmail = firebaseUser.email.trim().toLowerCase();
+        userSnap = await getDoc(doc(db, "users", cleanEmail));
+        if (userSnap.exists()) {
+          const data = userSnap.data() as UserProfile;
+          setProfile({ ...data, uid: firebaseUser.uid });
+          return;
+        }
+      }
+
+      const cleanEmail = (firebaseUser.email || "").trim().toLowerCase();
+      const newProfile: UserProfile = {
+        uid: firebaseUser.uid,
+        email: cleanEmail,
+        displayName: firebaseUser.displayName || cleanEmail.split('@')[0] || "Resident Guest",
+        role: "guest",
+        subRole: null,
+        loyaltyPoints: 500,
+        loyaltyTier: "Silver",
+        phoneNumber: firebaseUser.phoneNumber || "",
+        photoURL: firebaseUser.photoURL || "",
+        roomNumber: "101",
+        status: "resident",
+        preferences: {
+          language: "en",
+          notifications: true,
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      // Persist doc to Firestore so future reads pick up resident status
+      try {
+        const { setDoc } = require('firebase/firestore');
+        await setDoc(doc(db, "users", firebaseUser.uid), newProfile);
+        if (cleanEmail) {
+          await setDoc(doc(db, "users", cleanEmail), newProfile);
+        }
+      } catch (err) {
+        console.warn('⚠️ Non-fatal setDoc warning in AuthContext:', err);
+      }
+
+      setProfile(newProfile);
     } catch (error) {
       console.error("🔴 AuthProvider: Error fetching profile:", error);
       setProfile(null);
@@ -90,9 +110,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   useEffect(() => {
-    console.log('🟢 AuthProvider: Setting up onAuthStateChanged listener');
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      console.log('🟢 AuthProvider: onAuthStateChanged fired, user=', firebaseUser?.uid || 'null');
       setUser(firebaseUser);
       if (firebaseUser) {
         await fetchProfile(firebaseUser);
@@ -100,17 +118,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setProfile(null);
       }
       setLoading(false);
-      console.log('🟢 AuthProvider: Auth state updated, loading=false');
     });
 
     return () => {
-      console.log('🟢 AuthProvider: Cleaning up listener');
       unsubscribe();
     };
   }, []);
 
   const signOut = async () => {
-    console.log('🟢 AuthProvider: signOut called');
     await firebaseSignOut(auth);
   };
 
@@ -133,8 +148,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isFrontDesk: profile?.subRole === "front_desk",
     isMaintenance: profile?.subRole === "maintenance",
   };
-
-  console.log('🟢 AuthProvider: Rendering with loading=', loading, 'user=', user?.uid);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

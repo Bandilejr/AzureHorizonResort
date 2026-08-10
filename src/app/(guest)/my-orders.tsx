@@ -7,14 +7,18 @@ import {
   TouchableOpacity, 
   ActivityIndicator,
   Modal,
-  Alert
+  Alert,
+  useColorScheme
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { getTheme } from '@/constants/theme';
 
 // Firebase Imports
 import { auth, rtdb } from '../../services/firebase-services';
 import { ref, onValue, off } from 'firebase/database';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../services/firebase-services';
 
 interface FoodOrder {
   id: string;
@@ -23,10 +27,11 @@ interface FoodOrder {
   roomNumber?: string;
   tableNumber?: number;
   orderType: 'dine_in' | 'takeaway' | 'room_delivery';
-  items: Array<{ name: string; quantity: number; price: number }>;
+  items: { name: string; quantity: number; price: number }[];
   totalAmount: number;
   status: 'pending' | 'preparing' | 'ready' | 'picked_up' | 'delivered';
   createdAt: string;
+  timestamp?: number;
 }
 
 export default function MyOrdersScreen() {
@@ -36,8 +41,29 @@ export default function MyOrdersScreen() {
   
   const [selectedOrder, setSelectedOrder] = useState<FoodOrder | null>(null);
   const [showOrderDetails, setShowOrderDetails] = useState(false);
+  const [userRoomNumber, setUserRoomNumber] = useState<string | null>(null);
 
   const user = auth.currentUser;
+
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
+  const styles = createStyles(theme);
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchRoom = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        if (snap.exists()) {
+          const data = snap.data();
+          setUserRoomNumber(data.roomNumber || null);
+        }
+      } catch (e) {
+        // fall back silently
+      }
+    };
+    fetchRoom();
+  }, [user]);
 
   useEffect(() => {
     if (!user) {
@@ -86,12 +112,12 @@ export default function MyOrdersScreen() {
 
   const getStatusConfig = (status: string) => {
     switch (status) {
-      case 'pending': return { text: 'Pending', color: '#d97706', bg: '#fef3c7', icon: 'time', progress: '25%' };
-      case 'preparing': return { text: 'Preparing', color: '#2563eb', bg: '#dbeafe', icon: 'restaurant', progress: '50%' };
-      case 'ready': return { text: 'Ready for Pickup', color: '#16a34a', bg: '#dcfce3', icon: 'checkmark-circle', progress: '75%' };
-      case 'picked_up': return { text: 'Out for Delivery', color: '#9333ea', bg: '#f3e8ff', icon: 'bicycle', progress: '90%' };
-      case 'delivered': return { text: 'Delivered', color: '#475569', bg: '#f1f5f9', icon: 'checkmark-done-circle', progress: '100%' };
-      default: return { text: status, color: '#475569', bg: '#f1f5f9', icon: 'cube', progress: '0%' };
+      case 'pending': return { text: 'Pending', color: theme.colors.warning, bg: theme.colors.warningLight, icon: 'time', progress: '25%' };
+      case 'preparing': return { text: 'Preparing', color: theme.colors.info, bg: theme.colors.infoLight, icon: 'restaurant', progress: '50%' };
+      case 'ready': return { text: 'Ready for Pickup', color: theme.colors.success, bg: theme.colors.successLight, icon: 'checkmark-circle', progress: '75%' };
+      case 'picked_up': return { text: 'Out for Delivery', color: theme.colors.secondary, bg: theme.colors.surfaceVariant, icon: 'bicycle', progress: '90%' };
+      case 'delivered': return { text: 'Delivered', color: theme.colors.textSecondary, bg: theme.colors.surfaceVariant, icon: 'checkmark-done-circle', progress: '100%' };
+      default: return { text: status, color: theme.colors.textSecondary, bg: theme.colors.surfaceVariant, icon: 'cube', progress: '0%' };
     }
   };
 
@@ -104,12 +130,32 @@ export default function MyOrdersScreen() {
     }
   };
 
+  if (!user) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+        <Ionicons name="lock-closed-outline" size={64} color="#c9a227" />
+        <Text style={{ fontSize: 22, fontWeight: '900', color: theme.colors.text, marginTop: 16, textAlign: 'center' }}>
+          My Orders Locked
+        </Text>
+        <Text style={{ fontSize: 14, color: theme.colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 20 }}>
+          Order tracking and history are reserved for checked-in resort residents. Please sign in to your room stay.
+        </Text>
+        <TouchableOpacity
+          style={{ backgroundColor: '#c9a227', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, marginTop: 24 }}
+          onPress={() => router.push('/login')}
+        >
+          <Text style={{ color: '#0f172a', fontWeight: '800', fontSize: 16 }}>Sign In to Your Stay</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={28} color="#1e3a5f" />
+          <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>My Orders</Text>
@@ -141,13 +187,13 @@ export default function MyOrdersScreen() {
       {/* ORDER LIST */}
       {isLoading ? (
         <View style={styles.centerContent}>
-          <ActivityIndicator size="large" color="#1e3a5f" />
+          <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {displayOrders.length === 0 ? (
             <View style={styles.emptyState}>
-              <Ionicons name="receipt-outline" size={60} color="#cbd5e1" />
+              <Ionicons name="receipt-outline" size={60} color={theme.colors.textMuted} />
               <Text style={styles.emptyStateText}>
                 No {activeTab} orders found.
               </Text>
@@ -155,7 +201,7 @@ export default function MyOrdersScreen() {
           ) : (
             displayOrders.map((order) => {
               const config = getStatusConfig(order.status);
-              const orderDate = new Date(order.createdAt);
+              const orderDate = new Date((order.createdAt || order.timestamp || '') as string | number);
               
               return (
                 <TouchableOpacity 
@@ -169,7 +215,7 @@ export default function MyOrdersScreen() {
                 >
                   <View style={styles.cardHeader}>
                     <View style={styles.orderTypeRow}>
-                      <Ionicons name={getOrderTypeIcon(order.orderType) as any} size={16} color="#64748b" />
+                      <Ionicons name={getOrderTypeIcon(order.orderType) as any} size={16} color={theme.colors.textMuted} />
                       <Text style={styles.orderIdText}>#{order.id.slice(-8).toUpperCase()}</Text>
                     </View>
                     <View style={[styles.badge, { backgroundColor: config.bg }]}>
@@ -196,7 +242,9 @@ export default function MyOrdersScreen() {
                   <View style={styles.cardFooter}>
                     <View>
                       <Text style={styles.itemsText}>{order.items.length} Item(s)</Text>
-                      <Text style={styles.dateText}>{orderDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</Text>
+                      <Text style={styles.dateText}>
+                        {isNaN(orderDate.getTime()) ? 'Today' : orderDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                      </Text>
                     </View>
                     <Text style={styles.priceText}>R {order.totalAmount}</Text>
                   </View>
@@ -219,21 +267,21 @@ export default function MyOrdersScreen() {
                     <Text style={styles.sheetSubtitle}>#{selectedOrder.id.slice(-8).toUpperCase()}</Text>
                   </View>
                   <TouchableOpacity onPress={() => setShowOrderDetails(false)}>
-                    <Ionicons name="close-circle" size={28} color="#94a3b8" />
+                    <Ionicons name="close-circle" size={28} color={theme.colors.textMuted} />
                   </TouchableOpacity>
                 </View>
 
                 <ScrollView showsVerticalScrollIndicator={false}>
                   <View style={styles.orderMetaBox}>
                     <View style={styles.metaRow}>
-                      <Ionicons name={getOrderTypeIcon(selectedOrder.orderType) as any} size={18} color="#1e3a5f" />
+                      <Ionicons name={getOrderTypeIcon(selectedOrder.orderType) as any} size={18} color={theme.colors.text} />
                       <Text style={styles.metaText}>
                         {selectedOrder.orderType.replace('_', ' ').toUpperCase()}
                       </Text>
                     </View>
-                    {selectedOrder.roomNumber && (
-                      <Text style={styles.metaDetail}>Deliver to Room: {selectedOrder.roomNumber}</Text>
-                    )}
+                    {selectedOrder.roomNumber || userRoomNumber ? (
+                      <Text style={styles.metaDetail}>Deliver to Room: {selectedOrder.roomNumber || userRoomNumber}</Text>
+                    ) : null}
                     {selectedOrder.tableNumber && (
                       <Text style={styles.metaDetail}>Serve at Table: {selectedOrder.tableNumber}</Text>
                     )}
@@ -256,7 +304,7 @@ export default function MyOrdersScreen() {
 
                   <View style={styles.actionButtons}>
                     <TouchableOpacity style={styles.emailButton} onPress={handleSimulateEmailReceipt}>
-                      <Ionicons name="mail-outline" size={20} color="#1e3a5f" style={{ marginRight: 8 }} />
+                      <Ionicons name="mail-outline" size={20} color={theme.colors.text} style={{ marginRight: 8 }} />
                       <Text style={styles.emailButtonText}>Email Receipt</Text>
                     </TouchableOpacity>
                   </View>
@@ -271,10 +319,10 @@ export default function MyOrdersScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -283,9 +331,9 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingHorizontal: 20,
     paddingBottom: 16,
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: theme.colors.border,
   },
   backButton: {
     padding: 4,
@@ -297,17 +345,17 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
   },
   headerSubtitle: {
     fontSize: 12,
-    color: '#64748b', 
+    color: theme.colors.textMuted, 
   },
   tabContainer: {
     flexDirection: 'row',
     marginHorizontal: 16,
     marginTop: 16,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: theme.colors.border,
     borderRadius: 12,
     padding: 4,
   },
@@ -318,7 +366,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   activeTab: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -328,10 +376,10 @@ const styles = StyleSheet.create({
   tabText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#64748b',
+    color: theme.colors.textMuted,
   },
   activeTabText: {
-    color: '#1e3a5f',
+    color: theme.colors.text,
   },
   centerContent: {
     flex: 1,
@@ -348,12 +396,12 @@ const styles = StyleSheet.create({
     marginTop: 60,
   },
   emptyStateText: {
-    color: '#94a3b8',
+    color: theme.colors.textMuted,
     fontSize: 16,
     marginTop: 12,
   },
   orderCard: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
@@ -377,7 +425,7 @@ const styles = StyleSheet.create({
   orderIdText: {
     fontSize: 14,
     fontWeight: 'bold',
-    color: '#475569',
+    color: theme.colors.textSecondary,
     letterSpacing: 1,
   },
   badge: {
@@ -390,7 +438,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   progressTracker: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.colors.surfaceVariant,
     padding: 12,
     borderRadius: 12,
     marginBottom: 16,
@@ -403,7 +451,7 @@ const styles = StyleSheet.create({
   progressBarBg: {
     flex: 1,
     height: 6,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: theme.colors.border,
     borderRadius: 3,
     overflow: 'hidden',
   },
@@ -419,7 +467,7 @@ const styles = StyleSheet.create({
   },
   progressLabelText: {
     fontSize: 10,
-    color: '#94a3b8',
+    color: theme.colors.textMuted,
     fontWeight: '600',
   },
   cardFooter: {
@@ -427,23 +475,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-end',
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: theme.colors.border,
     paddingTop: 12,
   },
   itemsText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1e293b',
+    color: theme.colors.text,
     marginBottom: 2,
   },
   dateText: {
     fontSize: 12,
-    color: '#94a3b8',
+    color: theme.colors.textMuted,
   },
   priceText: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
   },
   modalOverlay: {
     flex: 1,
@@ -451,7 +499,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   bottomSheet: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,
@@ -466,21 +514,21 @@ const styles = StyleSheet.create({
   sheetTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#0f172a',
+    color: theme.colors.text,
   },
   sheetSubtitle: {
     fontSize: 14,
-    color: '#64748b',
+    color: theme.colors.textMuted,
     marginTop: 2,
     letterSpacing: 1,
   },
   orderMetaBox: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.colors.surfaceVariant,
     padding: 16,
     borderRadius: 12,
     marginBottom: 24,
     borderLeftWidth: 4,
-    borderLeftColor: '#1e3a5f',
+    borderLeftColor: theme.colors.primary,
   },
   metaRow: {
     flexDirection: 'row',
@@ -491,24 +539,24 @@ const styles = StyleSheet.create({
   metaText: {
     fontSize: 14,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
   },
   metaDetail: {
     fontSize: 13,
-    color: '#475569',
+    color: theme.colors.textSecondary,
     marginTop: 4,
     marginLeft: 26,
   },
   sectionHeading: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#0f172a',
+    color: theme.colors.text,
     marginBottom: 12,
   },
   receiptContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.colors.border,
     borderRadius: 12,
     padding: 16,
     marginBottom: 24,
@@ -520,17 +568,17 @@ const styles = StyleSheet.create({
   },
   receiptItemName: {
     fontSize: 14,
-    color: '#334155',
+    color: theme.colors.textSecondary,
     flex: 1,
   },
   receiptItemPrice: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#0f172a',
+    color: theme.colors.text,
   },
   receiptDivider: {
     height: 1,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: theme.colors.border,
     marginVertical: 12,
   },
   receiptTotalRow: {
@@ -541,12 +589,12 @@ const styles = StyleSheet.create({
   receiptTotalLabel: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#0f172a',
+    color: theme.colors.text,
   },
   receiptTotalValue: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
   },
   actionButtons: {
     paddingBottom: 20,
@@ -555,14 +603,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.colors.surfaceVariant,
     borderWidth: 1,
-    borderColor: '#cbd5e1',
+    borderColor: theme.colors.borderStrong,
     paddingVertical: 16,
     borderRadius: 12,
   },
   emailButtonText: {
-    color: '#1e3a5f',
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: 'bold',
   }

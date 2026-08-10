@@ -110,11 +110,19 @@ export const Typography = {
     relaxed: 1.75,
   },
   fontFamilies: {
-    sans: 'system-ui',
+    sans: Platform.select({ ios: 'system-ui', android: 'sans-serif', default: 'system-ui' }),
     serif: 'serif',
     mono: 'monospace',
   },
 } as const;
+
+export const Fonts = {
+  sans: Platform.select({ ios: 'system-ui', android: 'sans-serif', default: 'system-ui' }),
+  serif: 'serif',
+  mono: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }) ?? 'monospace',
+} as const;
+
+export type ThemeColor = keyof typeof Colors.light;
 
 export const Shadows = {
   sm: {
@@ -173,7 +181,7 @@ export const Transitions = {
 } as const;
 
 export type Theme = {
-  colors: typeof Colors.light;
+  colors: typeof Colors.light | typeof Colors.dark;
   spacing: typeof Spacing;
   borderRadius: typeof BorderRadius;
   typography: typeof Typography;

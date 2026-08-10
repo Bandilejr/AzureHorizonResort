@@ -1,54 +1,76 @@
+import React from 'react';
 import { Tabs } from 'expo-router';
-import { View, Text } from 'react-native';
+import { useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '@/context/AuthContext';
+import { getTheme } from '@/constants/theme';
+
+const TAB_ICONS: Record<string, { label: string; icon: string }> = {
+  'guest-portal': { label: 'Portal', icon: 'home' },
+  'digital-key': { label: 'Digital Key', icon: 'key' },
+  'event-booking': { label: 'Events', icon: 'calendar' },
+  dining: { label: 'Dining', icon: 'restaurant' },
+  spa: { label: 'Spa', icon: 'leaf' },
+  loyalty: { label: 'Rewards', icon: 'diamond' },
+  profile: { label: 'Profile', icon: 'person' },
+};
 
 export default function GuestLayout() {
-  const { isGuest } = useAuth();
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
 
   return (
     <Tabs
       screenOptions={({ route }) => {
-        const icons: Record<string, string> = {
-          index: 'home',
-          'event-booking': 'calendar',
-          dining: 'restaurant',
-          spa: 'leaf',
-          loyalty: 'diamond',
-          profile: 'person',
-        };
+        const config = TAB_ICONS[route.name] || { label: route.name, icon: 'help' };
+        const isDigitalKey = route.name === 'digital-key';
+
         return {
           headerShown: false,
-          tabBarIcon: ({ focused, color, size }) => (
-            <Ionicons name={icons[route.name] || 'help'} size={size} color={color} />
-          ),
-          tabBarLabel: ({ focused }) => {
-            const labels: Record<string, string> = {
-              index: 'Portal',
-              'event-booking': 'Events',
-              dining: 'Dining',
-              spa: 'Spa',
-              loyalty: 'Rewards',
-              profile: 'Profile',
-            };
-            return <Text style={{ fontSize: 11, fontWeight: '600' }}>{labels[route.name] || route.name}</Text>;
+          tabBarIcon: ({ color, size, focused }) => {
+            const iconName = config.icon + (focused ? '' : '-outline');
+            return (
+              <Ionicons
+                name={iconName as any}
+                size={isDigitalKey ? size + 4 : size}
+                color={isDigitalKey ? '#c9a227' : color}
+              />
+            );
+          },
+          tabBarLabel: config.label,
+          tabBarActiveTintColor: isDigitalKey ? '#c9a227' : theme.colors.primary,
+          tabBarInactiveTintColor: theme.colors.textMuted,
+          tabBarStyle: {
+            backgroundColor: theme.colors.surface,
+            borderTopWidth: 1,
+            borderTopColor: theme.colors.border,
+            height: 64,
+            paddingBottom: 8,
+            paddingTop: 6,
           },
         };
       }}
-      tabBarOptions={{
-        activeTintColor: '#c9a227',
-        inactiveTintColor: '#94a3b8',
-        style: { backgroundColor: '#fff', elevation: 8, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
-        labelStyle: { fontSize: 11, fontWeight: '600' },
-        indicatorStyle: { backgroundColor: '#c9a227', height: 3 },
-      }}
     >
-      <Tabs.Screen name="index" />
-      <Tabs.Screen name="event-booking" />
-      <Tabs.Screen name="dining" />
-      <Tabs.Screen name="spa" />
-      <Tabs.Screen name="loyalty" />
-      <Tabs.Screen name="profile" />
+      <Tabs.Screen name="guest-portal" options={{ title: 'Portal' }} />
+      <Tabs.Screen name="digital-key" options={{ title: 'Digital Key' }} />
+      <Tabs.Screen name="event-booking" options={{ title: 'Events' }} />
+      <Tabs.Screen name="dining" options={{ title: 'Dining' }} />
+      <Tabs.Screen name="spa" options={{ title: 'Spa' }} />
+      <Tabs.Screen name="loyalty" options={{ title: 'Rewards' }} />
+      <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
+
+      <Tabs.Screen name="tours" options={{ href: null }} />
+      <Tabs.Screen name="billing" options={{ href: null }} />
+      <Tabs.Screen name="concierge" options={{ href: null }} />
+      <Tabs.Screen name="event-catering" options={{ href: null }} />
+      <Tabs.Screen name="event-feedback" options={{ href: null }} />
+      <Tabs.Screen name="event-invitations" options={{ href: null }} />
+      <Tabs.Screen name="explore" options={{ href: null }} />
+      <Tabs.Screen name="live-complaint" options={{ href: null }} />
+      <Tabs.Screen name="my-orders" options={{ href: null }} />
+      <Tabs.Screen name="payment" options={{ href: null }} />
+      <Tabs.Screen name="reservations" options={{ href: null }} />
+      <Tabs.Screen name="room-gallery" options={{ href: null }} />
+      <Tabs.Screen name="room-service" options={{ href: null }} />
     </Tabs>
   );
 }

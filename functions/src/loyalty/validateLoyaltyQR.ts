@@ -9,14 +9,14 @@ const LOYALTY_HMAC_SECRET = process.env.LOYALTY_HMAC_SECRET || "";
  * Validates a loyalty QR code scanned by staff.
  * Returns current loyalty profile if valid.
  */
-export const validateLoyaltyQR = functions.https.onCall(async (data, context) => {
+export const validateLoyaltyQR = functions.region("europe-west1").https.onCall(async (data, context) => {
   // Staff must be authenticated
-  if (!context.auth) {
+  if (!context.auth?.token?.email) {
     throw new functions.https.HttpsError("unauthenticated", "Staff must be authenticated");
   }
 
   // Verify staff role
-  const staffRef = db.collection("users").doc(context.auth.uid);
+  const staffRef = db.collection("users").doc(context.auth.token.email);
   const staffSnap = await staffRef.get();
 
   if (!staffSnap.exists) {
@@ -42,8 +42,7 @@ export const validateLoyaltyQR = functions.https.onCall(async (data, context) =>
     throw new functions.https.HttpsError("invalid-argument", "Invalid QR format");
   }
 
-  const { guestId, points, tier, ts, nonce, sig } = payload;
-
+  const { guestId, email, points, tier, ts, nonce, sig } = payload;
   if (!guestId || !sig) {
     throw new functions.https.HttpsError("invalid-argument", "Invalid QR payload structure");
   }
@@ -76,7 +75,7 @@ export const validateLoyaltyQR = functions.https.onCall(async (data, context) =>
   }
 
   // Get current user profile from Firestore (source of truth)
-  const userRef = db.collection("users").doc(guestId);
+  const userRef = db.collection("users").doc(email || guestId);
   const userSnap = await userRef.get();
 
   if (!userSnap.exists) {

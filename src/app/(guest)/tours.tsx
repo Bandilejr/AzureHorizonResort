@@ -8,14 +8,18 @@ import {
   ActivityIndicator,
   Modal,
   Alert,
-  ImageBackground
+  ImageBackground,
+  useColorScheme
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { getTheme } from '@/constants/theme';
+import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 
 // Firebase Imports
 import { auth, db } from '../../services/firebase-services';
 import { collection, addDoc } from 'firebase/firestore';
+import { useAuth } from '@/context/AuthContext';
 
 // Premium Tour Data with Built-in Schedules & Capacities
 const availableTours = [
@@ -64,6 +68,10 @@ const availableTours = [
 
 export default function ToursScreen() {
   // 1. Added State for Tours List to allow local capacity updates
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
+  const styles = createStyles(theme);
+  
   const [toursList, setToursList] = useState(availableTours);
   
   const [selectedTour, setSelectedTour] = useState<any>(null);
@@ -90,7 +98,30 @@ export default function ToursScreen() {
     );
   };
 
+  const { profile } = useAuth();
+
+  const [alertConfig, setAlertConfig] = useState<AlertConfig>({
+    visible: false,
+    title: '',
+    message: '',
+  });
+
+  const showAlert = (config: Omit<AlertConfig, 'visible'>) => {
+    setAlertConfig({ ...config, visible: true });
+  };
+
   const handleOpenBooking = (tour: any) => {
+    if (!user || profile?.status === 'visitor') {
+      showAlert({
+        title: "🔒 Sign In Required",
+        message: "Please sign in to your room stay account to book guided island tours.",
+        type: "warning",
+        confirmText: "Sign In",
+        cancelText: "Cancel",
+        onConfirm: () => router.push('/login'),
+      });
+      return;
+    }
     setSelectedTour(tour);
     setSelectedSlot(null);
     setTickets({ adult: 0, child: 0, pensioner: 0 });
@@ -108,7 +139,7 @@ export default function ToursScreen() {
 
   const updateTicket = (type: 'adult' | 'child' | 'pensioner', delta: number) => {
     if (!selectedSlot) {
-      Alert.alert("Select a Session", "Please choose a date and time first.");
+      showAlert({ title: "Select a Session", message: "Please choose a date and time first.", type: "warning" });
       return;
     }
 
@@ -116,7 +147,7 @@ export default function ToursScreen() {
     
     // Prevent adding more tickets if we hit the slot's maximum capacity
     if (delta > 0 && totalTickets >= spotsLeft) {
-      Alert.alert("Capacity Reached", `There are only ${spotsLeft} spots left for this session.`);
+      showAlert({ title: "Capacity Reached", message: `There are only ${spotsLeft} spots left for this session.`, type: "warning" });
       return;
     }
 
@@ -128,19 +159,19 @@ export default function ToursScreen() {
 
   const handleConfirmBooking = async () => {
     if (!selectedSlot) {
-      Alert.alert("Missing Details", "Please select a session.");
+      showAlert({ title: "Missing Details", message: "Please select a session.", type: "warning" });
       return;
     }
     if (totalTickets === 0) {
-      Alert.alert("No Tickets", "Please select at least one ticket.");
+      showAlert({ title: "No Tickets", message: "Please select at least one ticket.", type: "warning" });
       return;
     }
     if (!indemnityAgreed) {
-      Alert.alert("Indemnity Required", "You must agree to the indemnity waiver to participate in excursions.");
+      showAlert({ title: "Indemnity Required", message: "You must agree to the indemnity waiver to participate in excursions.", type: "warning" });
       return;
     }
     if (!user) {
-      Alert.alert("Authentication Error", "You must be logged in to book an excursion.");
+      showAlert({ title: "Authentication Error", message: "You must be logged in to book an excursion.", type: "warning" });
       return;
     }
 
@@ -200,7 +231,7 @@ export default function ToursScreen() {
       {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={28} color="#1e3a5f" />
+          <Ionicons name="chevron-back" size={28} color={theme.colors.secondary} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>Excursions</Text>
@@ -232,7 +263,7 @@ export default function ToursScreen() {
             <View style={styles.tourInfo}>
               <Text style={styles.tourName}>{tour.name}</Text>
               <View style={styles.locationRow}>
-                <Ionicons name="map" size={14} color="#64748b" />
+                <Ionicons name="map" size={14} color={theme.colors.textMuted} />
                 <Text style={styles.locationText}>{tour.location}</Text>
               </View>
               <Text style={styles.tourDesc} numberOfLines={2}>{tour.desc}</Text>
@@ -258,7 +289,7 @@ export default function ToursScreen() {
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>Book Excursion</Text>
               <TouchableOpacity onPress={() => setShowBookingModal(false)}>
-                <Ionicons name="close-circle" size={28} color="#94a3b8" />
+                <Ionicons name="close-circle" size={28} color={theme.colors.textMuted} />
               </TouchableOpacity>
             </View>
 
@@ -312,11 +343,11 @@ export default function ToursScreen() {
                         </View>
                         <View style={styles.stepper}>
                           <TouchableOpacity onPress={() => updateTicket(type, -1)} style={styles.stepBtn}>
-                            <Ionicons name="remove" size={20} color="#1e3a5f" />
+                            <Ionicons name="remove" size={20} color={theme.colors.secondary} />
                           </TouchableOpacity>
                           <Text style={styles.stepValue}>{tickets[type]}</Text>
                           <TouchableOpacity onPress={() => updateTicket(type, 1)} style={styles.stepBtn}>
-                            <Ionicons name="add" size={20} color="#1e3a5f" />
+                            <Ionicons name="add" size={20} color={theme.colors.secondary} />
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -330,7 +361,7 @@ export default function ToursScreen() {
                     activeOpacity={0.8}
                   >
                     <View style={styles.checkbox}>
-                      {indemnityAgreed && <Ionicons name="checkmark" size={16} color="#fff" />}
+                      {indemnityAgreed && <Ionicons name="checkmark" size={16} color={theme.colors.textInverse} />}
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.indemnityTitle}>Indemnity & Terms</Text>
@@ -352,7 +383,7 @@ export default function ToursScreen() {
                     disabled={isSubmitting || !selectedSlot || totalTickets === 0 || !indemnityAgreed}
                   >
                     {isSubmitting ? (
-                      <ActivityIndicator color="#fff" />
+                      <ActivityIndicator color={theme.colors.textInverse} />
                     ) : (
                       <Text style={styles.confirmButtonText}>Confirm & Charge to Room</Text>
                     )}
@@ -369,7 +400,7 @@ export default function ToursScreen() {
       <Modal visible={showSuccessModal} animationType="fade" transparent>
         <View style={styles.modalOverlayCenter}>
           <View style={styles.successModal}>
-            <Ionicons name="ticket" size={60} color="#e8aa42" />
+            <Ionicons name="ticket" size={60} color={theme.colors.primary} />
             <Text style={styles.successTitle}>Tour Booked!</Text>
             <Text style={styles.successText}>
               Your tickets for {selectedTour?.name} have been secured and charged to your room.
@@ -385,14 +416,16 @@ export default function ToursScreen() {
         </View>
       </Modal>
 
+      {/* Custom Themed Alert Modal */}
+      <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -401,9 +434,9 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingHorizontal: 20,
     paddingBottom: 16,
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: theme.colors.border,
   },
   backButton: {
     padding: 4,
@@ -415,11 +448,11 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
   },
   headerSubtitle: {
     fontSize: 12,
-    color: '#e8aa42', 
+    color: theme.colors.primary, 
   },
   scrollContent: {
     paddingBottom: 40,
@@ -432,14 +465,14 @@ const styles = StyleSheet.create({
   pageTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#0f172a',
+    color: theme.colors.text,
   },
   pageDesc: {
-    color: '#64748b',
+    color: theme.colors.textMuted,
     marginTop: 4,
   },
   tourCard: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     marginHorizontal: 16,
     marginVertical: 10,
     borderRadius: 20,
@@ -456,14 +489,14 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   durationBadge: {
-    backgroundColor: '#e8aa42',
+    backgroundColor: theme.colors.primary,
     alignSelf: 'flex-start',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
   },
   durationText: {
-    color: '#fff',
+    color: theme.colors.textInverse,
     fontWeight: 'bold',
     fontSize: 12,
   },
@@ -473,7 +506,7 @@ const styles = StyleSheet.create({
   tourName: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
     marginBottom: 4,
   },
   locationRow: {
@@ -483,11 +516,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   locationText: {
-    color: '#64748b',
+    color: theme.colors.textMuted,
     fontSize: 13,
   },
   tourDesc: {
-    color: '#475569',
+    color: theme.colors.textSecondary,
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 20,
@@ -497,28 +530,28 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: theme.colors.border,
     paddingTop: 16,
   },
   priceLabel: {
     fontSize: 12,
-    color: '#94a3b8',
+    color: theme.colors.textMuted,
   },
   priceValue: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
   },
   bookButton: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.colors.surfaceVariant,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.colors.border,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 10,
   },
   bookButtonText: {
-    color: '#1e3a5f',
+    color: theme.colors.text,
     fontWeight: 'bold',
     fontSize: 13,
   },
@@ -528,7 +561,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   bottomSheet: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,
@@ -543,18 +576,18 @@ const styles = StyleSheet.create({
   sheetTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
   },
   selectedTourName: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#0f172a',
+    color: theme.colors.text,
     marginBottom: 24,
   },
   sectionHeading: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
     marginBottom: 12,
   },
   scheduleSection: {
@@ -565,9 +598,9 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   slotCard: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.colors.surfaceVariant,
     borderWidth: 2,
-    borderColor: '#e2e8f0',
+    borderColor: theme.colors.border,
     borderRadius: 12,
     padding: 16,
     marginRight: 12,
@@ -575,43 +608,43 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   slotSelected: {
-    backgroundColor: '#1e3a5f',
-    borderColor: '#1e3a5f',
+    backgroundColor: theme.colors.secondary,
+    borderColor: theme.colors.secondary,
   },
   slotFull: {
-    backgroundColor: '#f1f5f9',
-    borderColor: '#cbd5e1',
+    backgroundColor: theme.colors.surfaceVariant,
+    borderColor: theme.colors.borderStrong,
     opacity: 0.6,
   },
   slotDate: {
     fontSize: 14,
-    color: '#64748b',
+    color: theme.colors.textMuted,
     fontWeight: '600',
     marginBottom: 4,
   },
   slotTime: {
     fontSize: 18,
-    color: '#0f172a',
+    color: theme.colors.text,
     fontWeight: 'bold',
     marginBottom: 8,
   },
   slotTextSelected: {
-    color: '#fff',
+    color: theme.colors.textInverse,
   },
   spotsBadge: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
   },
   spotsText: {
     fontSize: 11,
-    color: '#81b29a',
+    color: theme.colors.success,
     fontWeight: 'bold',
   },
   spotsFullText: {
     fontSize: 11,
-    color: '#ef4444',
+    color: theme.colors.error,
     fontWeight: 'bold',
   },
   ticketSection: {
@@ -623,26 +656,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: theme.colors.border,
   },
   ticketType: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#334155',
+    color: theme.colors.textSecondary,
   },
   ticketPrice: {
     fontSize: 14,
-    color: '#e8aa42',
+    color: theme.colors.primary,
     fontWeight: 'bold',
     marginTop: 2,
   },
   stepper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.colors.surfaceVariant,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.colors.border,
   },
   stepBtn: {
     padding: 10,
@@ -652,13 +685,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: 'bold',
     fontSize: 16,
-    color: '#0f172a',
+    color: theme.colors.text,
   },
   indemnityBox: {
     flexDirection: 'row',
-    backgroundColor: '#fffbeb',
+    backgroundColor: theme.colors.warningLight,
     borderWidth: 1,
-    borderColor: '#fde68a',
+    borderColor: theme.colors.warning,
     padding: 16,
     borderRadius: 12,
     marginBottom: 24,
@@ -666,28 +699,28 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   indemnityAgreed: {
-    backgroundColor: '#f0fdf4',
-    borderColor: '#bbf7d0',
+    backgroundColor: theme.colors.successLight,
+    borderColor: theme.colors.success,
   },
   checkbox: {
     width: 24,
     height: 24,
     borderRadius: 6,
     borderWidth: 2,
-    borderColor: '#cbd5e1',
+    borderColor: theme.colors.borderStrong,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     marginTop: 2,
   },
   indemnityTitle: {
     fontWeight: 'bold',
-    color: '#92400e',
+    color: theme.colors.warning,
     marginBottom: 4,
   },
   indemnityText: {
     fontSize: 12,
-    color: '#b45309',
+    color: theme.colors.warning,
     lineHeight: 18,
   },
   totalRow: {
@@ -695,31 +728,31 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderTopWidth: 2,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: theme.colors.border,
     paddingTop: 20,
     marginBottom: 24,
   },
   totalLabel: {
     fontSize: 16,
-    color: '#64748b',
+    color: theme.colors.textMuted,
     fontWeight: '600',
   },
   totalValue: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
   },
   confirmButton: {
-    backgroundColor: '#1e3a5f',
+    backgroundColor: theme.colors.secondary,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
   },
   confirmButtonDisabled: {
-    backgroundColor: '#94a3b8',
+    backgroundColor: theme.colors.textMuted,
   },
   confirmButtonText: {
-    color: '#fff',
+    color: theme.colors.textInverse,
     fontSize: 16,
     fontWeight: 'bold',
   },
@@ -731,7 +764,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   successModal: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     width: '100%',
     padding: 32,
     borderRadius: 24,
@@ -740,29 +773,29 @@ const styles = StyleSheet.create({
   successTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
     marginTop: 16,
     marginBottom: 8,
   },
   successText: {
     textAlign: 'center',
-    color: '#64748b',
+    color: theme.colors.textMuted,
     marginBottom: 24,
     lineHeight: 22,
   },
   referenceBox: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.colors.surfaceVariant,
     padding: 16,
     borderRadius: 12,
     width: '100%',
     alignItems: 'center',
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.colors.border,
   },
   refLabel: {
     fontSize: 11,
-    color: '#64748b',
+    color: theme.colors.textMuted,
     fontWeight: 'bold',
     letterSpacing: 1,
     marginBottom: 4,
@@ -770,18 +803,18 @@ const styles = StyleSheet.create({
   refValue: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#e8aa42',
+    color: theme.colors.primary,
     letterSpacing: 2,
   },
   successBtn: {
-    backgroundColor: '#e8aa42',
+    backgroundColor: theme.colors.primary,
     width: '100%',
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
   },
   successBtnText: {
-    color: '#fff',
+    color: theme.colors.textInverse,
     fontSize: 16,
     fontWeight: 'bold',
   }

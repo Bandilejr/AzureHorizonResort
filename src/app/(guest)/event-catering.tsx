@@ -8,11 +8,17 @@ import {
   Image,
   Modal,
   Dimensions,
-  SafeAreaView
+  SafeAreaView,
+  Alert,
+  ActivityIndicator,
+  useColorScheme
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { getTheme } from '@/constants/theme';
+import { auth, db, saveEventCatering } from '@/services/firebase-services';
+import { doc, getDoc } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
 
@@ -184,7 +190,12 @@ export default function EventCateringScreen() {
   const expectedAttendance = Number(params.expectedAttendance) || 30;
   const bookingId = params.bookingId as string;
 
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
+  const styles = createStyles(theme);
+
   const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
+  const [submitting, setSubmitting] = useState(false);
   
   // Modal States
   const [activeGalleryImages, setActiveGalleryImages] = useState<any[] | null>(null);
@@ -208,18 +219,125 @@ export default function EventCateringScreen() {
     return total;
   };
 
-  const handleFinalize = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    // In the next step, we will save this to Firebase along with the folio!
-    router.replace('/(tabs)/GuestPortal' as any);
+  const [linkedBooking, setLinkedBooking] = useState<any>(null);
+  const [loadingBooking, setLoadingBooking] = useState(true);
+  const [bookingError, setBookingError] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const validateBooking = async () => {
+      const user = auth.currentUser;
+      if (!user) {
+        setBookingError('Please sign in to book event catering.');
+        setLoadingBooking(false);
+        return;
+      }
+      if (!bookingId || bookingId === 'general') {
+        setBookingError('No valid venue booking linked. Please reserve an event venue space first (UC23).');
+        setLoadingBooking(false);
+        return;
+      }
+
+      try {
+        const docRef = doc(db, 'event_bookings', bookingId);
+        const snap = await getDoc(docRef);
+        if (!snap.exists()) {
+          setBookingError('Linked venue booking not found.');
+        } else {
+          const data = snap.data();
+          if (data.guestId !== user.uid) {
+            setBookingError('Unauthorized: You can only add catering to your own event booking.');
+          } else if (data.status !== 'Deposit Paid' && data.status !== 'confirmed') {
+            setBookingError(`Catering Locked: Linked venue booking status is "${data.status}". Venue deposit must be paid first (UC23).`);
+          } else {
+            setLinkedBooking(data);
+          }
+        }
+      } catch (err: any) {
+        console.error('Validation error:', err);
+        setBookingError('Failed to validate linked venue booking.');
+      } finally {
+        setLoadingBooking(false);
+      }
+    };
+    validateBooking();
+  }, [bookingId]);
+
+  const handleFinalize = async () => {
+    if (bookingError) {
+      Alert.alert('Booking Error', bookingError);
+      return;
+    }
+
+    const selected = CATERING_OPTIONS.filter((item) => selectedItems[item.id]);
+    if (selected.length === 0) {
+      Alert.alert('No Selection', 'Please select at least one catering option.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const guestId = auth.currentUser?.uid;
+      if (!guestId) {
+        Alert.alert('Not Signed In', 'Please sign in to book catering.');
+        setSubmitting(false);
+        return;
+      }
+      await saveEventCatering({
+        guestId,
+        bookingId: bookingId || 'general',
+        expectedAttendance,
+        items: selected.map((item) => ({
+          id: item.id,
+          name: item.name,
+          pricePerPerson: item.pricePerPerson,
+          quantity: Math.max(expectedAttendance, item.minPeople),
+          total: item.pricePerPerson * Math.max(expectedAttendance, item.minPeople),
+        })),
+        totalAmount: calculateTotal(),
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Catering Booked', 'Your catering selection has been saved. You can view it under My Activity.', [
+        { text: 'OK', onPress: () => router.replace('/guest-portal') },
+      ]);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to save catering booking. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
+
+  if (loadingBooking) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#c9a227" />
+        <Text style={{ marginTop: 12, color: theme.colors.textMuted }}>Validating linked venue booking...</Text>
+      </View>
+    );
+  }
+
+  if (bookingError) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+        <Ionicons name="lock-closed-outline" size={64} color="#c9a227" />
+        <Text style={{ fontSize: 20, fontWeight: '900', color: theme.colors.text, marginTop: 16, textAlign: 'center' }}>
+          {bookingError}
+        </Text>
+        <TouchableOpacity
+          style={{ backgroundColor: '#1e3a5f', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 14, marginTop: 24 }}
+          onPress={() => router.back()}
+        >
+          <Text style={{ color: '#ffffff', fontWeight: '800' }}>Back to Venue Booking</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={28} color="#1e3a5f" />
+          <Ionicons name="chevron-back" size={28} color={theme.colors.secondary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Event Catering</Text>
         <View style={{ width: 28 }} />
@@ -227,7 +345,7 @@ export default function EventCateringScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.guestCountBadge}>
-          <Ionicons name="people" size={20} color="#d97706" />
+          <Ionicons name="people" size={20} color={theme.colors.warning} />
           <Text style={styles.guestCountText}>Catering for {expectedAttendance} Guests</Text>
         </View>
 
@@ -266,7 +384,7 @@ export default function EventCateringScreen() {
                       setActiveInfoItem(item);
                     }}
                   >
-                    <Ionicons name="information-circle-outline" size={18} color="#1e3a5f" />
+                    <Ionicons name="information-circle-outline" size={18} color={theme.colors.secondary} />
                     <Text style={styles.infoBtnText}>View Menu</Text>
                   </TouchableOpacity>
 
@@ -299,8 +417,12 @@ export default function EventCateringScreen() {
           <Text style={styles.bottomTotalLabel}>Catering Total</Text>
           <Text style={styles.bottomTotalValue}>R {calculateTotal().toLocaleString()}</Text>
         </View>
-        <TouchableOpacity style={styles.checkoutBtn} onPress={handleFinalize}>
-          <Text style={styles.checkoutBtnText}>Complete Booking</Text>
+        <TouchableOpacity style={[styles.checkoutBtn, submitting && { opacity: 0.6 }]} onPress={handleFinalize} disabled={submitting}>
+          {submitting ? (
+            <ActivityIndicator color={theme.colors.textInverse} />
+          ) : (
+            <Text style={styles.checkoutBtnText}>Complete Booking</Text>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -338,7 +460,7 @@ export default function EventCateringScreen() {
             <View style={styles.infoModalHeader}>
               <Text style={styles.infoModalTitle}>{activeInfoItem?.name}</Text>
               <TouchableOpacity onPress={() => setActiveInfoItem(null)}>
-                <Ionicons name="close" size={28} color="#64748b" />
+                <Ionicons name="close" size={28} color={theme.colors.textMuted} />
               </TouchableOpacity>
             </View>
             
@@ -347,13 +469,13 @@ export default function EventCateringScreen() {
               
               {activeInfoItem?.menuDetails.map((detail, index) => (
                 <View key={index} style={styles.menuDetailRow}>
-                  <Ionicons name="checkmark-circle" size={18} color="#c9a227" style={{ marginTop: 2 }} />
+                  <Ionicons name="checkmark-circle" size={18} color={theme.colors.primary} style={{ marginTop: 2 }} />
                   <Text style={styles.menuDetailText}>{detail}</Text>
                 </View>
               ))}
               
               <View style={styles.minimumNotice}>
-                <Ionicons name="alert-circle" size={16} color="#b45309" />
+                <Ionicons name="alert-circle" size={16} color={theme.colors.warning} />
                 <Text style={styles.minimumNoticeText}>
                   Requires a minimum order for {activeInfoItem?.minPeople} people.
                 </Text>
@@ -367,45 +489,45 @@ export default function EventCateringScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+const createStyles = (theme: any) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.colors.background },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
   backButton: { padding: 4, marginLeft: -8 },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#1e3a5f' },
+  headerTitle: { fontSize: 18, fontWeight: 'bold', color: theme.colors.text },
   scrollContent: { padding: 20, paddingBottom: 100 },
   
-  guestCountBadge: { flexDirection: 'row', backgroundColor: '#fffbeb', padding: 12, borderRadius: 12, alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 20, borderWidth: 1, borderColor: '#fde68a' },
-  guestCountText: { color: '#92400e', fontWeight: 'bold', fontSize: 15 },
+  guestCountBadge: { flexDirection: 'row', backgroundColor: theme.colors.warningLight, padding: 12, borderRadius: 12, alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 20, borderWidth: 1, borderColor: theme.colors.warning },
+  guestCountText: { color: theme.colors.warning, fontWeight: 'bold', fontSize: 15 },
   
-  card: { backgroundColor: '#fff', borderRadius: 20, overflow: 'hidden', marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3, borderWidth: 2, borderColor: 'transparent' },
-  cardSelected: { borderColor: '#c9a227' },
+  card: { backgroundColor: theme.colors.surface, borderRadius: 20, overflow: 'hidden', marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3, borderWidth: 2, borderColor: 'transparent' },
+  cardSelected: { borderColor: theme.colors.primary },
   cardImage: { width: '100%', height: 180 },
   galleryBadge: { position: 'absolute', bottom: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.6)', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, gap: 4 },
   galleryBadgeText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
   
   cardBody: { padding: 16 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  itemTitle: { fontSize: 18, fontWeight: 'bold', color: '#0f172a', flex: 1 },
-  itemPrice: { fontSize: 16, fontWeight: 'bold', color: '#16a34a' },
-  itemDesc: { fontSize: 13, color: '#64748b', marginBottom: 16, lineHeight: 18 },
+  itemTitle: { fontSize: 18, fontWeight: 'bold', color: theme.colors.text, flex: 1 },
+  itemPrice: { fontSize: 16, fontWeight: 'bold', color: theme.colors.success },
+  itemDesc: { fontSize: 13, color: theme.colors.textMuted, marginBottom: 16, lineHeight: 18 },
   
   actionRow: { flexDirection: 'row', gap: 12 },
-  infoBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', paddingVertical: 12, borderRadius: 10, gap: 6 },
-  infoBtnText: { color: '#1e3a5f', fontWeight: '600', fontSize: 14 },
-  addBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#1e3a5f', paddingVertical: 12, borderRadius: 10 },
-  addBtnSelected: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1' },
-  addBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
-  addBtnTextSelected: { color: '#475569' },
+  infoBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceVariant, paddingVertical: 12, borderRadius: 10, gap: 6 },
+  infoBtnText: { color: theme.colors.text, fontWeight: '600', fontSize: 14 },
+  addBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.secondary, paddingVertical: 12, borderRadius: 10 },
+  addBtnSelected: { backgroundColor: theme.colors.surfaceVariant, borderWidth: 1, borderColor: theme.colors.borderStrong },
+  addBtnText: { color: theme.colors.textInverse, fontWeight: 'bold', fontSize: 14 },
+  addBtnTextSelected: { color: theme.colors.textSecondary },
   
-  selectedFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
-  selectedFooterText: { color: '#64748b', fontWeight: '500' },
-  selectedFooterPrice: { color: '#1e3a5f', fontWeight: 'bold', fontSize: 16 },
+  selectedFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: theme.colors.border },
+  selectedFooterText: { color: theme.colors.textMuted, fontWeight: '500' },
+  selectedFooterPrice: { color: theme.colors.text, fontWeight: 'bold', fontSize: 16 },
   
-  bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 16, paddingBottom: 30, borderTopWidth: 1, borderTopColor: '#e2e8f0', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 10 },
-  bottomTotalLabel: { fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 },
-  bottomTotalValue: { fontSize: 22, fontWeight: 'bold', color: '#1e3a5f' },
-  checkoutBtn: { backgroundColor: '#c9a227', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12 },
-  checkoutBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: theme.colors.surface, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 16, paddingBottom: 30, borderTopWidth: 1, borderTopColor: theme.colors.border, shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 10 },
+  bottomTotalLabel: { fontSize: 12, color: theme.colors.textMuted, textTransform: 'uppercase', letterSpacing: 1 },
+  bottomTotalValue: { fontSize: 22, fontWeight: 'bold', color: theme.colors.text },
+  checkoutBtn: { backgroundColor: theme.colors.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12 },
+  checkoutBtnText: { color: theme.colors.textInverse, fontWeight: 'bold', fontSize: 16 },
 
   /* Modal Styles */
   modalDarkOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center' },
@@ -413,12 +535,12 @@ const styles = StyleSheet.create({
   fullScreenImage: { width: width, height: width * 1.2 },
   
   modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.6)', justifyContent: 'flex-end' },
-  infoModalCard: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' },
-  infoModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  infoModalTitle: { fontSize: 20, fontWeight: 'bold', color: '#1e3a5f', flex: 1 },
-  infoModalSub: { fontSize: 14, fontWeight: 'bold', color: '#475569', marginBottom: 16 },
+  infoModalCard: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' },
+  infoModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+  infoModalTitle: { fontSize: 20, fontWeight: 'bold', color: theme.colors.text, flex: 1 },
+  infoModalSub: { fontSize: 14, fontWeight: 'bold', color: theme.colors.textSecondary, marginBottom: 16 },
   menuDetailRow: { flexDirection: 'row', gap: 10, marginBottom: 12, paddingRight: 20 },
-  menuDetailText: { fontSize: 14, color: '#475569', lineHeight: 22 },
-  minimumNotice: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fffbeb', padding: 12, borderRadius: 8, gap: 8, marginTop: 20, marginBottom: 20 },
-  minimumNoticeText: { color: '#92400e', fontSize: 13, fontWeight: '500' }
+  menuDetailText: { fontSize: 14, color: theme.colors.textSecondary, lineHeight: 22 },
+  minimumNotice: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.warningLight, padding: 12, borderRadius: 8, gap: 8, marginTop: 20, marginBottom: 20 },
+  minimumNoticeText: { color: theme.colors.warning, fontSize: 13, fontWeight: '500' }
 });

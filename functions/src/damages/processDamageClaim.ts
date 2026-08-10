@@ -7,13 +7,13 @@ const db = admin.firestore();
  * Processes a damage claim from post-event inspection.
  * Assigns maintenance technician, generates invoice, tracks resolution.
  */
-export const processDamageClaim = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
+export const processDamageClaim = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth?.token?.email) {
     throw new functions.https.HttpsError("unauthenticated", "User must be authenticated");
   }
 
   // Verify user is event_manager or admin
-  const userRef = db.collection("users").doc(context.auth.uid);
+  const userRef = db.collection("users").doc(context.auth.token.email);
   const userSnap = await userRef.get();
 
   if (!userSnap.exists) {

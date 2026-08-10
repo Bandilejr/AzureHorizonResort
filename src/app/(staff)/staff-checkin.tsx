@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ScrollView, ActivityIndicator, useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '@/services/firebase-services';
 import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
+import { getTheme } from '@/constants/theme';
 
 export default function StaffCheckinScreen() {
   const { profile } = useAuth();
   const router = useRouter();
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
+  const styles = createStyles(theme);
   const [staffId, setStaffId] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -69,7 +73,7 @@ export default function StaffCheckinScreen() {
           autoCapitalize="none"
         />
         <TouchableOpacity style={styles.searchBtn} onPress={searchStaff} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.searchBtnText}>Search</Text>}
+          {loading ? <ActivityIndicator color={theme.colors.textInverse} /> : <Text style={styles.searchBtnText}>Search</Text>}
         </TouchableOpacity>
       </View>
 
@@ -93,22 +97,22 @@ export default function StaffCheckinScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+const createStyles = (theme: any) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.colors.background },
   content: { padding: 20, paddingTop: 60, paddingBottom: 40 },
   header: { marginBottom: 24 },
-  title: { fontSize: 28, fontWeight: 'bold', color: '#1e3a5f' },
-  subtitle: { fontSize: 14, color: '#64748b', marginTop: 4 },
-  searchCard: { backgroundColor: '#fff', padding: 20, borderRadius: 16, marginBottom: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
-  input: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, padding: 16, fontSize: 16, marginBottom: 12 },
-  searchBtn: { backgroundColor: '#1e3a5f', paddingVertical: 14, borderRadius: 8, alignItems: 'center' },
-  searchBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  title: { fontSize: 28, fontWeight: 'bold', color: theme.colors.text },
+  subtitle: { fontSize: 14, color: theme.colors.textMuted, marginTop: 4 },
+  searchCard: { backgroundColor: theme.colors.surface, padding: 20, borderRadius: 16, marginBottom: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+  input: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, padding: 16, fontSize: 16, marginBottom: 12, color: theme.colors.text },
+  searchBtn: { backgroundColor: theme.colors.secondary, paddingVertical: 14, borderRadius: 8, alignItems: 'center' },
+  searchBtnText: { color: theme.colors.textInverse, fontWeight: 'bold', fontSize: 16 },
   results: { marginTop: 16 },
-  resultsTitle: { fontSize: 16, fontWeight: 'bold', color: '#1e3a5f', marginBottom: 12 },
-  staffCard: { backgroundColor: '#fff', padding: 16, borderRadius: 12, marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  resultsTitle: { fontSize: 16, fontWeight: 'bold', color: theme.colors.text, marginBottom: 12 },
+  staffCard: { backgroundColor: theme.colors.surface, padding: 16, borderRadius: 12, marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
   staffInfo: { flex: 1 },
-  staffName: { fontSize: 16, fontWeight: '600', color: '#1e3a5f' },
-  staffRole: { fontSize: 13, color: '#64748b', marginTop: 2 },
-  checkinBtn: { backgroundColor: '#16a34a', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
-  checkinBtnText: { color: '#fff', fontWeight: 'bold' },
+  staffName: { fontSize: 16, fontWeight: '600', color: theme.colors.text },
+  staffRole: { fontSize: 13, color: theme.colors.textMuted, marginTop: 2 },
+  checkinBtn: { backgroundColor: theme.colors.success, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
+  checkinBtnText: { color: theme.colors.textInverse, fontWeight: 'bold' },
 });

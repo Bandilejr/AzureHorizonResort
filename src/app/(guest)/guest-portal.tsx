@@ -1,565 +1,721 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  StyleSheet, 
-  Text, 
-  View, 
-  ScrollView, 
-  TouchableOpacity, 
+import {
+  StyleSheet,
+  Text,
+  View,
+  ScrollView,
+  TouchableOpacity,
   ActivityIndicator,
-  Alert,
   Image,
   SafeAreaView,
   useColorScheme,
-  StatusBar
+  StatusBar,
+  RefreshControl,
+  Modal,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { auth, db } from '../../services/firebase-services';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { useAuth } from '@/context/AuthContext';
+import { auth, db, listenForNotifications, markNotificationRead } from '../../services/firebase-services';
+import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { getTheme } from '@/constants/theme';
+import { useTranslation } from '@/i18n/hooks';
+import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-function GuestPortal() {
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [activeBooking, setActiveBooking] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
+const PINNED_STORAGE_KEY = '@azure_horizon_pinned_tabs';
 
-  const isLoggedIn = !!auth.currentUser;
+const UPCOMING_RESORT_EVENTS = [
+  {
+    id: 'evt-1',
+    title: 'Sunset Lounge Cocktail & Jazz Soirée',
+    date: 'Tonight · 18:30',
+    venue: 'Oceanfront Sunset Terrace',
+    price: 'R250 / person',
+    category: 'Gala & Music',
+    imageUrl: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80',
+  },
+  {
+    id: 'evt-2',
+    title: 'Azure Horizon Grand Gala Dinner',
+    date: 'Tomorrow · 20:00',
+    venue: 'Grand Crystal Ballroom',
+    price: 'R450 / person',
+    category: 'Dining & Gala',
+    imageUrl: 'https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?auto=format&fit=crop&w=800&q=80',
+  },
+  {
+    id: 'evt-3',
+    title: 'Beachside Seafood & Wine Tasting',
+    date: 'Saturday · 12:30',
+    venue: 'Private Beach Pavilion',
+    price: 'R350 / person',
+    category: 'Culinary',
+    imageUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=800&q=80',
+  },
+];
+
+export default function GuestPortal() {
+  const { profile, refreshProfile } = useAuth();
   const colorScheme = useColorScheme();
   const theme = getTheme(colorScheme as any);
+  const { t } = useTranslation();
+  const styles = createStyles(theme);
+
+  const AVAILABLE_TABS_TO_PIN = [
+    { id: 'guest-portal', label: t('portalHome'), icon: 'home' },
+    { id: 'digital-key', label: t('digitalRoomKey'), icon: 'key' },
+    { id: 'event-booking', label: t('eventsAndGalas'), icon: 'calendar' },
+    { id: 'dining', label: t('resortDining'), icon: 'restaurant' },
+    { id: 'spa', label: t('spaAndWellness'), icon: 'leaf' },
+    { id: 'loyalty', label: t('rewardsAndPoints'), icon: 'diamond' },
+    { id: 'profile', label: t('userProfile'), icon: 'person' },
+  ];
+
+  const [userBookings, setUserBookings] = useState<any[]>([]);
+  const [activeRoomStay, setActiveRoomStay] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinnedTabs, setPinnedTabs] = useState<string[]>([
+    'guest-portal', 'digital-key', 'event-booking', 'dining', 'spa', 'loyalty', 'profile'
+  ]);
+
+  // Custom Alert State
+  const [alertConfig, setAlertConfig] = useState<AlertConfig>({
+    visible: false,
+    title: '',
+    message: '',
+  });
+
+  const showAlert = (config: Omit<AlertConfig, 'visible'>) => {
+    setAlertConfig({ ...config, visible: true });
+  };
+
+  // Notifications
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showNotifModal, setShowNotifModal] = useState(false);
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const params = useLocalSearchParams();
+  const user = auth.currentUser;
+  // Visitor Mode is active when navigating via Explore or when unauthenticated
+  const isVisitor = params.mode === 'visitor' || !user || profile?.status === 'visitor';
+  const isResident = !isVisitor && user !== null;
+
+  const loadPortalData = async () => {
+    try {
+      if (!user || isVisitor) {
+        setIsLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      // Query active bookings for current user across collections
+      const fetchedBookings: any[] = [];
+
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      try {
+        const bookingsRef = collection(db, 'event_bookings');
+        const q = query(bookingsRef, where('guestId', '==', user.uid));
+        const snap = await getDocs(q);
+        snap.forEach((d) => {
+          const data = d.data() as any;
+          const status = (data.status || 'confirmed').toLowerCase();
+          const dateVal = data.eventDate || data.date || data.eventDateStr || '';
+
+          // Only active/upcoming events (not cancelled or completed, and date >= today)
+          if (status !== 'cancelled' && status !== 'completed') {
+            if (!dateVal || dateVal >= todayStr || new Date(dateVal).getTime() >= new Date(todayStr).getTime()) {
+              fetchedBookings.push({ id: d.id, type: 'Event', ...data });
+            }
+          }
+        });
+      } catch (_) {}
+
+      try {
+        const diningRef = collection(db, 'dining_reservations');
+        const qD = query(diningRef, where('guestId', '==', user.uid));
+        const snapD = await getDocs(qD);
+        snapD.forEach((d) => {
+          const data = d.data() as any;
+          const status = (data.status || 'confirmed').toLowerCase();
+          const dateVal = data.reservationDate || data.date || '';
+
+          if (status !== 'cancelled' && status !== 'completed') {
+            if (!dateVal || dateVal >= todayStr || new Date(dateVal).getTime() >= new Date(todayStr).getTime()) {
+              fetchedBookings.push({ id: d.id, type: 'Dining Table', ...data });
+            }
+          }
+        });
+      } catch (_) {}
+
+      // Deduplicate by ID and sort chronologically
+      const uniqueBookings = Array.from(new Map(fetchedBookings.map(item => [item.id, item])).values());
+      uniqueBookings.sort((a: any, b: any) => {
+        const dA = a.eventDate || a.date || a.reservationDate || '';
+        const dB = b.eventDate || b.date || b.reservationDate || '';
+        return dA.localeCompare(dB);
+      });
+
+      setUserBookings(uniqueBookings);
+
+      if (isResident) {
+        setActiveRoomStay({
+          id: 'res-101',
+          roomNumber: profile?.roomNumber !== 'N/A' && profile?.roomNumber ? profile.roomNumber : '101',
+          roomName: `Oceanfront Luxury Suite ${profile?.roomNumber || '101'}`,
+          checkInDate: 'Today',
+          checkOutDate: 'In 3 Days',
+          wifiPass: `AZURE-${profile?.roomNumber || '101'}`,
+          status: 'confirmed',
+        });
+      }
+
+      // Load pinned tabs
+      const savedPins = await AsyncStorage.getItem(PINNED_STORAGE_KEY);
+      if (savedPins) {
+        setPinnedTabs(JSON.parse(savedPins));
+      }
+    } catch (error) {
+      console.error('Guest portal fetch error:', error);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchUserData = async () => {
-      try {
-        const user = auth.currentUser;
-        
-        if (!user) {
-          setCurrentUser({ name: 'Visitor', status: 'visitor', roomNumber: 'N/A' });
-          return; 
-        }
+    loadPortalData();
+  }, [user, profile]);
 
-        const usersRef = collection(db, 'users'); 
-        const q = query(usersRef, where("uid", "==", user.uid));
-        const querySnapshot = await getDocs(q);
+  // Live notification listener for resident
+  useEffect(() => {
+    if (!user || !isResident) return;
+    const unsub = listenForNotifications(user.uid, (notifs) => {
+      const sorted = [...notifs].sort((a, b) => {
+        const aT = a.createdAt?.seconds || 0;
+        const bT = b.createdAt?.seconds || 0;
+        return bT - aT;
+      });
+      setNotifications(sorted);
+    });
+    return unsub;
+  }, [user?.uid, isResident]);
 
-        if (!querySnapshot.empty) {
-          const userData = querySnapshot.docs[0].data();
-          setCurrentUser(userData);
+  const onRefresh = () => {
+    setRefreshing(true);
+    refreshProfile();
+    loadPortalData();
+  };
 
-          const isResident = userData.status === 'resident' || (userData.roomNumber && userData.roomNumber !== 'N/A');
-          
-          if (isResident) {
-            setActiveBooking({
-              roomNumber: userData.roomNumber !== 'N/A' ? userData.roomNumber : 'TBD',
-              roomName: 'Ocean View Suite', 
-              checkOutDate: 'Oct 16',
-              wifiPass: `AZURE-${userData.roomNumber}`
-            });
-          }
-        } else {
-          setCurrentUser({ name: 'Visitor', status: 'visitor', roomNumber: 'N/A' });
-        }
-      } catch (error) {
-        console.error("Local execution error:", error);
-        setCurrentUser({ name: 'Visitor', status: 'visitor', roomNumber: 'N/A' });
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchUserData();
-  }, []);
-
-  const isResident = currentUser?.status === 'resident' || (currentUser?.roomNumber && currentUser.roomNumber !== 'N/A');
-
-  const handleFeatureClick = (feature: string, locked: boolean) => {
+  const handleTileClick = (featureTitle: string, route: string, locked: boolean) => {
     if (locked) {
-      Alert.alert("Feature Locked", "Please sign in and check into a room to unlock this feature.");
+      showAlert({
+        title: '🔒 Resident Access Required',
+        message: `"${featureTitle}" is reserved for checked-in resort guests.\n\nPlease sign in to your room stay to access digital room key, room service, and billing.`,
+        type: 'warning',
+        confirmText: 'Sign In Now',
+        cancelText: 'Cancel',
+        onConfirm: () => {
+          router.push('/login');
+        },
+      });
       return;
     }
-    Alert.alert("Navigation", `Opening ${feature}...`);
+    router.push(route as any);
   };
 
-  const handleUnlockDoor = () => {
-    Alert.alert("Digital Key", "NFC Activated. Hold phone near door lock.");
-  };
-
-  const handleAuthAction = async () => {
-    if (isLoggedIn) {
-      await auth.signOut();
+  const togglePinTab = async (tabId: string) => {
+    let updated: string[];
+    if (pinnedTabs.includes(tabId)) {
+      if (pinnedTabs.length <= 3) {
+        showAlert({ title: 'Minimum Tabs Required', message: 'You must keep at least 3 pinned tabs.', type: 'warning' });
+        return;
+      }
+      updated = pinnedTabs.filter(id => id !== tabId);
+    } else {
+      updated = [...pinnedTabs, tabId];
     }
-    router.replace('/login');
+    setPinnedTabs(updated);
+    await AsyncStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(updated));
   };
 
-  if (isLoading) {
-    return (
-      <SafeAreaView style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </SafeAreaView>
-    );
-  }
+  const featuresGrid = [
+    { title: t('digitalRoomKey'), sub: t('nfcBiometricUnlock'), icon: 'key', color: '#c9a227', route: '/(guest)/digital-key', locked: isVisitor },
+    { title: 'Suites & Villas', sub: 'Explore Luxury Accommodations', icon: 'bed', color: '#3b82f6', route: '/(guest)/room-gallery', locked: false },
+    { title: t('resortDining'), sub: t('menusTableReservations'), icon: 'restaurant', color: '#eab308', route: '/(guest)/dining', locked: false },
+    { title: 'Room Service', sub: 'In-Room Food & Amenities', icon: 'fast-food', color: '#f97316', route: '/(guest)/room-service', locked: isVisitor },
+    { title: t('spaAndWellness'), sub: t('massagesHydrotherapy'), icon: 'leaf', color: '#10b981', route: '/(guest)/spa', locked: false },
+    { title: 'Resort Events', sub: 'Galas, Jazz & Beach Parties', icon: 'calendar', color: '#8b5cf6', route: '/(guest)/event-booking', locked: false },
+    { title: 'Loyalty Rewards', sub: 'Points, Tiers & Food Coupons', icon: 'diamond', color: '#ec4899', route: '/(guest)/loyalty', locked: false },
+    { title: 'My Stays', sub: 'View & Manage Reservations', icon: 'calendar-number', color: '#06b6d4', route: '/(guest)/reservations', locked: isVisitor },
+    { title: 'Folio & Billing', sub: 'Paystack Cards & Room Charges', icon: 'card', color: '#6366f1', route: '/(guest)/billing', locked: isVisitor },
+    { title: 'My Orders', sub: 'Track Room Service & Spa', icon: 'receipt', color: '#f43f5e', route: '/(guest)/my-orders', locked: isVisitor },
+    { title: 'Local Tours', sub: 'Guided Island Excursions', icon: 'boat', color: '#14b8a6', route: '/(guest)/tours', locked: false },
+    { title: 'Live Complaint', sub: 'Maintenance & Service Requests', icon: 'warning', color: '#ef4444', route: '/(guest)/live-complaint', locked: isVisitor },
+  ];
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <StatusBar 
-        barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} 
-      />
-      <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
+
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />}
+      >
+        {/* Header */}
         <View style={styles.header}>
           <View>
-            <Text style={[styles.greeting, { color: theme.colors.textSecondary }]}>Good Afternoon,</Text>
-            <Text style={[styles.name, { color: theme.colors.text }]}>{currentUser?.name || 'Visitor'}</Text>
-          </View>
-          <TouchableOpacity style={[styles.profileAvatar, { backgroundColor: theme.colors.surfaceVariant }]} onPress={handleAuthAction}>
-            <Ionicons 
-              name={isLoggedIn ? "log-out-outline" : "log-in-outline"} 
-              size={24} 
-              color={theme.colors.secondary} 
-            />
-          </TouchableOpacity>
-        </View>
-
-        {isResident && activeBooking ? (
-          <View style={styles.digitalKeyCard}>
-            <View style={styles.keyHeader}>
-              <Text style={styles.roomLabel}>YOUR SUITE</Text>
-              <Text style={styles.roomNumber}>{activeBooking.roomNumber}</Text>
-            </View>
-            <Text style={styles.roomName}>{activeBooking.roomName}</Text>
-            
-            <TouchableOpacity style={styles.unlockButton} onPress={handleUnlockDoor}>
-              <View style={styles.nfcRing}>
-                <Ionicons name="wifi" size={32} color="#fff" style={{ transform: [{ rotate: '90deg' }] }} />
-              </View>
-              <Text style={styles.unlockText}>Tap to Unlock Door</Text>
-            </TouchableOpacity>
-            
-            <View style={styles.keyFooter}>
-              <Text style={styles.keyFooterText}>Checkout: {activeBooking.checkOutDate}</Text>
-              <Text style={styles.keyFooterText}>WiFi: {activeBooking.wifiPass}</Text>
+            <Text style={styles.greetingLabel}>GOOD MORNING,</Text>
+            <Text style={styles.userName}>
+              {isVisitor ? 'Guest Explorer' : (profile?.displayName || user?.displayName || 'Resort Resident')}
+            </Text>
+            <View style={[styles.statusBadge, isVisitor && styles.statusBadgeVisitor]}>
+              <Ionicons
+                name={isVisitor ? 'compass-outline' : 'shield-checkmark-sharp'}
+                size={12}
+                color={isVisitor ? '#d97706' : '#16a34a'}
+              />
+              <Text style={[styles.statusBadgeText, isVisitor && styles.statusBadgeTextVisitor]}>
+                {isVisitor
+                  ? 'Visitor Mode (Explore Access)'
+                  : `Verified Resident (Room ${profile?.roomNumber || '101'})`}
+              </Text>
             </View>
           </View>
-        ) : (
-          <TouchableOpacity 
-            style={styles.visitorPromoCard}
-            activeOpacity={0.9}
-            onPress={() => router.push('/room-gallery' as any)}
-          >
-            <Image 
-              source={{ uri: 'https://images.unsplash.com/photo-1542314831-c6a4d1424391?q=80&w=800&auto=format&fit=crop' }} 
-              style={styles.promoImage} 
-            />
-            <View style={styles.promoOverlay}>
-              <Text style={styles.promoTitle}>Ready for Paradise?</Text>
-              <Text style={styles.promoSubtitle}>Explore luxury suites and check in today.</Text>
-              <View style={styles.promoButton}>
-                <Text style={styles.promoButtonText}>Browse Suites</Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-        )}
 
-        {isResident && (
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Member Rewards</Text>
-            <TouchableOpacity 
-              style={[styles.loyaltyCard, { backgroundColor: theme.colors.primary }]}
-              onPress={() => router.push('/loyalty' as any)}
-              activeOpacity={0.9}
-            >
-              <View style={styles.loyaltyContent}>
-                <Text style={styles.loyaltyTitle}>Loyalty Program</Text>
-                <Text style={styles.loyaltySubtitle}>View points, tier status, and redeem rewards</Text>
-              </View>
-              <Ionicons name="gift" size={32} color="#fff" style={styles.loyaltyIcon} />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {isResident && (
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Quick Actions</Text>
-            <View style={styles.quickActionsContainer}>
-              {[
-                { icon: 'bed', label: 'Housekeeping', route: '/room-service' },
-                { icon: 'fast-food', label: 'My Orders', route: '/my-orders' }, 
-                { icon: 'leaf', label: 'Spa Booking', route: '/spa' },
-                { icon: 'wallet', label: 'My Bill', route: '/billing' } 
-              ].map((action, i) => (
-                <TouchableOpacity 
-                  key={i} 
-                  style={styles.quickActionButton} 
-                  onPress={() => {
-                    if (action.route) {
-                      router.push(action.route as any);
-                    } else {
-                      handleFeatureClick(action.label, false);
-                    }
-                  }}
+          <View style={styles.headerActionRow}>
+            {isVisitor ? (
+              <TouchableOpacity
+                style={styles.signInHeaderBtn}
+                onPress={() => router.push('/login')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="log-in-outline" size={16} color="#0f172a" />
+                <Text style={styles.signInHeaderBtnText}>Sign In</Text>
+              </TouchableOpacity>
+            ) : (
+              <>
+                {/* Notification Bell */}
+                <TouchableOpacity
+                  style={styles.pinBtn}
+                  onPress={() => setShowNotifModal(true)}
+                  activeOpacity={0.8}
                 >
-                  <View style={[styles.quickActionIcon, { backgroundColor: theme.colors.surface }]}>
-                    <Ionicons name={action.icon as any} size={24} color={theme.colors.secondary} />
-                  </View>
-                  <Text style={[styles.quickActionLabel, { color: theme.colors.textSecondary }]}>{action.label}</Text>
+                  <Ionicons name="notifications-outline" size={20} color="#c9a227" />
+                  {unreadCount > 0 && (
+                    <View style={styles.notifBadge}>
+                      <Text style={styles.notifBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
-              ))}
+                <TouchableOpacity style={styles.pinBtn} onPress={() => setShowPinModal(true)} activeOpacity={0.8}>
+                  <Ionicons name="options-outline" size={20} color="#c9a227" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => router.push('/(guest)/profile')} style={styles.avatarButton}>
+                  <Ionicons name="person" size={22} color="#c9a227" />
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+
+        {/* Visitor Banner with Direct Sign In */}
+        {isVisitor && (
+          <View style={styles.visitorBanner}>
+            <Ionicons name="lock-closed" size={20} color="#c9a227" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.visitorBannerTitle}>Visitor Access Active</Text>
+              <Text style={styles.visitorBannerSub}>{t('signInToUnlock')}</Text>
             </View>
+            <TouchableOpacity
+              style={styles.visitorSignInBtn}
+              onPress={() => router.push('/login')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.visitorSignInBtnText}>Sign In</Text>
+            </TouchableOpacity>
           </View>
         )}
 
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
+        {/* Resort Climate Widget */}
+        <View style={styles.weatherCard}>
+          <View style={styles.weatherInfo}>
+            <Ionicons name="sunny-outline" size={28} color="#eab308" />
+            <View>
+              <Text style={styles.weatherLocation}>Coastal Bay Resort</Text>
+              <Text style={styles.weatherTemp}>26°C · Sunny & Clear</Text>
+            </View>
           </View>
-          
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.swimlane}>
-            {[
-              { title: 'Suites & Villas', sub: 'Accommodations', icon: 'bed-outline', color: theme.colors.primary, route: '/room-gallery' },
-              { title: 'Event Venues', sub: 'Book Spaces', icon: 'business-outline', color: theme.colors.secondary, route: '/event-booking' },
-              { title: 'The Ocean Grill', sub: 'Fine Dining', icon: 'restaurant', color: '#e07a5f', route: '/dining' },
-              { title: 'Horizon Spa', sub: 'Wellness', icon: 'leaf', color: '#81b29a', route: '/spa' },
-              { title: 'Island Tours', sub: 'Excursions', icon: 'compass', color: '#e8aa42', route: '/tours' }
-            ].map((item, i) => (
-              <TouchableOpacity 
-                key={i} 
-                style={styles.amenityCard} 
-                onPress={() => {
-                  if (item.route) {
-                    router.push(item.route as any);
-                  } else {
-                    handleFeatureClick(item.title, false);
-                  }
-                }}
-              >
-                <View style={[styles.amenityIconContainer, { backgroundColor: item.color + '20' }]}>
-                  <Ionicons name={item.icon as any} size={28} color={item.color} />
-                </View>
-                <Text style={[styles.amenityTitle, { color: theme.colors.text }]}>{item.title}</Text>
-                <Text style={[styles.amenitySub, { color: theme.colors.textSecondary }]}>{item.sub}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+          <View style={styles.weatherMeta}>
+            <Text style={styles.weatherMetaText}>Humidity 58%</Text>
+            <Text style={styles.weatherMetaText}>UV Index: High</Text>
+          </View>
         </View>
 
-        <View style={[styles.section, { paddingBottom: 40 }]}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>My Account</Text>
-          <View style={styles.listContainer}>
-            {[
-              { title: 'My Reservations', icon: 'calendar', locked: !isResident, route: '/reservations' },
-              { title: 'Current Bill & Charges', icon: 'receipt', locked: !isResident, route: '/billing' },
-              { title: 'Guest Concierge Chat', icon: 'chatbubbles', locked: !isResident, route: '/concierge' }
-            ].map((item, i) => (
-              <TouchableOpacity 
-                key={i} 
-                style={[styles.listItem, item.locked && styles.listItemLocked]}
-                onPress={() => {
-                  if (item.locked) {
-                    handleFeatureClick(item.title, true);
-                  } else if (item.route) {
-                    router.push(item.route as any);
-                  }
-                }}
-              >
-                <View style={styles.listItemLeft}>
-                  <Ionicons 
-                    name={item.icon as any} 
-                    size={22} 
-                    color={item.locked ? theme.colors.textMuted : theme.colors.secondary} 
-                  />
-                  <Text style={[styles.listItemText, item.locked && styles.listItemTextLocked]}>{item.title}</Text>
-                </View>
-                {item.locked ? (
-                  <Ionicons name="lock-closed" size={18} color={theme.colors.textMuted} />
-                ) : (
-                  <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
-                )}
+        {/* Priority NFC Digital Room Key Banner for Residents */}
+        {isResident && (
+          <TouchableOpacity
+            style={styles.digitalKeyBanner}
+            onPress={() => router.push('/(guest)/digital-key')}
+            activeOpacity={0.85}
+          >
+            <View style={styles.digitalKeyIconWrap}>
+              <Ionicons name="key" size={28} color="#0f172a" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.digitalKeyBannerTitle}>{t('digitalRoomKeyReady')}</Text>
+              <Text style={styles.digitalKeyBannerSub}>Tap to open Room {profile?.roomNumber || '101'} via NFC or Biometrics</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#0f172a" />
+          </TouchableOpacity>
+        )}
+
+        {/* MY UPCOMING BOOKINGS & RESERVATIONS (RESIDENT PERSONAL LOG) */}
+        {isResident && (
+          <View style={{ marginTop: 12, marginBottom: 8 }}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>{t('myBookedEventsAndStays')}</Text>
+              <TouchableOpacity onPress={() => router.push('/(guest)/reservations')}>
+                <Text style={styles.seeAllText}>{t('manageStays')}</Text>
               </TouchableOpacity>
-            ))}
+            </View>
+
+            {userBookings.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.eventsScroll}>
+                {userBookings.map((b) => {
+                  const rawStatus = (b.status || 'confirmed').toLowerCase();
+                  const isPending = rawStatus === 'pending' || rawStatus === 'pending_payment';
+                  const statusLabel = isPending ? 'PENDING PAYMENT' : rawStatus.replace('_', ' ').toUpperCase();
+                  const statusBg = isPending ? '#fffbeb' : '#f0fdf4';
+                  const statusColor = isPending ? '#d97706' : '#16a34a';
+                  const statusBorder = isPending ? '#f59e0b' : '#22c55e';
+
+                  const title = b.venueName
+                    ? `${b.venueName}${b.eventType ? ` · ${b.eventType}` : ''}`
+                    : b.restaurantName
+                    ? `${b.restaurantName} (Dining)`
+                    : b.eventTitle || b.title || b.roomName || 'Resort Stay Reservation';
+
+                  const dateStr = b.eventDate || b.reservationDate || b.date || b.eventDateStr || 'Upcoming';
+                  const guestNum = b.expectedAttendance || b.guestsCount || b.guests || b.partySize || b.numberOfGuests || 1;
+
+                  return (
+                    <TouchableOpacity
+                      key={b.id}
+                      style={styles.myBookingCard}
+                      onPress={() => router.push('/(guest)/reservations')}
+                      activeOpacity={0.85}
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <View style={[styles.myBookingBadge, { backgroundColor: statusBg, borderColor: statusBorder, borderWidth: 1 }]}>
+                          <Text style={[styles.myBookingBadgeText, { color: statusColor }]}>{statusLabel}</Text>
+                        </View>
+                      </View>
+
+                      <Text style={styles.myBookingTitle} numberOfLines={1}>{title}</Text>
+                      <Text style={styles.myBookingMeta}>
+                        <Ionicons name="calendar-outline" size={12} color="#c9a227" /> {dateStr}
+                      </Text>
+                      <Text style={styles.myBookingMeta}>
+                        <Ionicons name="people-outline" size={12} color="#94a3b8" /> Guests: {guestNum}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            ) : (
+              <View style={styles.emptyBookingsCard}>
+                <Ionicons name="calendar-outline" size={28} color="#c9a227" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.emptyBookingsTitle}>{t('emptyBookingsTitle')}</Text>
+                  <Text style={styles.emptyBookingsSub}>Explore resort galas, jazz nights, and dining below to book your seats.</Text>
+                </View>
+              </View>
+            )}
           </View>
+        )}
+
+
+
+        {/* Explore Resort Feature Grid */}
+        <Text style={styles.sectionTitleGrid}>Explore Azure Horizon</Text>
+        <View style={styles.gridContainer}>
+          {featuresGrid.map((item, index) => (
+            <TouchableOpacity
+              key={index}
+              style={[styles.gridTile, item.locked && styles.gridTileLocked]}
+              onPress={() => handleTileClick(item.title, item.route, item.locked)}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.tileIconWrap, { backgroundColor: item.color + '20' }]}>
+                <Ionicons name={item.icon as any} size={24} color={item.color} />
+              </View>
+
+              {item.locked && (
+                <View style={styles.lockBadge}>
+                  <Ionicons name="lock-closed" size={12} color="#f59e0b" />
+                </View>
+              )}
+
+              <Text style={styles.tileTitle}>{item.title}</Text>
+              <Text style={styles.tileSub} numberOfLines={2}>{item.sub}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
       </ScrollView>
+
+      {/* CUSTOMIZE PINNED TABS MODAL */}
+      <Modal visible={showPinModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Customize Pinned Navigation</Text>
+              <TouchableOpacity onPress={() => setShowPinModal(false)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={20} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalSub}>Select which features stay pinned on your bottom tab bar for 1-tap access.</Text>
+
+            <ScrollView style={{ maxHeight: 300, marginVertical: 12 }}>
+              {AVAILABLE_TABS_TO_PIN.map((tab) => {
+                const isPinned = pinnedTabs.includes(tab.id);
+                return (
+                  <TouchableOpacity
+                    key={tab.id}
+                    style={[styles.pinItem, isPinned && styles.pinItemActive]}
+                    onPress={() => togglePinTab(tab.id)}
+                  >
+                    <Ionicons name={tab.icon as any} size={20} color={isPinned ? '#c9a227' : '#94a3b8'} />
+                    <Text style={[styles.pinItemLabel, isPinned && styles.pinItemLabelActive]}>{tab.label}</Text>
+                    <Ionicons
+                      name={isPinned ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={22}
+                      color={isPinned ? '#c9a227' : '#475569'}
+                    />
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <TouchableOpacity style={styles.modalSaveBtn} onPress={() => setShowPinModal(false)}>
+              <Text style={styles.modalSaveBtnText}>Done / Save Layout</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* NOTIFICATIONS MODAL */}
+      <Modal visible={showNotifModal} animationType="slide" transparent onRequestClose={() => setShowNotifModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '85%' }]}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>{t('notificationsTitle')}</Text>
+                {unreadCount > 0 && (
+                  <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginTop: 2 }}>
+                    {unreadCount} unread
+                  </Text>
+                )}
+              </View>
+              <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                {unreadCount > 0 && (
+                  <TouchableOpacity
+                    onPress={async () => {
+                      await Promise.all(
+                        notifications.filter(n => !n.read).map(n => markNotificationRead(n.id))
+                      );
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, color: '#c9a227', fontWeight: '700' }}>Mark all read</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={() => setShowNotifModal(false)} style={styles.modalCloseBtn}>
+                  <Ionicons name="close" size={20} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {notifications.length === 0 ? (
+              <View style={{ alignItems: 'center', paddingVertical: 40, gap: 12 }}>
+                <Ionicons name="notifications-off-outline" size={48} color={theme.colors.textMuted} />
+                <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '700' }}>{t('noNotifications')}</Text>
+                <Text style={{ color: theme.colors.textMuted, fontSize: 13, textAlign: 'center' }}>
+                  Staff updates about your bookings and events will appear here.
+                </Text>
+              </View>
+            ) : (
+              <ScrollView style={{ marginVertical: 12 }} showsVerticalScrollIndicator={false}>
+                {notifications.map((notif) => {
+                  const typeIcon: Record<string, any> = {
+                    refund_update: 'cash-outline',
+                    inspection_update: 'clipboard-outline',
+                    damage_record: 'warning-outline',
+                    complaint_resolved: 'checkmark-done-outline',
+                  };
+                  const iconName = typeIcon[notif.type] || 'notifications-outline';
+                  const createdAt = notif.createdAt?.seconds
+                    ? new Date(notif.createdAt.seconds * 1000).toLocaleString('en-ZA', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+                    : '—';
+
+                  return (
+                    <TouchableOpacity
+                      key={notif.id}
+                      style={[
+                        styles.notifItem,
+                        !notif.read && styles.notifItemUnread,
+                      ]}
+                      onPress={async () => {
+                        if (!notif.read) await markNotificationRead(notif.id);
+                      }}
+                    >
+                      <View style={[styles.notifIcon, !notif.read && { backgroundColor: 'rgba(201,162,39,0.15)' }]}>
+                        <Ionicons name={iconName} size={20} color={notif.read ? theme.colors.textMuted : '#c9a227'} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.notifTitle, !notif.read && { color: theme.colors.text }]}>
+                          {notif.title}
+                        </Text>
+                        <Text style={styles.notifMessage} numberOfLines={3}>{notif.message}</Text>
+                        <Text style={styles.notifTime}>{createdAt}</Text>
+                      </View>
+                      {!notif.read && <View style={styles.unreadDot} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
     </SafeAreaView>
   );
 }
 
-export default GuestPortal;
+const createStyles = (theme: any) =>
+  StyleSheet.create({
+    content: { padding: 20, paddingTop: 10, paddingBottom: 40 },
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollContainer: {
-    flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
-  },
-  greeting: {
-    fontSize: 14,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  name: {
-    fontSize: 28,
-    fontWeight: 'bold',
-  },
-  profileAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  section: {
-    marginTop: 24,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    paddingHorizontal: 20,
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    paddingHorizontal: 20,
-    marginBottom: 16,
-  },
-  digitalKeyCard: {
-    marginHorizontal: 20,
-    backgroundColor: '#1e3a5f',
-    borderRadius: 24,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  keyHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  roomLabel: {
-    color: '#c9a227',
-    fontWeight: 'bold',
-    fontSize: 12,
-    letterSpacing: 1,
-  },
-  roomNumber: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  roomName: {
-    color: '#fff',
-    fontSize: 24,
-    marginTop: 4,
-    marginBottom: 30,
-  },
-  unlockButton: {
-    alignSelf: 'center',
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  nfcRing: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-    marginBottom: 12,
-  },
-  unlockText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  keyFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
-    paddingTop: 16,
-  },
-  keyFooterText: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 13,
-  },
-  visitorPromoCard: {
-    marginHorizontal: 20,
-    height: 200,
-    borderRadius: 24,
-    overflow: 'hidden',
-  },
-  promoImage: {
-    width: '100%',
-    height: '100%',
-    position: 'absolute',
-  },
-  promoOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    padding: 24,
-    justifyContent: 'flex-end',
-  },
-  promoTitle: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  promoSubtitle: {
-    color: '#fff',
-    opacity: 0.9,
-    marginBottom: 16,
-  },
-  promoButton: {
-    backgroundColor: '#c9a227',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  promoButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  loyaltyCard: {
-    marginHorizontal: 20,
-    borderRadius: 20,
-    padding: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  loyaltyContent: {
-    flex: 1,
-  },
-  loyaltyTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 6,
-  },
-  loyaltySubtitle: {
-    color: '#fff',
-    fontSize: 13,
-    opacity: 0.9,
-  },
-  loyaltyIcon: {
-    opacity: 0.8,
-    marginLeft: 16,
-  },
-  quickActionsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-  },
-  quickActionButton: {
-    alignItems: 'center',
-    width: '23%',
-  },
-  quickActionIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  quickActionLabel: {
-    fontSize: 11,
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-  swimlane: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  amenityCard: {
-    width: 140,
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 20,
-    marginHorizontal: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  amenityIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  amenityTitle: {
-    fontWeight: 'bold',
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  amenitySub: {
-    fontSize: 12,
-  },
-  listContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    marginHorizontal: 20,
-    paddingHorizontal: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  listItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  listItemLocked: {
-    opacity: 0.6,
-  },
-  listItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  listItemText: {
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  listItemTextLocked: {
-    color: '#94a3b8',
-  }
-});
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+    greetingLabel: { fontSize: 11, fontWeight: '800', color: theme.colors.textMuted, letterSpacing: 1 },
+    userName: { fontSize: 24, fontWeight: '900', color: theme.colors.text, marginTop: 2 },
+    statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(22,163,74,0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, marginTop: 6, alignSelf: 'flex-start' },
+    statusBadgeVisitor: { backgroundColor: 'rgba(217,119,6,0.15)' },
+    statusBadgeText: { fontSize: 11, fontWeight: '700', color: '#16a34a' },
+    statusBadgeTextVisitor: { color: '#d97706' },
+
+    headerActionRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+    signInHeaderBtn: { backgroundColor: '#c9a227', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 6 },
+    signInHeaderBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 13 },
+    pinBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#c9a227' },
+    avatarButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#c9a227' },
+
+    visitorBanner: { backgroundColor: 'rgba(201,162,39,0.12)', borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: '#c9a227', marginBottom: 16 },
+    visitorBannerTitle: { color: '#c9a227', fontWeight: '800', fontSize: 14 },
+    visitorBannerSub: { color: '#94a3b8', fontSize: 12, marginTop: 2 },
+    visitorSignInBtn: { backgroundColor: '#c9a227', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
+    visitorSignInBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 12 },
+
+    weatherCard: { backgroundColor: theme.colors.surface, borderRadius: 20, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: theme.colors.border, marginBottom: 16 },
+    weatherInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    weatherLocation: { fontSize: 14, fontWeight: '800', color: theme.colors.text },
+    weatherTemp: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
+    weatherMeta: { alignItems: 'flex-end' },
+    weatherMetaText: { fontSize: 11, color: theme.colors.textMuted, fontWeight: '600' },
+
+    digitalKeyBanner: { backgroundColor: '#c9a227', borderRadius: 20, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 20, elevation: 4 },
+    digitalKeyIconWrap: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' },
+    digitalKeyBannerTitle: { color: '#0f172a', fontSize: 16, fontWeight: '900' },
+    digitalKeyBannerSub: { color: '#1e293b', fontSize: 12, marginTop: 2, fontWeight: '600' },
+
+    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+    sectionTitle: { fontSize: 18, fontWeight: '900', color: theme.colors.text },
+    seeAllText: { fontSize: 13, fontWeight: '700', color: theme.colors.primary },
+
+    eventsScroll: { gap: 14, paddingRight: 20, paddingBottom: 16 },
+    eventCard: { width: 280, backgroundColor: theme.colors.surface, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: theme.colors.border },
+    eventImage: { width: '100%', height: 130 },
+    eventBadge: { position: 'absolute', top: 12, left: 12, backgroundColor: 'rgba(15,23,42,0.85)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#c9a227' },
+    eventBadgeText: { color: '#c9a227', fontSize: 10, fontWeight: '800' },
+    eventBody: { padding: 14 },
+    eventTitle: { fontSize: 15, fontWeight: '800', color: theme.colors.text, marginBottom: 6 },
+    eventDate: { fontSize: 12, color: '#c9a227', fontWeight: '700', marginBottom: 4 },
+    eventVenue: { fontSize: 12, color: theme.colors.textMuted, marginBottom: 12 },
+    eventFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    eventPrice: { fontSize: 14, fontWeight: '900', color: theme.colors.text },
+    eventBookBtn: { backgroundColor: '#c9a227', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
+    eventBookBtnText: { color: '#0f172a', fontSize: 12, fontWeight: '800' },
+
+    myBookingCard: { width: 240, backgroundColor: theme.colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#c9a227' },
+    myBookingBadge: { backgroundColor: 'rgba(22,163,74,0.15)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, alignSelf: 'flex-start', marginBottom: 8 },
+    myBookingBadgeText: { color: '#16a34a', fontSize: 10, fontWeight: '800' },
+    myBookingTitle: { color: theme.colors.text, fontSize: 14, fontWeight: '800', marginBottom: 6 },
+    myBookingMeta: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
+
+    emptyBookingsCard: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: theme.colors.border },
+    emptyBookingsTitle: { color: theme.colors.text, fontSize: 14, fontWeight: '800' },
+    emptyBookingsSub: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
+
+    sectionTitleGrid: { fontSize: 18, fontWeight: '900', color: theme.colors.text, marginTop: 12, marginBottom: 14 },
+    gridContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+    gridTile: { width: '48%', backgroundColor: theme.colors.surface, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: theme.colors.border, position: 'relative' },
+    gridTileLocked: { opacity: 0.85, borderColor: 'rgba(245,158,11,0.3)' },
+    tileIconWrap: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+    lockBadge: { position: 'absolute', top: 12, right: 12, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(15,23,42,0.8)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#f59e0b' },
+    tileTitle: { fontSize: 15, fontWeight: '800', color: theme.colors.text, marginBottom: 4 },
+    tileSub: { fontSize: 11, color: theme.colors.textMuted, lineHeight: 15 },
+
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+    modalContent: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+    modalTitle: { fontSize: 20, fontWeight: '900', color: theme.colors.text },
+    modalCloseBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' },
+    modalSub: { fontSize: 13, color: theme.colors.textMuted, marginBottom: 16 },
+
+    pinItem: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.colors.surfaceVariant, padding: 14, borderRadius: 14, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
+    pinItemActive: { borderColor: '#c9a227', backgroundColor: 'rgba(201,162,39,0.1)' },
+    pinItemLabel: { flex: 1, fontSize: 14, fontWeight: '700', color: theme.colors.textSecondary },
+    pinItemLabelActive: { color: theme.colors.text, fontWeight: '800' },
+
+    modalSaveBtn: { backgroundColor: '#c9a227', paddingVertical: 14, borderRadius: 14, alignItems: 'center', marginTop: 12 },
+    modalSaveBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 15 },
+
+    // Notification bell
+    notifBadge: {
+      position: 'absolute', top: -4, right: -4,
+      backgroundColor: '#ef4444', borderRadius: 8,
+      minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center',
+      paddingHorizontal: 3, borderWidth: 1.5, borderColor: theme.colors.surface,
+    },
+    notifBadgeText: { color: '#fff', fontSize: 9, fontWeight: '800' },
+
+    // Notification items
+    notifItem: {
+      flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+      padding: 14, borderRadius: 14, marginBottom: 8,
+      backgroundColor: theme.colors.surfaceVariant,
+      borderWidth: 1, borderColor: theme.colors.border,
+    },
+    notifItemUnread: {
+      borderColor: '#c9a227', backgroundColor: 'rgba(201,162,39,0.07)',
+    },
+    notifIcon: {
+      width: 40, height: 40, borderRadius: 20,
+      backgroundColor: theme.colors.border,
+      justifyContent: 'center', alignItems: 'center',
+      flexShrink: 0,
+    },
+    notifTitle: { fontSize: 14, fontWeight: '700', color: theme.colors.textMuted, marginBottom: 4 },
+    notifMessage: { fontSize: 13, color: theme.colors.textMuted, lineHeight: 18 },
+    notifTime: { fontSize: 11, color: theme.colors.textMuted, marginTop: 6 },
+    unreadDot: {
+      width: 8, height: 8, borderRadius: 4, backgroundColor: '#c9a227',
+      flexShrink: 0, marginTop: 4,
+    },
+  });

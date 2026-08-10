@@ -32,3 +32,4 @@ export { generateLoyaltyQR } from "./loyalty/generateLoyaltyQR";
 export { validateLoyaltyQR } from "./loyalty/validateLoyaltyQR";
 export { processDamageClaim } from "./damages/processDamageClaim";
 export { processRefund } from "./refunds/processRefund";
+export { recordAttendancePunch } from "./attendance/recordAttendancePunch";

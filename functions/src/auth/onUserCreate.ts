@@ -7,7 +7,7 @@ const db = admin.firestore();
  * Triggered when a new user is created in Firebase Auth.
  * Creates a user profile document in Firestore with default role.
  */
-export const onUserCreate = functions.auth.user().onCreate(async (user) => {
+export const onUserCreate = functions.region("europe-west1").auth.user().onCreate(async (user) => {
   const userData = {
     uid: user.uid,
     email: user.email,
@@ -27,8 +27,9 @@ export const onUserCreate = functions.auth.user().onCreate(async (user) => {
   };
 
   try {
-    await db.collection("users").doc(user.uid).set(userData);
-    console.log(`Created user profile for ${user.uid}`);
+    const docId = (user.email || user.uid).toLowerCase();
+    await db.collection("users").doc(docId).set(userData);
+    console.log(`Created user profile for ${docId}`);
   } catch (error) {
     console.error("Error creating user profile:", error);
     throw error;

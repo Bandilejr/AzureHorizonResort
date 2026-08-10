@@ -9,7 +9,7 @@ const JWT_PRIVATE_KEY = process.env.JWT_PRIVATE_KEY || "";
  * Generates a signed JWT credential for NFC room key access.
  * Callable from client after successful check-in.
  */
-export const generateRoomCredential = functions.https.onCall(async (data, context) => {
+export const generateRoomCredential = functions.region("europe-west1").https.onCall(async (data, context) => {
   // Verify user is authenticated
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "User must be authenticated");

@@ -1,0 +1,8 @@
+[build]
+  command = "npx expo export --platform web --output-dir dist"
+  publish = "dist"
+
+[[redirects]]
+  from = "/clock-in"
+  to = "/clock-in.html"
+  status = 200

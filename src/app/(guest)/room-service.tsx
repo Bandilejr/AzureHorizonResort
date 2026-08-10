@@ -9,10 +9,14 @@ import {
   ActivityIndicator,
   Image,
   Modal,
-  Alert
+  Alert,
+  useColorScheme
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { getTheme } from '@/constants/theme';
+import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 
 // UPDATED IMPORTS: Consolidated and added Firestore query tools
 import { auth, db, createServiceRequest, uploadImage, listenForServiceRequests } from '../../services/firebase-services';
@@ -23,6 +27,9 @@ interface RoomServiceProps {
 }
 
 export default function RoomService({ onBack }: RoomServiceProps) {
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
+  const styles = createStyles(theme);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
   const [requests, setRequests] = useState<any[]>([]);
   const [requestType, setRequestType] = useState<'housekeeping' | 'maintenance'>('housekeeping');
@@ -72,56 +79,57 @@ export default function RoomService({ onBack }: RoomServiceProps) {
     return () => unsubscribe();
   }, [user]);
 
-// Handle Native Image Picker (Camera & Gallery Options)
+  const [alertConfig, setAlertConfig] = useState<AlertConfig>({
+    visible: false,
+    title: '',
+    message: '',
+  });
+
+  const showAlert = (config: Omit<AlertConfig, 'visible'>) => {
+    setAlertConfig({ ...config, visible: true });
+  };
+
+  // Handle Native Image Picker (Camera & Gallery Options)
   const pickImage = () => {
-    Alert.alert(
-      "Add a Photo",
-      "Would you like to take a new photo or choose one from your gallery?",
-      [
-        {
-          text: "Take Photo",
-          onPress: async () => {
-            const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
-            if (permissionResult.granted === false) {
-              Alert.alert("Permission Required", "You need to allow camera access to take a photo.");
-              return;
-            }
-            const result = await ImagePicker.launchCameraAsync({
-              mediaTypes: ['images'], // Using the new array format to fix the warning
-              allowsEditing: true,
-              aspect: [4, 3],
-              quality: 0.5,
-            });
-            if (!result.canceled) {
-              setImageUri(result.assets[0].uri);
-            }
-          }
-        },
-        {
-          text: "Choose from Gallery",
-          onPress: async () => {
-            const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-            if (permissionResult.granted === false) {
-              Alert.alert("Permission Required", "You need to allow camera roll permissions to upload a photo.");
-              return;
-            }
-            const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ['images'], // Using the new array format to fix the warning
-              allowsEditing: true,
-              aspect: [4, 3],
-              quality: 0.5,
-            });
-            if (!result.canceled) {
-              setImageUri(result.assets[0].uri);
-            }
-          }
-        },
-        {
-          text: "Cancel",
-          style: "cancel"
+    showAlert({
+      title: "Add a Photo",
+      message: "Would you like to take a new photo or choose one from your gallery?",
+      type: "info",
+      confirmText: "Take Photo",
+      cancelText: "Choose Gallery",
+      onConfirm: async () => {
+        const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+        if (permissionResult.granted === false) {
+          showAlert({ title: "Permission Required", message: "You need to allow camera access to take a photo.", type: "warning" });
+          return;
         }
-      ]
-    );
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ['images'],
+          allowsEditing: true,
+          aspect: [4, 3],
+          quality: 0.5,
+        });
+        if (!result.canceled) {
+          setImageUri(result.assets[0].uri);
+        }
+      },
+      onCancel: async () => {
+        const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (permissionResult.granted === false) {
+          showAlert({ title: "Permission Required", message: "You need to allow camera roll permissions to upload a photo.", type: "warning" });
+          return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsEditing: true,
+          aspect: [4, 3],
+          quality: 0.5,
+        });
+        if (!result.canceled) {
+          setImageUri(result.assets[0].uri);
+        }
+      }
+    });
   };
 
   const handleSubmit = async () => {
@@ -133,10 +141,9 @@ export default function RoomService({ onBack }: RoomServiceProps) {
 
       if (imageUri) {
         const uploadResult = await uploadImage(imageUri, `service_requests/${Date.now()}`);
-        if (uploadResult.url) uploadedUrl = uploadResult.url;
+        if (uploadResult) uploadedUrl = uploadResult;
       }
 
-      // UPDATED: Dynamically inject name and room number from userData
       await createServiceRequest({
         guestId: user.uid,
         guestName: userData?.name || user.displayName || 'Guest',
@@ -155,7 +162,7 @@ export default function RoomService({ onBack }: RoomServiceProps) {
       
     } catch (error: any) {
       console.error("Submission failed:", error);
-      Alert.alert("Error", "Failed to submit request. Please try again.");
+      showAlert({ title: "Error", message: "Failed to submit request. Please try again.", type: "error" });
     } finally {
       setIsSubmitting(false);
     }
@@ -166,10 +173,10 @@ export default function RoomService({ onBack }: RoomServiceProps) {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'pending': return '#f59e0b';
-      case 'in_progress': return '#3b82f6';
-      case 'completed': return '#10b981';
-      default: return '#64748b';
+      case 'pending': return theme.colors.warning;
+      case 'in_progress': return theme.colors.info;
+      case 'completed': return theme.colors.success;
+      default: return theme.colors.textMuted;
     }
   };
 
@@ -180,6 +187,26 @@ export default function RoomService({ onBack }: RoomServiceProps) {
     return ["AC Not Working", "Light Bulb Out", "Plumbing Issue", "TV Remote"];
   };
 
+  if (!user || userData?.status === 'visitor') {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+        <Ionicons name="lock-closed-outline" size={64} color="#c9a227" />
+        <Text style={{ fontSize: 22, fontWeight: '900', color: theme.colors.text, marginTop: 16, textAlign: 'center' }}>
+          Room Service Locked
+        </Text>
+        <Text style={{ fontSize: 14, color: theme.colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 20 }}>
+          Housekeeping and maintenance requests are reserved for checked-in resort residents. Please sign in to your room stay.
+        </Text>
+        <TouchableOpacity
+          style={{ backgroundColor: '#c9a227', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, marginTop: 24 }}
+          onPress={() => router.push('/login')}
+        >
+          <Text style={{ color: '#0f172a', fontWeight: '800', fontSize: 16 }}>Sign In to Your Stay</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {/* Success Modal */}
@@ -187,7 +214,7 @@ export default function RoomService({ onBack }: RoomServiceProps) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.successIconContainer}>
-              <Ionicons name="checkmark-circle" size={60} color="#10b981" />
+              <Ionicons name="checkmark-circle" size={60} color={theme.colors.success} />
             </View>
             <Text style={styles.modalTitle}>Request Sent!</Text>
             <Text style={styles.modalText}>
@@ -206,7 +233,7 @@ export default function RoomService({ onBack }: RoomServiceProps) {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={onBack}>
-          <Ionicons name="chevron-back" size={28} color="#1e3a5f" />
+          <Ionicons name="chevron-back" size={28} color={theme.colors.secondary} />
         </TouchableOpacity>
         <View>
           <Text style={styles.headerTitle}>Service Portal</Text>
@@ -244,7 +271,7 @@ export default function RoomService({ onBack }: RoomServiceProps) {
                 style={[styles.typeButton, requestType === 'housekeeping' && styles.typeButtonActiveHK]}
                 onPress={() => setRequestType('housekeeping')}
               >
-                <Ionicons name="home" size={20} color={requestType === 'housekeeping' ? '#fff' : '#64748b'} />
+                <Ionicons name="home" size={20} color={requestType === 'housekeeping' ? theme.colors.textInverse : theme.colors.textMuted} />
                 <Text style={[styles.typeButtonText, requestType === 'housekeeping' && styles.typeButtonTextActive]}>Housekeeping</Text>
               </TouchableOpacity>
               
@@ -252,7 +279,7 @@ export default function RoomService({ onBack }: RoomServiceProps) {
                 style={[styles.typeButton, requestType === 'maintenance' && styles.typeButtonActiveMaint]}
                 onPress={() => setRequestType('maintenance')}
               >
-                <Ionicons name="build" size={20} color={requestType === 'maintenance' ? '#fff' : '#64748b'} />
+                <Ionicons name="build" size={20} color={requestType === 'maintenance' ? theme.colors.textInverse : theme.colors.textMuted} />
                 <Text style={[styles.typeButtonText, requestType === 'maintenance' && styles.typeButtonTextActive]}>Maintenance</Text>
               </TouchableOpacity>
             </View>
@@ -264,7 +291,7 @@ export default function RoomService({ onBack }: RoomServiceProps) {
               multiline
               numberOfLines={4}
               placeholder={requestType === 'housekeeping' ? "e.g., We need extra towels..." : "e.g., The AC is making a strange noise..."}
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={theme.colors.textMuted}
               value={description}
               onChangeText={setDescription}
               textAlignVertical="top"
@@ -297,7 +324,7 @@ export default function RoomService({ onBack }: RoomServiceProps) {
                 </View>
               ) : (
                 <View style={styles.uploadEmpty}>
-                  <Ionicons name="camera-outline" size={32} color="#94a3b8" />
+                  <Ionicons name="camera-outline" size={32} color={theme.colors.textMuted} />
                   <Text style={styles.uploadText}>Tap to add a photo</Text>
                 </View>
               )}
@@ -310,7 +337,7 @@ export default function RoomService({ onBack }: RoomServiceProps) {
               disabled={!description.trim() || isSubmitting}
             >
               {isSubmitting ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={theme.colors.textInverse} />
               ) : (
                 <Text style={styles.submitButtonText}>Submit Request</Text>
               )}
@@ -321,10 +348,10 @@ export default function RoomService({ onBack }: RoomServiceProps) {
           
           <View style={styles.historyContainer}>
             {isLoading ? (
-              <ActivityIndicator size="large" color="#1e3a5f" style={{ marginTop: 40 }} />
+              <ActivityIndicator size="large" color={theme.colors.secondary} style={{ marginTop: 40 }} />
             ) : requests.length === 0 ? (
               <View style={styles.emptyState}>
-                <Ionicons name="notifications-off-outline" size={60} color="#cbd5e1" />
+                <Ionicons name="notifications-off-outline" size={60} color={theme.colors.textMuted} />
                 <Text style={styles.emptyStateText}>No service requests yet.</Text>
               </View>
             ) : (
@@ -336,7 +363,7 @@ export default function RoomService({ onBack }: RoomServiceProps) {
                         <Ionicons 
                           name={req.type === 'housekeeping' ? 'home' : 'build'} 
                           size={14} 
-                          color={req.type === 'housekeeping' ? '#0284c7' : '#ea580c'} 
+                          color={req.type === 'housekeeping' ? theme.colors.info : theme.colors.warning} 
                         />
                         <Text style={styles.requestTypeText}>{req.type.toUpperCase()}</Text>
                       </View>
@@ -354,7 +381,7 @@ export default function RoomService({ onBack }: RoomServiceProps) {
                     )}
 
                     <View style={styles.requestFooter}>
-                      <Ionicons name="time-outline" size={14} color="#94a3b8" />
+                      <Ionicons name="time-outline" size={14} color={theme.colors.textMuted} />
                       <Text style={styles.requestTime}>
                         {new Date(req.createdAt).toLocaleDateString()} at {new Date(req.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                       </Text>
@@ -366,14 +393,17 @@ export default function RoomService({ onBack }: RoomServiceProps) {
           </View>
         )}
       </ScrollView>
+
+      {/* Custom Themed Alert Modal */}
+      <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -382,7 +412,7 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingHorizontal: 20,
     paddingBottom: 20,
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
   },
   backButton: {
     padding: 4,
@@ -391,20 +421,20 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
     textAlign: 'center',
   },
   headerSubtitle: {
     fontSize: 13,
-    color: '#64748b',
+    color: theme.colors.textMuted,
     textAlign: 'center',
   },
   tabContainer: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: theme.colors.border,
   },
   tab: {
     flex: 1,
@@ -414,15 +444,15 @@ const styles = StyleSheet.create({
     borderBottomColor: 'transparent',
   },
   activeTab: {
-    borderBottomColor: '#c9a227',
+    borderBottomColor: theme.colors.primary,
   },
   tabText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#64748b',
+    color: theme.colors.textMuted,
   },
   activeTabText: {
-    color: '#1e3a5f',
+    color: theme.colors.text,
   },
   content: {
     padding: 20,
@@ -442,46 +472,46 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.colors.border,
     gap: 8,
   },
   typeButtonActiveHK: {
-    backgroundColor: '#0284c7',
-    borderColor: '#0284c7',
+    backgroundColor: theme.colors.info,
+    borderColor: theme.colors.info,
   },
   typeButtonActiveMaint: {
-    backgroundColor: '#ea580c',
-    borderColor: '#ea580c',
+    backgroundColor: theme.colors.warning,
+    borderColor: theme.colors.warning,
   },
   typeButtonText: {
     fontWeight: '600',
-    color: '#64748b',
+    color: theme.colors.textMuted,
   },
   typeButtonTextActive: {
-    color: '#fff',
+    color: theme.colors.textInverse,
   },
   label: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#1e3a5f',
+    color: theme.colors.text,
     marginTop: 8,
   },
   textInput: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.colors.border,
     borderRadius: 12,
     padding: 16,
     fontSize: 15,
-    color: '#0f172a',
+    color: theme.colors.text,
     minHeight: 120,
   },
   quickAddLabel: {
     fontSize: 12,
-    color: '#64748b',
+    color: theme.colors.textMuted,
     marginTop: -8,
   },
   quickAddScroll: {
@@ -489,7 +519,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   quickAddPill: {
-    backgroundColor: '#e0f2fe',
+    backgroundColor: theme.colors.surfaceVariant,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
@@ -497,13 +527,13 @@ const styles = StyleSheet.create({
   },
   quickAddText: {
     fontSize: 12,
-    color: '#0369a1',
+    color: theme.colors.info,
     fontWeight: '500',
   },
   uploadBox: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     borderWidth: 2,
-    borderColor: '#e2e8f0',
+    borderColor: theme.colors.border,
     borderStyle: 'dashed',
     borderRadius: 12,
     height: 140,
@@ -515,7 +545,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   uploadText: {
-    color: '#94a3b8',
+    color: theme.colors.textMuted,
     marginTop: 8,
     fontSize: 14,
   },
@@ -545,17 +575,17 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   submitButton: {
-    backgroundColor: '#1e3a5f',
+    backgroundColor: theme.colors.secondary,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
     marginTop: 16,
   },
   submitButtonDisabled: {
-    backgroundColor: '#94a3b8',
+    backgroundColor: theme.colors.borderStrong,
   },
   submitButtonText: {
-    color: '#fff',
+    color: theme.colors.textInverse,
     fontSize: 16,
     fontWeight: 'bold',
   },
@@ -567,12 +597,12 @@ const styles = StyleSheet.create({
     marginTop: 60,
   },
   emptyStateText: {
-    color: '#94a3b8',
+    color: theme.colors.textMuted,
     fontSize: 16,
     marginTop: 16,
   },
   requestCard: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     borderRadius: 12,
     padding: 16,
     marginBottom: 16,
@@ -596,7 +626,7 @@ const styles = StyleSheet.create({
   requestTypeText: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#64748b',
+    color: theme.colors.textMuted,
   },
   statusBadge: {
     paddingHorizontal: 8,
@@ -609,7 +639,7 @@ const styles = StyleSheet.create({
   },
   requestDesc: {
     fontSize: 15,
-    color: '#334155',
+    color: theme.colors.text,
     marginBottom: 12,
   },
   requestImage: {
@@ -625,7 +655,7 @@ const styles = StyleSheet.create({
   },
   requestTime: {
     fontSize: 12,
-    color: '#94a3b8',
+    color: theme.colors.textMuted,
   },
   modalOverlay: {
     flex: 1,
@@ -635,7 +665,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
     borderRadius: 20,
     padding: 24,
     alignItems: 'center',
@@ -643,7 +673,7 @@ const styles = StyleSheet.create({
     maxWidth: 340,
   },
   successIconContainer: {
-    backgroundColor: '#ecfdf5',
+    backgroundColor: theme.colors.successLight,
     borderRadius: 50,
     padding: 16,
     marginBottom: 16,
@@ -651,25 +681,25 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#1e3a5f',
+    color: theme.colors.text,
     marginBottom: 8,
   },
   modalText: {
     fontSize: 15,
-    color: '#64748b',
+    color: theme.colors.textMuted,
     textAlign: 'center',
     marginBottom: 24,
     lineHeight: 22,
   },
   modalButton: {
-    backgroundColor: '#1e3a5f',
+    backgroundColor: theme.colors.secondary,
     width: '100%',
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',
   },
   modalButtonText: {
-    color: '#fff',
+    color: theme.colors.textInverse,
     fontSize: 16,
     fontWeight: 'bold',
   }

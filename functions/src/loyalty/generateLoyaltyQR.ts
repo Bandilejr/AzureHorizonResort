@@ -9,13 +9,13 @@ const LOYALTY_HMAC_SECRET = process.env.LOYALTY_HMAC_SECRET || "";
  * Generates a rotating HMAC-signed loyalty QR payload.
  * Called by guest app every 30 seconds for display.
  */
-export const generateLoyaltyQR = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
+export const generateLoyaltyQR = functions.region("europe-west1").https.onCall(async (data, context) => {
+  if (!context.auth?.token?.email) {
     throw new functions.https.HttpsError("unauthenticated", "User must be authenticated");
   }
 
   // Get current user profile
-  const userRef = db.collection("users").doc(context.auth.uid);
+  const userRef = db.collection("users").doc(context.auth.token.email);
   const userSnap = await userRef.get();
 
   if (!userSnap.exists) {
@@ -32,6 +32,7 @@ export const generateLoyaltyQR = functions.https.onCall(async (data, context) =>
 
   const payload = {
     guestId: context.auth.uid,
+    email: context.auth.token.email,
     points,
     tier,
     ts: timestamp,

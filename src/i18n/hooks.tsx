@@ -1,6 +1,9 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Language, t, getSupportedLanguages, defaultLanguage } from './index';
 import { useAuth } from '@/context/AuthContext';
+
+const LANG_STORAGE_KEY = '@azure_horizon_lang';
 
 interface I18nContextType {
   language: Language;
@@ -17,21 +20,39 @@ export const I18nProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [language, setLanguageState] = useState<Language>(defaultLanguage);
   const [initialized, setInitialized] = useState(false);
 
-  console.log('🟣 I18nProvider: Rendering, initialized=', initialized);
-
   useEffect(() => {
-    console.log('🟣 I18nProvider: useEffect fired, profile=', profile?.uid);
-    // Load saved language preference
-    const savedLanguage = profile?.preferences?.language as Language;
-    if (savedLanguage && getSupportedLanguages().includes(savedLanguage)) {
-      setLanguageState(savedLanguage);
-    }
-    setInitialized(true);
-    console.log('🟣 I18nProvider: Initialized set to true');
+    const loadStoredLanguage = async () => {
+      try {
+        // Priority 1: User profile language preference if available
+        const profileLang = profile?.preferences?.language as Language;
+        if (profileLang && getSupportedLanguages().includes(profileLang)) {
+          setLanguageState(profileLang);
+          await AsyncStorage.setItem(LANG_STORAGE_KEY, profileLang);
+        } else {
+          // Priority 2: Stored AsyncStorage language
+          const savedLang = await AsyncStorage.getItem(LANG_STORAGE_KEY);
+          if (savedLang && getSupportedLanguages().includes(savedLang as Language)) {
+            setLanguageState(savedLang as Language);
+          }
+        }
+      } catch (err) {
+        console.warn('I18n load error:', err);
+      } finally {
+        setInitialized(true);
+      }
+    };
+
+    loadStoredLanguage();
   }, [profile]);
 
   const setLanguage = async (lang: Language) => {
+    if (!getSupportedLanguages().includes(lang)) return;
     setLanguageState(lang);
+    try {
+      await AsyncStorage.setItem(LANG_STORAGE_KEY, lang);
+    } catch (err) {
+      console.warn('I18n save error:', err);
+    }
   };
 
   const translate = (key: string) => t(key, language);
@@ -44,12 +65,6 @@ export const I18nProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     initialized,
   };
 
-  if (!initialized) {
-    console.log('🟣 I18nProvider: Not initialized yet, returning Provider without children');
-    return <I18nContext.Provider value={value} />;
-  }
-
-  console.log('🟣 I18nProvider: Rendering children');
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 };
 

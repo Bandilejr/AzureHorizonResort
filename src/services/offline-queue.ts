@@ -1,6 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
 
+// React hook for using offline queue
+import { useState, useEffect } from "react";
+
 export type QueueItemType =
   | "staff_checkin"
   | "attendee_checkin"
@@ -291,9 +294,6 @@ class OfflineQueue {
 }
 
 export const offlineQueue = new OfflineQueue();
-
-// React hook for using offline queue
-import { useState, useEffect } from "react";
 
 export const useOfflineQueue = () => {
   const [queue, setQueue] = useState<QueueItem[]>([]);

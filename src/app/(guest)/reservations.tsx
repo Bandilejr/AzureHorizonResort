@@ -1,191 +1,653 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  StyleSheet, 
-  Text, 
-  View, 
-  ScrollView, 
-  TouchableOpacity, 
-  ActivityIndicator 
+import {
+  StyleSheet,
+  Text,
+  View,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  TextInput,
+  Modal,
+  Alert,
+  useColorScheme
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { getTheme } from '@/constants/theme';
+import { useTranslation } from '@/i18n/hooks';
+import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 
 // Firebase Imports
-import { auth, db } from '../../services/firebase-services';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { auth, db, createRefundRequest } from '../../services/firebase-services';
+import { listenForGuestActivity, GuestActivity } from '../../services/firebase-services';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+
+const STATUS_COLORS: Record<string, string> = {
+  confirmed: '#16a34a',
+  pending_payment: '#d97706',
+  pending: '#d97706',
+  completed: '#2563eb',
+  cancelled: '#dc2626',
+  checked_in: '#16a34a',
+  delivered: '#16a34a',
+  preparing: '#d97706',
+  ready: '#2563eb',
+};
+
+const formatStatus = (status: string) =>
+  (status || 'unknown').split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+
+const formatMoney = (amount: any) => `R ${Number(amount || 0).toLocaleString()}`;
+
+const formatOrderTime = (order: any) => {
+  const raw = order?.createdAt || order?.timestamp;
+  if (!raw) return 'Today';
+  const d = new Date(raw);
+  return isNaN(d.getTime()) ? 'Today' : d.toLocaleString();
+};
 
 export default function ReservationsScreen() {
-  const [reservations, setReservations] = useState<any[]>([]);
+  const [activity, setActivity] = useState<GuestActivity | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   const user = auth.currentUser;
 
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
+  const { t } = useTranslation();
+  const styles = createStyles(theme);
+
+  const formatEventDate = (booking: any) => {
+    const raw = booking?.eventDateStr || booking?.date || booking?.eventDate;
+    if (!raw) return t('dateTBD');
+    const d = new Date(raw);
+    return isNaN(d.getTime()) ? String(raw) : d.toLocaleDateString();
+  };
+
+  const ticketSummary = (tickets: any) => {
+    if (!tickets) return '';
+    const arr = Array.isArray(tickets) ? tickets : [tickets];
+    const total = arr.reduce((sum: number, item: any) => sum + Number(item?.quantity || 1), 0);
+    return `${total} ${total === 1 ? t('ticket') : t('tickets')}`;
+  };
+
+
   useEffect(() => {
-    if (!user) return;
-    fetchReservations();
+    if (!user) {
+      setIsLoading(false);
+      return;
+    }
+    const unsubscribe = listenForGuestActivity(user.uid, (data) => {
+      setActivity(data);
+      setIsLoading(false);
+    });
+    return () => unsubscribe();
   }, [user]);
 
-  const fetchReservations = async () => {
-    setIsLoading(true);
+  const openEventActions = (booking: any) => {
+    router.push({
+      pathname: '/event-invitations',
+      params: { eventId: booking.id },
+    } as any);
+  };
+
+  const openEventCatering = (booking: any) => {
+    router.push({
+      pathname: '/event-catering',
+      params: { bookingId: booking.id, expectedAttendance: booking.expectedAttendance || 30 },
+    } as any);
+  };
+
+  const openEventFeedback = (booking: any) => {
+    const eventDateVal = booking.eventDateStr || booking.eventDate || booking.date;
+    if (eventDateVal) {
+      const eventDateObj = new Date(eventDateVal);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (eventDateObj > today && booking.status !== 'completed') {
+        Alert.alert(
+          '🔒 Event Feedback Locked',
+          'Feedback can only be submitted after the event date has taken place.'
+        );
+        return;
+      }
+    }
+    router.push({ pathname: '/event-feedback', params: { eventId: booking.id } } as any);
+  };
+
+  const openLiveComplaint = (booking: any) => {
+    router.push({ pathname: '/live-complaint', params: { eventId: booking.id } } as any);
+  };
+
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const [selectedBookingForRefund, setSelectedBookingForRefund] = useState<any>(null);
+  const [refundReason, setRefundReason] = useState('');
+  const [refundAmountInput, setRefundAmountInput] = useState('');
+  const [submittingRefund, setSubmittingRefund] = useState(false);
+
+  const openRefundModal = (booking: any) => {
+    router.push({ pathname: '/(guest)/refund-request', params: { eventId: booking.id } } as any);
+  };
+
+  const [alertConfig, setAlertConfig] = useState<AlertConfig>({
+    visible: false,
+    title: '',
+    message: '',
+  });
+
+  const showAlert = (config: Omit<AlertConfig, 'visible'>) => {
+    setAlertConfig({ ...config, visible: true });
+  };
+
+  const handleConfirmRefundSubmit = async () => {
+    if (!refundReason.trim()) {
+      showAlert({ title: 'Missing Reason', message: 'Please state the reason for your refund request.', type: 'warning' });
+      return;
+    }
+    const amt = Number(refundAmountInput);
+    if (isNaN(amt) || amt <= 0) {
+      showAlert({ title: 'Invalid Amount', message: 'Please enter a valid refund amount.', type: 'warning' });
+      return;
+    }
+
+    setSubmittingRefund(true);
     try {
-      const allReservations: any[] = [];
-
-      // 1. Get Spa Bookings
-      const spaQ = query(collection(db, 'spa_bookings'), where('guestId', '==', user?.uid));
-      const spaDocs = await getDocs(spaQ);
-      spaDocs.forEach(doc => {
-        const data = doc.data();
-        allReservations.push({
-          id: doc.id,
-          type: 'spa',
-          title: data.treatmentName,
-          date: data.date,
-          time: data.time,
-          status: data.status,
-          price: data.price
-        });
+      await createRefundRequest({
+        eventId: selectedBookingForRefund.id,
+        guestId: user!.uid,
+        reason: refundReason.trim(),
+        requestedAmount: amt,
+        totalPaidAmount: selectedBookingForRefund.paidAmount,
       });
-
-      // 2. Get Tour Bookings
-      const tourQ = query(collection(db, 'tour_bookings'), where('guestId', '==', user?.uid));
-      const tourDocs = await getDocs(tourQ);
-      tourDocs.forEach(doc => {
-        const data = doc.data();
-        allReservations.push({
-          id: doc.id,
-          type: 'tour',
-          title: data.tourName,
-          date: data.date,
-          time: data.time,
-          status: data.status,
-          price: data.totalAmount,
-          tickets: data.tickets // Extra data for tours
-        });
-      });
-
-      // 3. Sort Chronologically by Date and Time
-      allReservations.sort((a, b) => {
-        const dateA = new Date(`${a.date}T${a.time}`);
-        const dateB = new Date(`${b.date}T${b.time}`);
-        return dateA.getTime() - dateB.getTime();
-      });
-
-      setReservations(allReservations);
-    } catch (error) {
-      console.error("Error fetching reservations:", error);
+      setShowRefundModal(false);
+      showAlert({ title: '✅ Refund Request Submitted', message: 'Your request has been logged and is pending Admin review.', type: 'success' });
+    } catch (err: any) {
+      showAlert({ title: 'Refund Error', message: err.message || 'Failed to submit refund request.', type: 'error' });
     } finally {
-      setIsLoading(false);
+      setSubmittingRefund(false);
     }
   };
 
-  const getIconForType = (type: string) => {
-    return type === 'spa' ? 'leaf' : 'compass';
+  const handlePayNow = (booking: any) => {
+    const amount = booking.totalAmount || booking.depositAmount || booking.paidAmount || 0;
+    router.push({
+      pathname: '/payment',
+      params: {
+        bookingId: booking.id,
+        roomName: booking.venueName || 'Event Booking',
+        total: String(amount),
+        depositAmount: String(booking.depositAmount || Math.round(amount * 0.5)),
+        checkIn: booking.eventDateStr || booking.date || '',
+        nights: String(1),
+        expectedAttendance: booking.expectedAttendance ? String(booking.expectedAttendance) : undefined,
+      }
+    } as any);
   };
 
-  const getColorForType = (type: string) => {
-    return type === 'spa' ? '#81b29a' : '#e8aa42';
+  const handleCancelBooking = (booking: any) => {
+    showAlert({
+      title: 'Cancel Booking',
+      message: `Are you sure you want to cancel your reservation for ${booking.venueName || 'this event'}?`,
+      type: 'warning',
+      confirmText: 'Yes, Cancel',
+      cancelText: 'Keep Booking',
+      onConfirm: async () => {
+        try {
+          await updateDoc(doc(db, 'event_bookings', booking.id), {
+            status: 'cancelled',
+            cancelledAt: serverTimestamp(),
+          });
+          showAlert({ title: 'Booking Cancelled', message: 'Your reservation has been cancelled.', type: 'info' });
+        } catch (err: any) {
+          showAlert({ title: 'Error', message: err.message || 'Could not cancel booking.', type: 'error' });
+        }
+      }
+    });
   };
+
+  const [subTab, setSubTab] = useState<'active' | 'cancelled' | 'completed'>('active');
+
+  const profile = activity?.profile;
+  const eventBookings = activity?.eventBookings || [];
+  const spaBookings = activity?.spaBookings || [];
+  const tourBookings = activity?.tourBookings || [];
+  const tableReservations = activity?.tableReservations || [];
+  const invitations = activity?.invitations || [];
+  const foodOrders = activity?.foodOrders || [];
+  const catering = activity?.catering || [];
+
+  const amenityBookings = [
+    ...spaBookings.map((b: any) => ({ ...b, kind: 'spa' })),
+    ...tourBookings.map((b: any) => ({ ...b, kind: 'tour' })),
+    ...tableReservations.map((b: any) => ({ ...b, kind: 'table' })),
+  ].sort((a, b) => {
+    const da = new Date(`${a.date || ''}T${a.time || '00:00'}`).getTime() || 0;
+    const db = new Date(`${b.date || ''}T${b.time || '00:00'}`).getTime() || 0;
+    return db - da;
+  });
+
+  const filteredEventBookings = eventBookings.filter((b: any) => {
+    if (subTab === 'cancelled') return b.status === 'cancelled';
+    if (subTab === 'completed') return b.status === 'completed' || b.status === 'finished';
+    return b.status !== 'cancelled' && b.status !== 'completed' && b.status !== 'finished';
+  });
+
+  const filteredAmenityBookings = amenityBookings.filter((b: any) => {
+    if (subTab === 'cancelled') return b.status === 'cancelled';
+    if (subTab === 'completed') return b.status === 'completed' || b.status === 'finished';
+    return b.status !== 'cancelled' && b.status !== 'completed' && b.status !== 'finished';
+  });
+
+  const iconFor = (kind: string) =>
+    kind === 'spa' ? 'leaf' : kind === 'tour' ? 'compass' : 'restaurant';
+  const colorFor = (kind: string) =>
+    kind === 'spa' ? '#81b29a' : kind === 'tour' ? theme.colors.primary : '#e07a5f';
+
+  const titleFor = (item: any) =>
+    item.kind === 'spa' ? item.treatmentName : item.kind === 'tour' ? item.tourName : `Table for ${item.partySize}`;
 
   return (
     <View style={styles.container}>
       {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={28} color="#1e3a5f" />
+          <Ionicons name="chevron-back" size={28} color={theme.colors.secondary} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>My Itinerary</Text>
-          <Text style={styles.headerSubtitle}>Upcoming Reservations</Text>
+          <Text style={styles.headerTitle}>{t('myActivity')}</Text>
+          <Text style={styles.headerSubtitle}>{t('bookingsReservations')}</Text>
         </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={fetchReservations}>
-          <Ionicons name="refresh" size={24} color="#1e3a5f" />
+        <TouchableOpacity onPress={() => {}} style={{ padding: 4 }}>
+          <Ionicons name="refresh" size={24} color={theme.colors.secondary} />
         </TouchableOpacity>
       </View>
 
-      {isLoading ? (
+      {/* SUB TABS */}
+      <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6, gap: 8, backgroundColor: theme.colors.background }}>
+        {[
+          { key: 'active', label: t('activeUpcoming'), icon: 'calendar-outline' },
+          { key: 'cancelled', label: t('cancelled'), icon: 'close-circle-outline' },
+          { key: 'completed', label: t('completed'), icon: 'checkmark-done-outline' },
+        ].map(tab => (
+          <TouchableOpacity
+            key={tab.key}
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              paddingVertical: 10,
+              borderRadius: 12,
+              backgroundColor: subTab === tab.key ? theme.colors.primary : theme.colors.surface,
+              borderWidth: 1,
+              borderColor: subTab === tab.key ? theme.colors.primary : theme.colors.border,
+            }}
+            onPress={() => setSubTab(tab.key as any)}
+          >
+            <Ionicons name={tab.icon as any} size={15} color={subTab === tab.key ? theme.colors.textInverse : theme.colors.textMuted} />
+            <Text style={{ fontSize: 11, fontWeight: '800', color: subTab === tab.key ? theme.colors.textInverse : theme.colors.textMuted }}>{tab.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {!user ? (
+        <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <Ionicons name="lock-closed-outline" size={64} color="#c9a227" />
+          <Text style={{ fontSize: 22, fontWeight: '900', color: theme.colors.text, marginTop: 16, textAlign: 'center' }}>
+            {t('myActivityLocked')}
+          </Text>
+          <Text style={{ fontSize: 14, color: theme.colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 20 }}>
+            {t('activityLockedDesc')}
+          </Text>
+          <TouchableOpacity
+            style={{ backgroundColor: '#c9a227', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, marginTop: 24 }}
+            onPress={() => router.push('/login')}
+          >
+            <Text style={{ color: '#0f172a', fontWeight: '800', fontSize: 16 }}>{t('signInToYourStay')}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : isLoading ? (
         <View style={styles.centerContent}>
-          <ActivityIndicator size="large" color="#1e3a5f" />
+          <ActivityIndicator size="large" color={theme.colors.secondary} />
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          {reservations.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="calendar-outline" size={64} color="#cbd5e1" />
-              <Text style={styles.emptyTitle}>No Upcoming Events</Text>
-              <Text style={styles.emptyText}>Book a spa treatment or an island tour to build your itinerary.</Text>
+          {/* CURRENT STAY — single source: users.roomNumber */}
+          {profile?.roomNumber && profile.roomNumber !== 'N/A' && (
+            <View style={styles.stayCard}>
+              <View style={styles.stayHeader}>
+                <Text style={styles.stayLabel}>{t('yourCurrentStay')}</Text>
+                <Ionicons name="key" size={20} color="#c9a227" />
+              </View>
+              <Text style={styles.stayRoom}>{t('suite')} {profile.roomNumber}</Text>
+              <Text style={styles.stayName}>{profile.name || 'Guest'}</Text>
+              <View style={styles.stayRow}>
+                <Text style={styles.stayDetail}>{t('wifi')}: AZURE-{profile.roomNumber}</Text>
+                <Text style={styles.stayDetail}>{t('status')}: {formatStatus(profile.status || 'guest')}</Text>
+              </View>
             </View>
-          ) : (
-            <View style={styles.timeline}>
-              {reservations.map((res, index) => {
-                const iconColor = getColorForType(res.type);
-                return (
-                  <View key={res.id} style={styles.timelineItem}>
-                    {/* Timeline Line & Dot */}
-                    <View style={styles.timelineGraphic}>
-                      <View style={[styles.timelineDot, { borderColor: iconColor }]} />
-                      {index !== reservations.length - 1 && <View style={styles.timelineLine} />}
+          )}
+
+          {/* EVENT BOOKINGS */}
+          {filteredEventBookings.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>{t('eventBookingsSection')} ({subTab})</Text>
+              {filteredEventBookings.map((booking: any) => (
+                <View key={booking.id} style={styles.eventCard}>
+                  <View style={styles.eventCardHeader}>
+                    <View>
+                      <Text style={styles.eventVenue}>{booking.venueName}</Text>
+                      <Text style={styles.eventDate}>
+                        {formatEventDate(booking)}
+                        {booking.expectedAttendance ? ` • ${booking.expectedAttendance} guests` : ''}
+                      </Text>
                     </View>
-                    
-                    {/* Reservation Card */}
-                    <View style={styles.resCard}>
-                      <View style={styles.resCardHeader}>
-                        <View style={[styles.iconBox, { backgroundColor: `${iconColor}20` }]}>
-                          <Ionicons name={getIconForType(res.type) as any} size={20} color={iconColor} />
-                        </View>
-                        <View style={[styles.statusBadge, { backgroundColor: '#dcfce3' }]}>
-                          <Text style={styles.statusText}>Confirmed</Text>
-                        </View>
-                      </View>
-                      
-                      <Text style={styles.resTitle}>{res.title}</Text>
-                      
-                      <View style={styles.resDetailsRow}>
-                        <View style={styles.resDetail}>
-                          <Ionicons name="calendar-outline" size={14} color="#64748b" />
-                          <Text style={styles.resDetailText}>{res.date}</Text>
-                        </View>
-                        <View style={styles.resDetail}>
-                          <Ionicons name="time-outline" size={14} color="#64748b" />
-                          <Text style={styles.resDetailText}>{res.time}</Text>
-                        </View>
-                      </View>
+                    <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[booking.status] || '#6b7280') + '22' }]}>
+                      <Text style={[styles.statusText, { color: STATUS_COLORS[booking.status] || '#6b7280' }]}>
+                        {formatStatus(booking.status)}
+                      </Text>
+                    </View>
+                  </View>
+                  {booking.totalAmount ? (
+                    <Text style={styles.eventAmount}>{formatMoney(booking.totalAmount)}</Text>
+                  ) : null}
+                  <View style={styles.eventActions}>
+                    <TouchableOpacity style={styles.eventActionBtn} onPress={() => openEventCatering(booking)}>
+                      <Ionicons name="restaurant" size={16} color={theme.colors.secondary} />
+                      <Text style={styles.eventActionText}>{t('catering')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.eventActionBtn} onPress={() => openEventActions(booking)}>
+                      <Ionicons name="people" size={16} color={theme.colors.secondary} />
+                      <Text style={styles.eventActionText}>{t('invitations')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.eventActionBtn} onPress={() => openEventFeedback(booking)}>
+                      <Ionicons name="star" size={16} color={theme.colors.secondary} />
+                      <Text style={styles.eventActionText}>{t('feedback')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.eventActionBtn} onPress={() => openLiveComplaint(booking)}>
+                      <Ionicons name="alert-circle" size={16} color={theme.colors.secondary} />
+                      <Text style={styles.eventActionText}>{t('complaint')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.eventActionBtn} onPress={() => openRefundModal(booking)}>
+                      <Ionicons name="cash-outline" size={16} color="#dc2626" />
+                      <Text style={[styles.eventActionText, { color: '#dc2626' }]}>{t('refund')}</Text>
+                    </TouchableOpacity>
+                    {booking.status === 'pending_payment' && (
+                      <TouchableOpacity style={[styles.eventActionBtn, { backgroundColor: '#d9770615' }]} onPress={() => handlePayNow(booking)}>
+                        <Ionicons name="card-outline" size={16} color="#d97706" />
+                        <Text style={[styles.eventActionText, { color: '#d97706', fontWeight: '800' }]}>{t('payNow')}</Text>
+                      </TouchableOpacity>
+                    )}
+                    {booking.status !== 'cancelled' && (
+                      <TouchableOpacity style={styles.eventActionBtn} onPress={() => handleCancelBooking(booking)}>
+                        <Ionicons name="close-circle-outline" size={16} color="#64748b" />
+                        <Text style={[styles.eventActionText, { color: '#64748b' }]}>{t('cancel')}</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* SPA / TOURS / TABLE RESERVATIONS */}
+          {filteredAmenityBookings.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>{t('spaToursDining')} ({subTab})</Text>
+              {filteredAmenityBookings.map((item) => {
+                const iconColor = colorFor(item.kind);
+                return (
+                  <View key={`${item.kind}-${item.id}`} style={styles.amenityCard}>
+                    <View style={[styles.iconBox, { backgroundColor: `${iconColor}20` }]}>
+                      <Ionicons name={iconFor(item.kind) as any} size={20} color={iconColor} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.amenityTitle}>{titleFor(item)}</Text>
+                      <Text style={styles.amenityMeta}>
+                        {item.date} {item.time ? `at ${item.time}` : ''}
+                        {item.tickets ? ` • ${ticketSummary(item.tickets)}` : ''}
+                        {item.totalAmount || item.price ? ` • ${formatMoney(item.totalAmount || item.price)}` : ''}
+                      </Text>
+                    </View>
+                    <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[item.status] || '#6b7280') + '22' }]}>
+                      <Text style={[styles.statusText, { color: STATUS_COLORS[item.status] || '#6b7280' }]}>
+                        {formatStatus(item.status)}
+                      </Text>
                     </View>
                   </View>
                 );
               })}
             </View>
           )}
+
+          {filteredEventBookings.length === 0 && filteredAmenityBookings.length === 0 && (
+            <View style={{ alignItems: 'center', paddingVertical: 48, backgroundColor: theme.colors.surface, borderRadius: 20, marginHorizontal: 16, marginTop: 16 }}>
+              <Ionicons name="calendar-outline" size={48} color={theme.colors.textMuted} />
+              <Text style={{ fontSize: 16, fontWeight: '700', color: theme.colors.text, marginTop: 12 }}>
+                {t('noBookingsFound').replace('{subTab}', subTab)}
+              </Text>
+              <Text style={{ fontSize: 13, color: theme.colors.textMuted, marginTop: 4, textAlign: 'center', paddingHorizontal: 20 }}>
+                {subTab === 'active' ? t('activeReservationsAppear') : subTab === 'cancelled' ? t('cancelledHistoryAppear') : t('completedActivitiesAppear')}
+              </Text>
+            </View>
+          )}
+
+          {/* FOOD ORDERS */}
+          {foodOrders.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>{t('foodOrdersSection')}</Text>
+              {foodOrders.slice(0, 10).map((order: any) => (
+                <View key={order.id} style={styles.amenityCard}>
+                  <View style={[styles.iconBox, { backgroundColor: '#e07a5f20' }]}>
+                    <Ionicons name="fast-food" size={20} color="#e07a5f" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.amenityTitle}>
+                      {Array.isArray(order.items) && order.items.length > 0
+                        ? order.items.map((i: any) => `${i.name} x${i.quantity}`).join(', ')
+                        : t('foodOrder')}
+                    </Text>
+                    <Text style={styles.amenityMeta}>
+                      {order.orderType?.split('_').join(' ') || 'Order'}
+                      {' • '}
+                      {formatOrderTime(order)}
+                    </Text>
+                  </View>
+                  <View>
+                    <Text style={styles.orderAmount}>{formatMoney(order.totalAmount)}</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[order.status] || '#6b7280') + '22' }]}>
+                      <Text style={[styles.statusText, { color: STATUS_COLORS[order.status] || '#6b7280' }]}>
+                        {formatStatus(order.status)}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* CATERING BOOKINGS */}
+          {catering.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Catering Bookings</Text>
+              {catering.map((cat: any) => (
+                <View key={cat.id} style={styles.amenityCard}>
+                  <View style={[styles.iconBox, { backgroundColor: '#e07a5f20' }]}>
+                    <Ionicons name="restaurant" size={20} color="#e07a5f" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.amenityTitle}>
+                      {Array.isArray(cat.items)
+                        ? cat.items.map((i: any) => `${i.name} x${i.quantity}`).join(', ')
+                        : 'Catering order'}
+                    </Text>
+                    <Text style={styles.amenityMeta}>
+                      {cat.expectedAttendance} guests •{' '}
+                      {cat.createdAt ? new Date(cat.createdAt).toLocaleDateString() : 'Today'}
+                    </Text>
+                  </View>
+                  <View>
+                    <Text style={styles.orderAmount}>{formatMoney(cat.totalAmount)}</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[cat.status] || '#6b7280') + '22' }]}>
+                      <Text style={[styles.statusText, { color: STATUS_COLORS[cat.status] || '#6b7280' }]}>
+                        {formatStatus(cat.status)}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* INVITATIONS SENT */}
+          {invitations.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Invitations Sent</Text>
+              {invitations.slice(0, 10).map((inv: any) => (
+                <View key={inv.id} style={styles.amenityCard}>
+                  <View style={[styles.iconBox, { backgroundColor: `${theme.colors.primary}20` }]}>
+                    <Ionicons name="mail" size={20} color={theme.colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.amenityTitle}>{inv.inviteeName}</Text>
+                    <Text style={styles.amenityMeta}>{inv.inviteeEmail}</Text>
+                  </View>
+                  <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[inv.status] || '#6b7280') + '22' }]}>
+                    <Text style={[styles.statusText, { color: STATUS_COLORS[inv.status] || '#6b7280' }]}>
+                      {formatStatus(inv.status)}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {!isLoading &&
+            eventBookings.length === 0 &&
+            amenityBookings.length === 0 &&
+            foodOrders.length === 0 &&
+            invitations.length === 0 &&
+            catering.length === 0 && (
+              <View style={styles.emptyState}>
+                <Ionicons name="calendar-outline" size={64} color={theme.colors.textMuted} />
+                <Text style={styles.emptyTitle}>Nothing booked yet</Text>
+                <Text style={styles.emptyText}>
+                  Book an event venue, a spa treatment, a tour, or a table — everything will show up here live.
+                </Text>
+              </View>
+            )}
         </ScrollView>
       )}
+
+      {/* REFUND REQUEST MODAL (UC32) */}
+      <Modal visible={showRefundModal} transparent animationType="slide">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={{ fontSize: 18, fontWeight: '900', color: '#1e293b' }}>Request Event Refund (UC32)</Text>
+              <TouchableOpacity onPress={() => setShowRefundModal(false)}>
+                <Ionicons name="close" size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
+              Original Paid Amount: <Text style={{ fontWeight: '800', color: '#1e293b' }}>R {selectedBookingForRefund?.paidAmount}</Text>
+            </Text>
+
+            <Text style={{ fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 6 }}>Refund Reason</Text>
+            <TextInput
+              style={{ backgroundColor: '#f1f5f9', borderRadius: 12, padding: 12, fontSize: 14, color: '#0f172a', marginBottom: 14, borderWidth: 1, borderColor: '#cbd5e1' }}
+              placeholder="State reason for refund request..."
+              placeholderTextColor="#94a3b8"
+              value={refundReason}
+              onChangeText={setRefundReason}
+            />
+
+            <Text style={{ fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 6 }}>Requested Refund Amount (R)</Text>
+            <TextInput
+              style={{ backgroundColor: '#f1f5f9', borderRadius: 12, padding: 12, fontSize: 14, color: '#0f172a', marginBottom: 16, borderWidth: 1, borderColor: '#cbd5e1' }}
+              placeholder="Amount in ZAR"
+              placeholderTextColor="#94a3b8"
+              keyboardType="numeric"
+              value={refundAmountInput}
+              onChangeText={setRefundAmountInput}
+            />
+
+            <TouchableOpacity
+              style={{ backgroundColor: '#dc2626', paddingVertical: 14, borderRadius: 14, alignItems: 'center' }}
+              onPress={handleConfirmRefundSubmit}
+              disabled={submittingRefund}
+            >
+              {submittingRefund ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={{ color: '#ffffff', fontSize: 15, fontWeight: '800' }}>Submit Refund Request</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Custom Themed Alert Modal */}
+      <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 60, paddingHorizontal: 20, paddingBottom: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+const createStyles = (theme: any) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.colors.background },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingTop: 60, paddingHorizontal: 20, paddingBottom: 16,
+    backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.border,
+  },
   backButton: { padding: 4, marginLeft: -8 },
   headerCenter: { alignItems: 'center' },
-  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1e3a5f' },
-  headerSubtitle: { fontSize: 12, color: '#64748b' },
-  refreshBtn: { padding: 4, marginRight: -8 },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: theme.colors.text },
+  headerSubtitle: { fontSize: 12, color: theme.colors.textMuted },
   centerContent: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   scrollContent: { padding: 20, paddingBottom: 40 },
-  emptyState: { alignItems: 'center', justifyContent: 'center', marginTop: 80, paddingHorizontal: 20 },
-  emptyTitle: { fontSize: 20, fontWeight: 'bold', color: '#1e3a5f', marginTop: 16, marginBottom: 8 },
-  emptyText: { textAlign: 'center', color: '#64748b', lineHeight: 22 },
-  timeline: { marginTop: 10 },
-  timelineItem: { flexDirection: 'row', marginBottom: 20 },
-  timelineGraphic: { width: 30, alignItems: 'center', marginRight: 12 },
-  timelineDot: { width: 16, height: 16, borderRadius: 8, borderWidth: 4, backgroundColor: '#fff', zIndex: 2 },
-  timelineLine: { width: 2, flex: 1, backgroundColor: '#e2e8f0', marginTop: -4, marginBottom: -24 },
-  resCard: { flex: 1, backgroundColor: '#fff', borderRadius: 16, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
-  resCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  iconBox: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-  statusText: { fontSize: 11, fontWeight: 'bold', color: '#16a34a' },
-  resTitle: { fontSize: 18, fontWeight: 'bold', color: '#0f172a', marginBottom: 12 },
-  resDetailsRow: { flexDirection: 'row', gap: 16 },
-  resDetail: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  resDetailText: { fontSize: 13, color: '#475569', fontWeight: '500' }
+  emptyState: { alignItems: 'center', justifyContent: 'center', marginTop: 60, paddingHorizontal: 20 },
+  emptyTitle: { fontSize: 20, fontWeight: 'bold', color: theme.colors.text, marginTop: 16, marginBottom: 8 },
+  emptyText: { textAlign: 'center', color: theme.colors.textMuted, lineHeight: 22 },
+
+  stayCard: { backgroundColor: '#1e3a5f', borderRadius: 20, padding: 20, marginBottom: 24 },
+  stayHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  stayLabel: { color: '#c9a227', fontSize: 12, fontWeight: 'bold', letterSpacing: 1 },
+  stayRoom: { color: '#fff', fontSize: 26, fontWeight: 'bold' },
+  stayName: { color: 'rgba(255,255,255,0.8)', fontSize: 14, marginTop: 2, marginBottom: 12 },
+  stayRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  stayDetail: { color: 'rgba(255,255,255,0.7)', fontSize: 13 },
+
+  section: { marginTop: 8, marginBottom: 16 },
+  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: theme.colors.text, marginBottom: 12 },
+
+  eventCard: {
+    backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16, marginBottom: 12,
+    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+  },
+  eventCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
+  eventVenue: { fontSize: 16, fontWeight: 'bold', color: theme.colors.text, marginBottom: 4 },
+  eventDate: { fontSize: 13, color: theme.colors.textSecondary },
+  eventAmount: { fontSize: 15, fontWeight: '700', color: theme.colors.success, marginTop: 10 },
+  eventActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  eventActionBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: theme.colors.surfaceVariant, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
+  },
+  eventActionText: { fontSize: 12, fontWeight: '600', color: theme.colors.secondary },
+
+  amenityCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: theme.colors.surface, borderRadius: 14, padding: 14, marginBottom: 10,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
+  },
+  iconBox: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  amenityTitle: { fontSize: 14, fontWeight: '600', color: theme.colors.text, marginBottom: 3 },
+  amenityMeta: { fontSize: 12, color: theme.colors.textMuted },
+  orderAmount: { fontSize: 14, fontWeight: '700', color: theme.colors.text, marginBottom: 4, textAlign: 'right' },
+
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, alignSelf: 'flex-start' },
+  statusText: { fontSize: 11, fontWeight: 'bold' },
 });

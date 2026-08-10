@@ -6,60 +6,86 @@ import {
   ScrollView, 
   TouchableOpacity, 
   TextInput,
-  ActivityIndicator,
+  ImageBackground,
   Modal,
   Alert,
-  ImageBackground
+  ActivityIndicator,
+  useColorScheme
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-
-// Firebase Imports
 import { auth, db } from '../../services/firebase-services';
 import { collection, addDoc } from 'firebase/firestore';
+import { getTheme } from '@/constants/theme';
+import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
+import { useAuth } from '@/context/AuthContext';
 
-// Hardcoded Spa Menu for the Presentation
 const spaTreatments = [
-  { id: 't1', name: 'Deep Tissue Massage', duration: '60 Min', price: 850, icon: 'body', desc: 'Releases chronic muscle tension.' },
-  { id: 't2', name: 'Ocean Radiance Facial', duration: '45 Min', price: 600, icon: 'sparkles', desc: 'Hydrating and brightening facial.' },
-  { id: 't3', name: 'Couples Retreat', duration: '90 Min', price: 1500, icon: 'heart', desc: 'Side-by-side massage with champagne.' },
-  { id: 't4', name: 'Hot Stone Therapy', duration: '60 Min', price: 900, icon: 'flame', desc: 'Warm stones to ease stiffness and increase circulation.' },
+  { id: '1', name: 'Azure Signature Massage', duration: '60 min', price: 1200, icon: 'body-outline', desc: 'A soothing deep-tissue massage using custom essential oils harvested from resort gardens.' },
+  { id: '2', name: 'Hydrotherapy Soak & Scrub', duration: '45 min', price: 850, icon: 'water-outline', desc: 'Exfoliating sea salt scrub followed by a therapeutic mineral bath overlooking the ocean.' },
+  { id: '3', name: 'Hot Stone Renewal', duration: '75 min', price: 1450, icon: 'flame-outline', desc: 'Smooth basalt stones release deep muscle tension and restore body harmony.' },
+  { id: '4', name: 'Radiance Ocean Facial', duration: '60 min', price: 1100, icon: 'sparkles-outline', desc: 'Marine extract collagen treatment that hydrates and illuminates sun-kissed skin.' },
+  { id: '5', name: 'Couples Sunset Serenity', duration: '90 min', price: 2800, icon: 'heart-outline', desc: 'Side-by-side massages in a private beachside cabana followed by champagne.' },
 ];
 
 export default function SpaScreen() {
+  const { profile } = useAuth();
+  const user = auth.currentUser;
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
+  const styles = createStyles(theme);
+
   const [selectedTreatment, setSelectedTreatment] = useState<any>(null);
   const [bookingDate, setBookingDate] = useState('');
   const [bookingTime, setBookingTime] = useState('');
   const [specialRequests, setSpecialRequests] = useState('');
-  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
-  const user = auth.currentUser;
+  const [alertConfig, setAlertConfig] = useState<AlertConfig>({
+    visible: false,
+    title: '',
+    message: '',
+  });
+
+  const showAlert = (config: Omit<AlertConfig, 'visible'>) => {
+    setAlertConfig({ ...config, visible: true });
+  };
 
   const handleOpenBooking = (treatment: any) => {
+    if (!user || profile?.status === 'visitor') {
+      showAlert({
+        title: "🔒 Sign In Required",
+        message: "Please sign in to your room stay account to book spa treatments.",
+        type: "warning",
+        confirmText: "Sign In",
+        cancelText: "Cancel",
+        onConfirm: () => router.push('/login'),
+      });
+      return;
+    }
     setSelectedTreatment(treatment);
     setShowBookingModal(true);
   };
 
   const handleConfirmBooking = async () => {
     if (!bookingDate || !bookingTime) {
-      Alert.alert("Missing Details", "Please enter a preferred date and time.");
+      showAlert({ title: "Missing Details", message: "Please enter a preferred date and time.", type: "warning" });
       return;
     }
 
     if (!user) {
-      Alert.alert("Authentication Error", "You must be logged in to book a spa treatment.");
+      showAlert({ title: "Authentication Error", message: "You must be logged in to book a spa treatment.", type: "warning" });
       return;
     }
 
     setIsSubmitting(true);
-    
+
     try {
       const bookingData = {
         guestId: user.uid,
-        guestName: user.displayName || 'Guest',
+        guestName: user.displayName || profile?.displayName || 'Resort Guest',
         treatmentName: selectedTreatment.name,
         price: selectedTreatment.price,
         date: bookingDate,
@@ -69,26 +95,22 @@ export default function SpaScreen() {
         createdAt: new Date().toISOString()
       };
 
-      // Push to Firestore
       await addDoc(collection(db, 'spa_bookings'), bookingData);
 
       setShowBookingModal(false);
       setShowSuccessModal(true);
-      
-      // Reset form
       setBookingDate('');
       setBookingTime('');
       setSpecialRequests('');
-      
     } catch (error) {
       console.error("Booking error:", error);
-      Alert.alert("Booking Failed", "We couldn't process your request. Please try again.");
+      showAlert({ title: "Booking Failed", message: "We couldn't process your request. Please try again.", type: "error" });
     } finally {
       setIsSubmitting(false);
     }
   };
 
- return (
+  return (
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
@@ -112,7 +134,7 @@ export default function SpaScreen() {
           <View style={styles.heroOverlay}>
             <Ionicons name="leaf" size={40} color="#c9a227" style={styles.heroIcon} />
             <Text style={styles.heroTitle}>Find Your Inner Peace</Text>
-            <Text style={styles.heroText}>Award-winning wellness therapies tailored to your body's specific needs.</Text>
+            <Text style={styles.heroText}>Award-winning wellness therapies tailored to your body&apos;s specific needs.</Text>
           </View>
         </ImageBackground>
 
@@ -149,58 +171,55 @@ export default function SpaScreen() {
       </ScrollView>
 
       {/* BOOKING MODAL (BOTTOM SHEET STYLE) */}
-      <Modal visible={showBookingModal} animationType="slide" transparent>
+      <Modal visible={showBookingModal} animationType="slide" transparent onRequestClose={() => setShowBookingModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.bottomSheet}>
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Schedule Treatment</Text>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Reserve {selectedTreatment?.name}</Text>
               <TouchableOpacity onPress={() => setShowBookingModal(false)}>
-                <Ionicons name="close-circle" size={28} color="#94a3b8" />
+                <Ionicons name="close" size={24} color="#64748b" />
               </TouchableOpacity>
             </View>
 
-            {selectedTreatment && (
-              <View style={styles.selectedServiceCard}>
-                <Text style={styles.selectedServiceName}>{selectedTreatment.name}</Text>
-                <Text style={styles.selectedServicePrice}>R {selectedTreatment.price} • {selectedTreatment.duration}</Text>
-              </View>
-            )}
+            <Text style={styles.modalPriceText}>Total: R {selectedTreatment?.price} ({selectedTreatment?.duration})</Text>
 
-            <Text style={styles.inputLabel}>Preferred Date (YYYY-MM-DD)</Text>
+            <Text style={styles.inputLabel}>Preferred Date</Text>
             <TextInput 
               style={styles.input} 
-              placeholder="e.g. 2026-10-15"
-              value={bookingDate}
-              onChangeText={setBookingDate}
+              placeholder="e.g. Tomorrow, 14 Aug" 
+              value={bookingDate} 
+              onChangeText={setBookingDate} 
+              placeholderTextColor="#94a3b8"
             />
 
             <Text style={styles.inputLabel}>Preferred Time</Text>
             <TextInput 
               style={styles.input} 
-              placeholder="e.g. 14:00"
-              value={bookingTime}
-              onChangeText={setBookingTime}
+              placeholder="e.g. 14:30" 
+              value={bookingTime} 
+              onChangeText={setBookingTime} 
+              placeholderTextColor="#94a3b8"
             />
 
-            <Text style={styles.inputLabel}>Special Requests (Optional)</Text>
+            <Text style={styles.inputLabel}>Special Requests / Allergies</Text>
             <TextInput 
-              style={[styles.input, styles.textArea]} 
-              placeholder="e.g. Focus on lower back..."
+              style={[styles.input, { height: 80 }]} 
+              placeholder="e.g. Deep pressure, lavender oil preference..." 
+              value={specialRequests} 
+              onChangeText={setSpecialRequests} 
               multiline
-              numberOfLines={3}
-              value={specialRequests}
-              onChangeText={setSpecialRequests}
+              placeholderTextColor="#94a3b8"
             />
 
             <TouchableOpacity 
-              style={styles.confirmButton} 
+              style={styles.confirmButton}
               onPress={handleConfirmBooking}
               disabled={isSubmitting}
             >
               {isSubmitting ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.confirmButtonText}>Confirm Reservation</Text>
+                <Text style={styles.confirmButtonText}>Confirm Spa Appointment</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -208,271 +227,75 @@ export default function SpaScreen() {
       </Modal>
 
       {/* SUCCESS MODAL */}
-      <Modal visible={showSuccessModal} animationType="fade" transparent>
-        <View style={styles.modalOverlayCenter}>
-          <View style={styles.successModal}>
-            <Ionicons name="checkmark-circle" size={60} color="#81b29a" />
-            <Text style={styles.successTitle}>Booking Confirmed!</Text>
-            <Text style={styles.successText}>
-              Your {selectedTreatment?.name} has been scheduled. Our spa concierge will be ready for you!
-            </Text>
-            <TouchableOpacity style={styles.successBtn} onPress={() => setShowSuccessModal(false)}>
-              <Text style={styles.successBtnText}>Done</Text>
+      <Modal visible={showSuccessModal} animationType="fade" transparent onRequestClose={() => setShowSuccessModal(false)}>
+        <View style={styles.successOverlay}>
+          <View style={styles.successCard}>
+            <Ionicons name="checkmark-circle" size={60} color="#10b981" />
+            <Text style={styles.successTitle}>Spa Appointment Booked!</Text>
+            <Text style={styles.successSub}>Our spa therapist has received your booking. Please arrive 15 minutes before your scheduled time.</Text>
+
+            <TouchableOpacity 
+              style={styles.doneButton}
+              onPress={() => setShowSuccessModal(false)}
+            >
+              <Text style={styles.doneButtonText}>Back to Spa Menu</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
+      {/* Custom Themed Alert Modal */}
+      <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 60,
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  backButton: {
-    padding: 4,
-    marginLeft: -8,
-  },
-  headerCenter: {
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1e3a5f',
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: '#81b29a', 
-  },
-  scrollContent: {
-    paddingBottom: 40,
-  },
-  heroBanner: {
-    backgroundColor: '#1e3a5f',
-    margin: 16,
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  heroOverlay: {
-    padding: 24,
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)', 
-  },
-  heroIcon: {
-    marginBottom: 12,
-  },
-  heroTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  heroText: {
-    color: '#cbd5e1',
-    textAlign: 'center',
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#0f172a',
-    marginHorizontal: 20,
-    marginTop: 8,
-    marginBottom: 16,
-  },
-  treatmentsContainer: {
-    paddingHorizontal: 16,
-  },
-  treatmentCard: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 12,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  iconContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 12,
-    backgroundColor: '#f0fdf4',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  treatmentInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  treatmentName: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    color: '#1e293b',
-    marginBottom: 4,
-  },
-  treatmentDesc: {
-    fontSize: 12,
-    color: '#64748b',
-    marginBottom: 8,
-  },
-  treatmentMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  treatmentDuration: {
-    fontSize: 12,
-    color: '#94a3b8',
-    fontWeight: '500',
-  },
-  treatmentPrice: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: '#c9a227',
-  },
-  bookButton: {
-    backgroundColor: '#1e3a5f',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  bookButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 13,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  bottomSheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    minHeight: '60%',
-  },
-  sheetHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  sheetTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1e3a5f',
-  },
-  selectedServiceCard: {
-    backgroundColor: '#f8fafc',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: '#81b29a',
-  },
-  selectedServiceName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1e293b',
-    marginBottom: 4,
-  },
-  selectedServicePrice: {
-    color: '#64748b',
-    fontSize: 13,
-  },
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#475569',
-    marginBottom: 6,
-    marginTop: 12,
-  },
-  input: {
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 15,
-    color: '#0f172a',
-  },
-  textArea: {
-    height: 80,
-    textAlignVertical: 'top',
-  },
-  confirmButton: {
-    backgroundColor: '#1e3a5f',
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 24,
-  },
-  confirmButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  modalOverlayCenter: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  successModal: {
-    backgroundColor: '#fff',
-    width: '100%',
-    padding: 32,
-    borderRadius: 24,
-    alignItems: 'center',
-  },
-  successTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#1e3a5f',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  successText: {
-    textAlign: 'center',
-    color: '#64748b',
-    marginBottom: 24,
-    lineHeight: 22,
-  },
-  successBtn: {
-    backgroundColor: '#81b29a',
-    width: '100%',
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  successBtnText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  }
-});
+const createStyles = (theme: any) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: '#f8fafc' },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+    backButton: { padding: 4 },
+    headerCenter: { alignItems: 'center' },
+    headerTitle: { fontSize: 18, fontWeight: '800', color: '#1e3a5f' },
+    headerSubtitle: { fontSize: 12, color: '#64748b' },
+
+    scrollContent: { padding: 20, paddingBottom: 40 },
+    heroBanner: { height: 180, borderRadius: 20, overflow: 'hidden', marginBottom: 24 },
+    heroOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.55)', padding: 20, justifyContent: 'center' },
+    heroIcon: { marginBottom: 6 },
+    heroTitle: { fontSize: 24, fontWeight: '900', color: '#ffffff' },
+    heroText: { fontSize: 13, color: '#cbd5e1', marginTop: 4, maxWidth: '85%' },
+
+    sectionTitle: { fontSize: 18, fontWeight: '800', color: theme.colors.text, marginBottom: 14 },
+    treatmentsContainer: { gap: 14 },
+    treatmentCard: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 1, borderColor: theme.colors.border, elevation: 2 },
+    iconContainer: { width: 50, height: 50, borderRadius: 25, backgroundColor: 'rgba(129, 178, 154, 0.15)', justifyContent: 'center', alignItems: 'center' },
+    treatmentInfo: { flex: 1 },
+    treatmentName: { fontSize: 15, fontWeight: '800', color: theme.colors.text },
+    treatmentDesc: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2, lineHeight: 16 },
+    treatmentMeta: { flexDirection: 'row', gap: 12, marginTop: 8 },
+    treatmentDuration: { fontSize: 12, color: theme.colors.textMuted, fontWeight: '600' },
+    treatmentPrice: { fontSize: 13, color: '#81b29a', fontWeight: '800' },
+
+    bookButton: { backgroundColor: theme.colors.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
+    bookButtonText: { color: theme.colors.textInverse, fontSize: 13, fontWeight: '800' },
+
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+    bottomSheet: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+    modalTitle: { fontSize: 18, fontWeight: '800', color: theme.colors.text },
+    modalPriceText: { fontSize: 14, fontWeight: '700', color: '#81b29a', marginBottom: 16 },
+
+    inputLabel: { fontSize: 12, fontWeight: '700', color: theme.colors.textMuted, marginBottom: 6 },
+    input: { backgroundColor: theme.colors.background, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: theme.colors.text, marginBottom: 14, borderWidth: 1, borderColor: theme.colors.border },
+
+    confirmButton: { backgroundColor: '#81b29a', paddingVertical: 14, borderRadius: 14, alignItems: 'center', marginTop: 8 },
+    confirmButtonText: { color: '#ffffff', fontSize: 15, fontWeight: '800' },
+
+    successOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+    successCard: { backgroundColor: theme.colors.surface, borderRadius: 24, padding: 28, alignItems: 'center', width: '90%' },
+    successTitle: { fontSize: 20, fontWeight: '900', color: theme.colors.text, marginTop: 12 },
+    successSub: { fontSize: 13, color: theme.colors.textMuted, textAlign: 'center', marginTop: 6, lineHeight: 18 },
+    doneButton: { backgroundColor: theme.colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 14, marginTop: 20 },
+    doneButtonText: { color: theme.colors.textInverse, fontWeight: '800', fontSize: 14 },
+  });

@@ -1,15 +1,44 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Platform } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  useColorScheme,
+  TextInput,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, Camera } from 'expo-camera';
-import { validateLoyaltyQR } from '@/services/firebase-services';
+import { validateLoyaltyQR, redeemVoucherByStaff, awardLoyaltyPoints, auth } from '@/services/firebase-services';
+import { getTheme } from '@/constants/theme';
+import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
+import { useRouter } from 'expo-router';
 
 export default function LoyaltyScannerScreen() {
+  const router = useRouter();
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
+  const styles = createStyles(theme);
+
   const [hasPermission, setHasPermission] = useState<null | boolean>(null);
   const [scanned, setScanned] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [voucherResult, setVoucherResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [manualCode, setManualCode] = useState('');
   const [isExpoGo, setIsExpoGo] = useState(false);
+  const [awarding, setAwarding] = useState(false);
+
+  const [alertConfig, setAlertConfig] = useState<AlertConfig>({
+    visible: false,
+    title: '',
+    message: '',
+  });
+
+  const showAlert = (config: Omit<AlertConfig, 'visible'>) => {
+    setAlertConfig({ ...config, visible: true });
+  };
 
   useEffect(() => {
     checkEnvironment();
@@ -31,127 +60,301 @@ export default function LoyaltyScannerScreen() {
     }
   };
 
-  const handleBarCodeScanned = async ({ type, data }: { type: string; data: string }) => {
+  const handleBarCodeScanned = async ({ data }: { data: string }) => {
     if (scanned || loading) return;
     setScanned(true);
     setLoading(true);
+    setResult(null);
+    setVoucherResult(null);
 
     try {
-      const response = await validateLoyaltyQR({ qrPayload: data });
-      setResult(response.data);
-      
-      if (response.data.valid) {
-        Alert.alert(
-          'Validation Successful',
-          `Guest: ${response.data.guest.name}\nPoints: ${response.data.guest.loyaltyPoints}\nTier: ${response.data.guest.loyaltyTier}`,
-          [{ text: 'Scan Another', onPress: () => { setScanned(false); setResult(null); } }]
-        );
-      } else {
-        Alert.alert(
-          'Invalid QR Code',
-          response.data.message || 'QR code validation failed',
-          [{ text: 'Try Again', onPress: () => { setScanned(false); setResult(null); } }]
-        );
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(data);
+      } catch {
+        parsed = null;
       }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to validate QR code');
-      setScanned(false);
-      setResult(null);
+
+      // Check if this is a Reward Voucher QR (contains voucherCode or rewardTitle)
+      if (parsed && (parsed.voucherCode || parsed.rewardTitle)) {
+        const staffUid = auth.currentUser?.uid || 'staff';
+        const res: any = await redeemVoucherByStaff(parsed.voucherCode, staffUid);
+        setVoucherResult({
+          voucherCode: parsed.voucherCode,
+          rewardTitle: parsed.rewardTitle || res.rewardTitle,
+          guestName: parsed.guestName || 'Guest',
+          pts: parsed.pts || res.pointsSpent,
+          claimed: true,
+        });
+        showAlert({
+          title: '✅ Reward Voucher Claimed',
+          message: `Voucher "${parsed.rewardTitle}" for ${parsed.guestName} has been successfully validated and marked as redeemed in Firestore.`,
+          type: 'success',
+        });
+      } else {
+        // Standard Loyalty Member QR
+        const response = await validateLoyaltyQR({ qrPayload: data });
+        if (response.data.valid) {
+          setResult(response.data.guest);
+        } else {
+          showAlert({
+            title: 'Invalid QR Code',
+            message: response.data.message || 'QR code validation failed.',
+            type: 'error',
+            onConfirm: () => { setScanned(false); setResult(null); }
+          });
+        }
+      }
+    } catch (error: any) {
+      showAlert({
+        title: 'Validation Error',
+        message: error.message || 'Failed to validate QR code. Please check code or try manual entry.',
+        type: 'error',
+        onConfirm: () => { setScanned(false); setResult(null); }
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  if (hasPermission === null) {
-    return <View style={styles.loadingContainer}><ActivityIndicator size="large" color="#c9a227" /></View>;
-  }
-  if (hasPermission === false) {
-    return (
-      <View style={styles.container}>
-        {isExpoGo ? (
-          <View style={styles.expoGoNotice}>
-            <Ionicons name="information-circle" size={24} color="#c9a227" style={{ marginBottom: 12 }} />
-            <Text style={styles.expoGoNoticeText}>
-              QR Scanner requires a development build.\nNot available in Expo Go.
-            </Text>
-            <Text style={styles.expoGoNoticeSub}>Run: eas build --platform android --profile development</Text>
-          </View>
-        ) : (
-          <View style={styles.noPermissionContainer}>
-            <Ionicons name="camera-off" size={48} color="#dc2626" style={{ marginBottom: 12 }} />
-            <Text style={styles.noPermission}>Camera permission required for QR scanning</Text>
-          </View>
-        )}
-      </View>
-    );
-  }
+  // Award Points to Guest
+  const handleAwardPoints = async (ptsToAward: number) => {
+    if (!result) return;
+    setAwarding(true);
+    try {
+      const targetDocId = result.id || result.uid || result.email || '';
+      const guestId = result.uid || result.id || '';
+
+      const { newPoints, newTier } = await awardLoyaltyPoints(
+        targetDocId,
+        guestId,
+        ptsToAward,
+        `Awarded +${ptsToAward} visit points by resort staff`
+      );
+
+      setResult((prev: any) => ({
+        ...prev,
+        loyaltyPoints: newPoints,
+        loyaltyTier: newTier,
+      }));
+
+      showAlert({
+        title: '🎉 Points Awarded Instantly!',
+        message: `Awarded +${ptsToAward} points to ${result.name}.\nNew Total: ${newPoints} pts (${newTier.toUpperCase()} Tier).\n\nThe resident's screen has updated live in real-time!`,
+        type: 'success',
+      });
+    } catch (error: any) {
+      showAlert({
+        title: 'Error Awarding Points',
+        message: error.message || 'Could not award points.',
+        type: 'error',
+      });
+    } finally {
+      setAwarding(false);
+    }
+  };
+
+  const handleManualRedeem = async () => {
+    if (!manualCode.trim()) {
+      showAlert({
+        title: 'Input Required',
+        message: 'Please enter a valid voucher code (e.g. AZURE-REWARD-XXXXXX).',
+        type: 'warning',
+      });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const staffUid = auth.currentUser?.uid || 'staff';
+      const res: any = await redeemVoucherByStaff(manualCode, staffUid);
+      setVoucherResult({
+        voucherCode: res.voucherCode || manualCode.toUpperCase(),
+        rewardTitle: res.rewardTitle || 'Food/Reward Coupon',
+        guestName: 'Verified Guest',
+        pts: res.pointsSpent || 0,
+        claimed: true,
+      });
+      setManualCode('');
+      showAlert({
+        title: '✅ Voucher Redeemed',
+        message: `Voucher for "${res.rewardTitle || 'Food Coupon'}" is valid and marked as claimed!`,
+        type: 'success',
+      });
+    } catch (error: any) {
+      showAlert({
+        title: 'Voucher Error',
+        message: error.message || 'Voucher code is invalid or already redeemed.',
+        type: 'error',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Loyalty QR Scanner</Text>
-        <Text style={styles.subtitle}>Scan guest's rotating loyalty QR code</Text>
-      </View>
-
-      <View style={styles.scannerContainer}>
-        <CameraView
-          onBarcodeScanned={handleBarCodeScanned}
-          barcodeScannerSettings={{
-            barcodeTypes: ['qr', 'pdf417', 'ean13', 'ean8', 'code128', 'code39', 'code93', 'aztec', 'datamatrix'],
-          }}
-          style={StyleSheet.absoluteFillObject}
-        />
-        <View style={styles.overlay}>
-          <View style={styles.scanFrame}>
-            <View style={styles.corner} />
-            <View style={styles.corner} />
-            <View style={styles.corner} />
-            <View style={styles.corner} />
-          </View>
-          <Text style={styles.scanText}>Position QR code within frame</Text>
+      {/* Header */}
+      <View style={styles.headerRow}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="chevron-back" size={24} color="#fff" />
+        </TouchableOpacity>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>Waiter & Staff Redemption</Text>
+          <Text style={styles.subtitle}>Scan member QR or food coupon voucher</Text>
         </View>
       </View>
 
-      {result?.valid && result?.guest && (
-        <View style={styles.resultCard}>
-          <Ionicons name="checkmark-circle" size={48} color="#16a34a" />
-          <Text style={styles.resultName}>{result.guest.name}</Text>
-          <View style={styles.resultDetails}>
-            <Text style={styles.resultDetail}><Ionicons name="diamond" size={16} color="#c9a227" style={{marginRight: 8}} /> {result.guest.loyaltyTier} Tier</Text>
-            <Text style={styles.resultDetail}><Ionicons name="cash" size={16} color="#c9a227" style={{marginRight: 8}} /> {result.guest.loyaltyPoints} Points</Text>
-            {result.guest.roomNumber && result.guest.roomNumber !== 'N/A' && (
-              <Text style={styles.resultDetail}><Ionicons name="bed" size={16} color="#c9a227" style={{marginRight: 8}} /> Room {result.guest.roomNumber}</Text>
-            )}
+      {/* Camera / Notice */}
+      <View style={styles.scannerContainer}>
+        {hasPermission ? (
+          <CameraView
+            onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+            barcodeScannerSettings={{
+              barcodeTypes: ['qr'],
+            }}
+            style={StyleSheet.absoluteFill}
+          />
+        ) : (
+          <View style={styles.noCameraView}>
+            <Ionicons name="qr-code-outline" size={48} color="#c9a227" style={{ marginBottom: 12 }} />
+            <Text style={styles.noCamText}>
+              {isExpoGo ? 'QR Scanner requires development APK build' : 'Camera permission required'}
+            </Text>
           </View>
-          <TouchableOpacity style={styles.scanAgainBtn} onPress={() => { setScanned(false); setResult(null); }}>
-            <Text style={styles.scanAgainBtnText}>Scan Another</Text>
+        )}
+
+        <View style={styles.overlay}>
+          <View style={styles.scanFrame}>
+            <View style={styles.cornerTopLeft} />
+            <View style={styles.cornerTopRight} />
+            <View style={styles.cornerBottomLeft} />
+            <View style={styles.cornerBottomRight} />
+          </View>
+          <Text style={styles.scanText}>Point camera at member QR or food voucher</Text>
+        </View>
+      </View>
+
+      {/* Manual Code Input Bar for Staff */}
+      <View style={styles.manualBar}>
+        <Text style={styles.manualTitle}>Manual Voucher Code Override</Text>
+        <View style={styles.manualInputRow}>
+          <TextInput
+            style={styles.manualInput}
+            placeholder="Enter code (e.g. AZURE-REWARD-12345)"
+            placeholderTextColor="#64748b"
+            value={manualCode}
+            onChangeText={setManualCode}
+            autoCapitalize="characters"
+          />
+          <TouchableOpacity style={styles.manualBtn} onPress={handleManualRedeem} disabled={loading}>
+            {loading ? <ActivityIndicator color="#0f172a" /> : <Text style={styles.manualBtnText}>Validate</Text>}
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Results View */}
+      {(result || voucherResult) && (
+        <View style={styles.resultCard}>
+          <Ionicons name="checkmark-circle-sharp" size={48} color="#16a34a" />
+          <Text style={styles.resultName}>
+            {voucherResult ? voucherResult.rewardTitle : result?.name}
+          </Text>
+
+          {voucherResult ? (
+            <View style={styles.voucherBadge}>
+              <Text style={styles.voucherBadgeText}>REWARD COUPON CLAIMED ✓</Text>
+              <Text style={styles.voucherDetail}>Guest: {voucherResult.guestName}</Text>
+              <Text style={styles.voucherDetail}>Code: {voucherResult.voucherCode}</Text>
+            </View>
+          ) : (
+            <View style={styles.resultDetails}>
+              <Text style={styles.resultDetail}>Tier: {result?.loyaltyTier?.toUpperCase()} Member</Text>
+              <Text style={styles.resultDetail}>Points Balance: {result?.loyaltyPoints} pts</Text>
+
+              {/* Staff Award Points Buttons */}
+              <View style={styles.awardRow}>
+                <TouchableOpacity
+                  style={styles.awardBtn}
+                  onPress={() => handleAwardPoints(50)}
+                  disabled={awarding}
+                >
+                  {awarding ? (
+                    <ActivityIndicator color="#0f172a" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons name="add-circle" size={16} color="#0f172a" />
+                      <Text style={styles.awardBtnText}>Award +50 Pts</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.awardBtn, { backgroundColor: '#1e3a5f' }]}
+                  onPress={() => handleAwardPoints(100)}
+                  disabled={awarding}
+                >
+                  <Ionicons name="add-circle" size={16} color="#ffffff" />
+                  <Text style={[styles.awardBtnText, { color: '#ffffff' }]}>Award +100 Pts</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={styles.scanAgainBtn}
+            onPress={() => { setScanned(false); setResult(null); setVoucherResult(null); }}
+          >
+            <Text style={styles.scanAgainBtnText}>Scan Next Code</Text>
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Custom Alert */}
+      <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  noPermissionContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  noPermission: { textAlign: 'center', color: '#fff', fontSize: 16, marginTop: 12 },
-  expoGoNotice: { padding: 24, alignItems: 'center', marginHorizontal: 24, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(201,162,39,0.3)' },
-  expoGoNoticeText: { color: '#fff', fontSize: 16, textAlign: 'center', marginBottom: 8 },
-  expoGoNoticeSub: { color: '#c9a227', fontSize: 13, textAlign: 'center', marginTop: 8, fontFamily: 'monospace' },
-  header: { position: 'absolute', top: 60, left: 20, right: 20, zIndex: 10 },
-  title: { fontSize: 24, fontWeight: 'bold', color: '#fff', textAlign: 'center' },
-  subtitle: { fontSize: 14, color: 'rgba(255,255,255,0.8)', textAlign: 'center', marginTop: 4 },
-  scannerContainer: { flex: 1 },
-  overlay: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  scanFrame: { width: 240, height: 240, borderWidth: 2, borderColor: '#c9a227', borderRadius: 16 },
-  corner: { position: 'absolute', width: 20, height: 20, borderWidth: 4, borderColor: '#c9a227' },
-  scanText: { color: '#fff', marginTop: 24, fontSize: 16, textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
-  resultCard: { position: 'absolute', bottom: 40, left: 20, right: 20, backgroundColor: '#fff', borderRadius: 16, padding: 24, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 12, elevation: 8 },
-  resultName: { fontSize: 22, fontWeight: 'bold', color: '#1e3a5f', marginTop: 12, marginBottom: 16 },
-  resultDetails: { width: '100%', gap: 8 },
-  resultDetail: { fontSize: 16, color: '#475569' },
-  scanAgainBtn: { backgroundColor: '#1e3a5f', paddingHorizontal: 32, paddingVertical: 12, borderRadius: 8, marginTop: 20 },
-  scanAgainBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-});
+const createStyles = (theme: any) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: '#0f172a' },
+    headerRow: { flexDirection: 'row', alignItems: 'center', paddingTop: 56, paddingHorizontal: 20, paddingBottom: 16, gap: 12, backgroundColor: '#1e293b' },
+    backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' },
+    title: { fontSize: 20, fontWeight: '800', color: '#fff' },
+    subtitle: { fontSize: 12, color: '#94a3b8', marginTop: 2 },
+
+    scannerContainer: { flex: 1, position: 'relative' },
+    noCameraView: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#0f172a' },
+    noCamText: { color: '#94a3b8', fontSize: 14, textAlign: 'center' },
+
+    overlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15,23,42,0.4)' },
+    scanFrame: { width: 240, height: 240, position: 'relative', borderRadius: 20 },
+    cornerTopLeft: { position: 'absolute', top: 0, left: 0, width: 30, height: 30, borderTopWidth: 4, borderLeftWidth: 4, borderColor: '#c9a227', borderTopLeftRadius: 16 },
+    cornerTopRight: { position: 'absolute', top: 0, right: 0, width: 30, height: 30, borderTopWidth: 4, borderRightWidth: 4, borderColor: '#c9a227', borderTopRightRadius: 16 },
+    cornerBottomLeft: { position: 'absolute', bottom: 0, left: 0, width: 30, height: 30, borderBottomWidth: 4, borderLeftWidth: 4, borderColor: '#c9a227', borderBottomLeftRadius: 16 },
+    cornerBottomRight: { position: 'absolute', bottom: 0, right: 0, width: 30, height: 30, borderBottomWidth: 4, borderRightWidth: 4, borderColor: '#c9a227', borderBottomRightRadius: 16 },
+    scanText: { color: '#ffffff', marginTop: 24, fontSize: 14, fontWeight: '600', backgroundColor: 'rgba(15,23,42,0.7)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+
+    manualBar: { padding: 16, backgroundColor: '#1e293b', borderTopWidth: 1, borderColor: '#334155' },
+    manualTitle: { fontSize: 12, fontWeight: '700', color: '#c9a227', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+    manualInputRow: { flexDirection: 'row', gap: 10 },
+    manualInput: { flex: 1, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#334155', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, color: '#fff', fontSize: 14 },
+    manualBtn: { backgroundColor: '#c9a227', paddingHorizontal: 20, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
+    manualBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 14 },
+
+    resultCard: { position: 'absolute', bottom: 90, left: 20, right: 20, backgroundColor: '#1e293b', borderRadius: 24, padding: 20, alignItems: 'center', borderWidth: 1.5, borderColor: '#16a34a', elevation: 10 },
+    resultName: { fontSize: 20, fontWeight: '800', color: '#fff', marginTop: 6, textAlign: 'center' },
+    voucherBadge: { marginTop: 12, backgroundColor: 'rgba(22,163,74,0.15)', padding: 12, borderRadius: 12, alignItems: 'center', width: '100%' },
+    voucherBadgeText: { color: '#16a34a', fontWeight: '800', fontSize: 13, letterSpacing: 0.5 },
+    voucherDetail: { color: '#cbd5e1', fontSize: 13, marginTop: 4 },
+    resultDetails: { width: '100%', marginTop: 10, alignItems: 'center', gap: 4 },
+    resultDetail: { fontSize: 14, color: '#cbd5e1', fontWeight: '600' },
+
+    awardRow: { flexDirection: 'row', gap: 10, marginTop: 12, width: '100%' },
+    awardBtn: { flex: 1, backgroundColor: '#c9a227', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 12 },
+    awardBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 13 },
+
+    scanAgainBtn: { backgroundColor: '#334155', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12, marginTop: 14 },
+    scanAgainBtnText: { color: '#ffffff', fontWeight: '800', fontSize: 13 },
+  });

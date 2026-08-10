@@ -41,3 +41,15 @@ example
 # generated native folders
 /ios
 /android
+
+# IDE
+.idea/
+
+# local dev artifacts (session transcripts, notes, debug dumps, builds)
+session-ses_*.md
+for claude.md
+Updated new.md
+what I think is actually going on..txt
+screen.xml
+screen_final.xml
+*.apk

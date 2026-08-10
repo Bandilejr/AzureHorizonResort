@@ -87,6 +87,14 @@
       ]
     },
     {
+      "collectionGroup": "punch_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "staffUid", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "service_requests",
       "queryScope": "COLLECTION",
       "fields": [
