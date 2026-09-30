@@ -1,68 +1,62 @@
+// src/constants/theme.ts — COMPATIBILITY SHIM.
+//
+// The single source of truth is now `src/design/tokens.ts`. This file
+// re-exports the token system and additionally exposes the legacy API
+// (Spacing, BorderRadius, Typography, Shadows, Layout, Transitions) so the
+// pre-existing 90+ screens keep compiling while they are migrated layer by
+// layer. New/redesigned UI must import from `@/design/tokens` directly.
 import { Platform, StatusBar, useColorScheme } from 'react-native';
+import {
+  Colors,
+  lightColors,
+  darkColors,
+  space,
+  radius,
+  fontFamily,
+  fontWeight,
+  fontSize,
+  lineHeight,
+  text,
+  elevation,
+  motion,
+  layout,
+  zIndex,
+  iconSize,
+  lightTheme as baseLightTheme,
+  darkTheme as baseDarkTheme,
+  BottomTabInset,
+  MaxContentWidth,
+  type ColorScheme,
+  type ThemeColor,
+} from '@/design/tokens';
 
-export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
+// New token system (preferred for all new/redesigned UI).
+export {
+  Colors,
+  lightColors,
+  darkColors,
+  space,
+  radius,
+  fontFamily,
+  fontWeight,
+  fontSize,
+  lineHeight,
+  text,
+  elevation,
+  motion,
+  zIndex,
+  iconSize,
+  BottomTabInset,
+  MaxContentWidth,
+  Platform,
+  StatusBar,
+  useColorScheme,
+};
+export type { ColorScheme, ThemeColor };
 
-export const MaxContentWidth = 600;
-
-export const Colors = {
-  light: {
-    primary: '#c9a227',
-    primaryDark: '#b8921f',
-    primaryLight: '#fef9e7',
-    secondary: '#1e3a5f',
-    secondaryDark: '#152a47',
-    secondaryLight: '#e8ecf3',
-    background: '#f8fafc',
-    surface: '#ffffff',
-    surfaceVariant: '#f1f5f9',
-    border: '#e2e8f0',
-    borderStrong: '#cbd5e1',
-    text: '#0f172a',
-    textSecondary: '#475569',
-    textMuted: '#94a3b8',
-    textInverse: '#ffffff',
-    success: '#16a34a',
-    successLight: '#dcfce7',
-    warning: '#d97706',
-    warningLight: '#fef3c7',
-    error: '#dc2626',
-    errorLight: '#fef2f2',
-    info: '#2563eb',
-    infoLight: '#dbeafe',
-    overlay: 'rgba(15, 23, 42, 0.5)',
-    shadow: 'rgba(15, 23, 42, 0.1)',
-  },
-  dark: {
-    primary: '#e8b92a',
-    primaryDark: '#d4a620',
-    primaryLight: '#1e2a0a',
-    secondary: '#60a5fa',
-    secondaryDark: '#3b82f6',
-    secondaryLight: '#1e293b',
-    background: '#0f172a',
-    surface: '#1e293b',
-    surfaceVariant: '#334155',
-    border: '#334155',
-    borderStrong: '#475569',
-    text: '#f8fafc',
-    textSecondary: '#cbd5e1',
-    textMuted: '#64748b',
-    textInverse: '#0f172a',
-    success: '#22c55e',
-    successLight: '#14532e',
-    warning: '#fbbf24',
-    warningLight: '#422006',
-    error: '#ef4444',
-    errorLight: '#450a0a',
-    info: '#3b82f6',
-    infoLight: '#1e3a5f',
-    overlay: 'rgba(0, 0, 0, 0.7)',
-    shadow: 'rgba(0, 0, 0, 0.3)',
-  },
-} as const;
-
-export type ColorScheme = 'light' | 'dark';
-
+// ─────────────────────────────────────────────────────────────────────────────
+// LEGACY TOKENS (frozen; do not extend — migrate off these).
+// ─────────────────────────────────────────────────────────────────────────────
 export const Spacing = {
   one: 1,
   two: 2,
@@ -110,19 +104,17 @@ export const Typography = {
     relaxed: 1.75,
   },
   fontFamilies: {
-    sans: Platform.select({ ios: 'system-ui', android: 'sans-serif', default: 'system-ui' }),
+    sans: fontFamily.sans,
     serif: 'serif',
-    mono: 'monospace',
+    mono: fontFamily.mono,
   },
 } as const;
 
 export const Fonts = {
-  sans: Platform.select({ ios: 'system-ui', android: 'sans-serif', default: 'system-ui' }),
+  sans: fontFamily.sans,
   serif: 'serif',
-  mono: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }) ?? 'monospace',
+  mono: fontFamily.mono,
 } as const;
-
-export type ThemeColor = keyof typeof Colors.light;
 
 export const Shadows = {
   sm: {
@@ -165,14 +157,7 @@ export const Layout = {
   fabSize: 56,
 } as const;
 
-export const ZIndex = {
-  base: 0,
-  dropdown: 100,
-  sticky: 200,
-  modal: 300,
-  toast: 400,
-  tooltip: 500,
-} as const;
+export const ZIndex = zIndex;
 
 export const Transitions = {
   fast: 150,
@@ -180,41 +165,32 @@ export const Transitions = {
   slow: 350,
 } as const;
 
-export type Theme = {
-  colors: typeof Colors.light | typeof Colors.dark;
-  spacing: typeof Spacing;
-  borderRadius: typeof BorderRadius;
-  typography: typeof Typography;
-  shadows: typeof Shadows;
-  layout: typeof Layout;
-  zIndex: typeof ZIndex;
-  transitions: typeof Transitions;
-};
-
-export const lightTheme: Theme = {
-  colors: Colors.light,
+// ─────────────────────────────────────────────────────────────────────────────
+// MERGED THEME (new tokens + legacy keys) — consumed by getTheme().
+// ─────────────────────────────────────────────────────────────────────────────
+const legacyExtensions = {
   spacing: Spacing,
   borderRadius: BorderRadius,
   typography: Typography,
   shadows: Shadows,
-  layout: Layout,
-  zIndex: ZIndex,
   transitions: Transitions,
-};
+} as const;
 
-export const darkTheme: Theme = {
-  colors: Colors.dark,
-  spacing: Spacing,
-  borderRadius: BorderRadius,
-  typography: Typography,
-  shadows: Shadows,
-  layout: Layout,
-  zIndex: ZIndex,
-  transitions: Transitions,
-};
+export const lightTheme = {
+  ...baseLightTheme,
+  ...legacyExtensions,
+  layout: { ...baseLightTheme.layout, ...Layout },
+  zIndex,
+} as const;
 
-export const getTheme = (colorScheme: ColorScheme): Theme => {
-  return colorScheme === 'dark' ? darkTheme : lightTheme;
-};
+export const darkTheme = {
+  ...baseDarkTheme,
+  ...legacyExtensions,
+  layout: { ...baseDarkTheme.layout, ...Layout },
+  zIndex,
+} as const;
 
-export { Platform, StatusBar, useColorScheme };
+export type Theme = typeof lightTheme | typeof darkTheme;
+
+export const getTheme = (colorScheme: ColorScheme | 'unspecified' | null | undefined): Theme =>
+  colorScheme === 'dark' ? darkTheme : lightTheme;
