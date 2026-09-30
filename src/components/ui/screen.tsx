@@ -21,6 +21,7 @@ export interface ScreenProps {
   padded?: boolean;
   style?: StyleProp<ViewStyle>;
   contentContainerStyle?: StyleProp<ViewStyle>;
+  refreshControl?: React.ReactElement<any>;
 }
 
 export function Screen({
@@ -29,6 +30,7 @@ export function Screen({
   padded = true,
   style,
   contentContainerStyle,
+  refreshControl,
 }: ScreenProps) {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -44,6 +46,7 @@ export function Screen({
         ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        refreshControl={refreshControl}
       >
         {children}
       </ScrollView>

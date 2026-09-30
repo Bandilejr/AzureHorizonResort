@@ -1,36 +1,43 @@
 // (courier) UC38/39 — Courier & Collections home (Phase 1 §24).
-// Collector-specific workflow: today's collections, upcoming, history,
-// QR/collection pass scan, sync queue. No manager-only controls.
+// Logistics briefing: today's collections as a route, scan action, sync,
+// recent history. No manager-only controls. No raw NPO ids.
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, useColorScheme } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { listenDonationBatches } from '@/services/increment2-services';
 import type { DonationBatch } from '@/types/increment2';
-import { ROLE_AREA_META } from '@/utils/role-home';
 import { todayISO } from '@/utils/dates';
-import { getTheme } from '@/constants/theme';
-import { LiveErrorBanner } from '@/components/detail-kit';
-import { useRouter } from 'expo-router';
+import { useAppTheme } from '@/design/use-app-theme';
+import { AppShell } from '@/components/ui/app-shell';
+import { SectionHeader } from '@/components/ui/screen';
+import { ListRow } from '@/components/ui/list-row';
+import { StatusPill } from '@/components/ui/status-pill';
+import { Button } from '@/components/ui/button';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/states';
+import { Card } from '@/components/ui/surface';
+import { AppText } from '@/components/ui/text';
 
 export default function CourierDashboardScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const styles = createStyles(theme);
-  const { profile, signOut } = useAuth();
+  const theme = useAppTheme();
+  const { profile } = useAuth();
   const [batches, setBatches] = useState<DonationBatch[]>([]);
   const [loadError, setLoadError] = useState('');
+  const [loaded, setLoaded] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     setLoadError('');
-    const onErr = (e: Error) => setLoadError(e.message);
-    return listenDonationBatches(setBatches, undefined, onErr);
+    const onErr = (e: Error) => { setLoadError(e.message); setLoaded(true); };
+    return listenDonationBatches(
+      (list) => { setBatches(list); setLoaded(true); },
+      undefined,
+      onErr,
+    );
   }, [retryKey]);
 
   const today = todayISO();
-  // Pickup date prefers the window start date (local, matches kitchen dashboard).
   const dateOf = (b: DonationBatch) => (b.pickupWindowStart || b.pickupDate || '').slice(0, 10);
   const scheduled = batches.filter((b) => b.status === 'collection_scheduled');
   const todays = scheduled.filter((b) => dateOf(b) === today);
@@ -40,72 +47,104 @@ export default function CourierDashboardScreen() {
   const timeOf = (b: DonationBatch) => {
     const s = (b.pickupWindowStart || '').slice(11, 16);
     const e = (b.pickupWindowEnd || '').slice(11, 16);
-    return s ? `${s}${e ? `–${e}` : ''}` : 'window TBC';
+    return s ? `${s}${e ? `–${e}` : ''}` : 'Window TBC';
   };
+  const partnerOf = (b: DonationBatch) => b.receivingFacility || 'NPO partner';
 
   const collectionRow = (b: DonationBatch) => (
-    <TouchableOpacity key={b.id} style={styles.card} onPress={() => router.push('/(kitchen)/logistics' as any)} activeOpacity={0.7}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.cardTitle}>{b.itemName}</Text>
-        <Text style={styles.muted}>{timeOf(b)} · {b.loadingBay || 'Bay TBC'} · NPO: {b.allocatedNpoId || 'TBC'}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
-    </TouchableOpacity>
+    <ListRow
+      key={b.id}
+      title={b.itemName}
+      subtitle={`${timeOf(b)} · ${b.loadingBay || 'Bay TBC'} · ${partnerOf(b)}`}
+      status={<StatusPill status={b.status} size="sm" />}
+      onPress={() => router.push('/(kitchen)/logistics' as any)}
+    />
   );
+
+  const loading = !loaded;
+  const showFullError = !!loadError && batches.length === 0;
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>{ROLE_AREA_META.courier.title}</Text>
-      <Text style={styles.sub}>Signed in as {profile?.displayName || profile?.email}</Text>
-      <LiveErrorBanner error={loadError} onRetry={() => { setLoadError(''); setRetryKey((k) => k + 1); }} />
+    <AppShell
+      context="Collector · FixedFunding"
+      title="Today"
+      subtitle={`${profile?.displayName ? profile.displayName + ' · ' : ''}${todays.length} collection${todays.length === 1 ? '' : 's'} scheduled`}
+      onNotifications={() => router.push('/(courier)/notifications' as any)}
+      onProfile={() => router.push('/(courier)/profile' as any)}
+      onSync={() => router.push('/(courier)/sync' as any)}
+    >
+      {showFullError ? (
+        <ErrorState
+          title="Couldn't load collections"
+          message="Live collections are unavailable right now."
+          details={loadError}
+          onRetry={() => { setLoadError(''); setRetryKey((k) => k + 1); }}
+        />
+      ) : loading ? (
+        <ListSkeleton rows={3} />
+      ) : (
+        <>
+          <Button
+            label="Scan Collection Pass"
+            icon="qr-code-outline"
+            size="lg"
+            onPress={() => router.push('/(courier)/scan' as any)}
+          />
 
-      <Text style={styles.groupTitle}>{`Today's Collections (${todays.length})`}</Text>
-      {todays.length === 0 && <Text style={styles.muted}>No collections scheduled for today.</Text>}
-      {todays.map(collectionRow)}
+          <SectionHeader title={`Today's collections (${todays.length})`} />
+          {todays.length === 0 ? (
+            <EmptyState
+              icon="cube-outline"
+              title="No collections today"
+              message="Scheduled pickups will appear here with their time window and loading bay."
+            />
+          ) : (
+            <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+              {todays.map((b, i) => (
+                <View key={b.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+                  {collectionRow(b)}
+                </View>
+              ))}
+            </Card>
+          )}
 
-      <Text style={styles.groupTitle}>Upcoming ({upcoming.length})</Text>
-      {upcoming.length === 0 && <Text style={styles.muted}>No upcoming collections.</Text>}
-      {upcoming.slice(0, 5).map(collectionRow)}
+          <SectionHeader title={`Upcoming (${upcoming.length})`} />
+          {upcoming.length === 0 ? (
+            <AppText variant="body" tone="muted">No upcoming collections.</AppText>
+          ) : (
+            <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+              {upcoming.slice(0, 5).map((b, i) => (
+                <View key={b.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+                  {collectionRow(b)}
+                </View>
+              ))}
+            </Card>
+          )}
 
-      <View style={styles.actionsRow}>
-        <TouchableOpacity style={styles.action} onPress={() => router.push('/(kitchen)/donation-scan' as any)}>
-          <Ionicons name="qr-code" size={22} color={theme.colors.primary} />
-          <Text style={styles.actionText}>Scan / Collection Pass</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.action} onPress={() => router.push('/(staff)/sync-queue' as any)}>
-          <Ionicons name="sync" size={22} color={theme.colors.primary} />
-          <Text style={styles.actionText}>Sync Queue</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Text style={styles.groupTitle}>Recent History</Text>
-      {history.length === 0 && <Text style={styles.muted}>No completed collections yet.</Text>}
-      {history.map((b) => (
-        <View key={b.id} style={styles.card}>
-          <Text style={styles.cardTitle}>{b.itemName}</Text>
-          <Text style={styles.muted}>{b.collectedAt ? `Collected ${new Date(b.collectedAt).toLocaleDateString('en-ZA')}` : 'Collected'} · {b.portionCount || 0} portions</Text>
-        </View>
-      ))}
-
-      <TouchableOpacity style={styles.signout} onPress={() => { signOut().then(() => router.replace('/login' as any)); }}>
-        <Text style={styles.signoutText}>Sign out</Text>
-      </TouchableOpacity>
-      <View style={{ height: 40 }} />
-    </ScrollView>
+          <SectionHeader title="Recent history" />
+          {history.length === 0 ? (
+            <AppText variant="body" tone="muted">No completed collections yet.</AppText>
+          ) : (
+            <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+              {history.map((b, i) => (
+                <View key={b.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+                  <ListRow
+                    title={b.itemName}
+                    subtitle={
+                      b.collectedAt
+                        ? `Collected ${new Date(b.collectedAt).toLocaleDateString('en-ZA')} · ${b.portionCount || 0} portions`
+                        : `${b.portionCount || 0} portions`
+                    }
+                    leading={
+                      <StatusPill status="collected_completed" size="sm" label="Collected" />
+                    }
+                  />
+                </View>
+              ))}
+            </Card>
+          )}
+        </>
+      )}
+    </AppShell>
   );
 }
-
-const createStyles = (theme: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, padding: 16 },
-  title: { fontSize: 24, fontWeight: '800', color: theme.colors.text },
-  sub: { color: theme.colors.textMuted, marginBottom: 12 },
-  groupTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text, marginTop: 16, marginBottom: 8 },
-  card: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.colors.surface, borderRadius: 10, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
-  cardTitle: { color: theme.colors.text, fontWeight: '700' },
-  muted: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
-  actionsRow: { flexDirection: 'row', gap: 8, marginTop: 16 },
-  action: { flex: 1, alignItems: 'center', gap: 6, backgroundColor: theme.colors.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: theme.colors.border },
-  actionText: { color: theme.colors.text, fontWeight: '600', fontSize: 12, textAlign: 'center' },
-  signout: { marginTop: 16, padding: 14, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: theme.colors.error },
-  signoutText: { color: theme.colors.error, fontWeight: '700' },
-});

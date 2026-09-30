@@ -2,7 +2,7 @@
 // Calm header (context · greeting · date), notification bell, avatar and a
 // quiet sync indicator. Role homes render their briefing as children.
 import React, { useEffect, useState, type ReactNode } from 'react';
-import { View, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import { View, RefreshControl, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAppTheme } from '@/design/use-app-theme';
 import { useAuth } from '@/context/AuthContext';
@@ -69,7 +69,12 @@ export interface AppShellProps {
   onProfile?: () => void;
   onSync?: () => void;
   showBell?: boolean;
+  showSync?: boolean;
   scroll?: boolean;
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  /** Extra header actions rendered before the avatar. */
+  headerRight?: ReactNode;
   children: ReactNode;
   contentContainerStyle?: StyleProp<ViewStyle>;
 }
@@ -82,7 +87,11 @@ export function AppShell({
   onProfile,
   onSync,
   showBell = true,
+  showSync = true,
   scroll = true,
+  refreshing,
+  onRefresh,
+  headerRight,
   children,
   contentContainerStyle,
 }: AppShellProps) {
@@ -98,7 +107,15 @@ export function AppShell({
   const sub = subtitle ?? dateLine();
 
   return (
-    <Screen scroll={scroll} contentContainerStyle={contentContainerStyle}>
+    <Screen
+      scroll={scroll}
+      contentContainerStyle={contentContainerStyle}
+      refreshControl={
+        onRefresh ? (
+          <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />
+        ) : undefined
+      }
+    >
       <View style={[styles.header, { marginBottom: theme.space['2xl'] }]}>
         <View style={{ flex: 1, gap: 2 }}>
           <AppText variant="micro" tone="muted" weight="700" style={styles.context}>
@@ -112,7 +129,8 @@ export function AppShell({
           </AppText>
         </View>
         <View style={[styles.controls, { gap: theme.space.xs }]}>
-          <SyncIndicator onPress={onSync} />
+          {showSync ? <SyncIndicator onPress={onSync} /> : null}
+          {headerRight}
           {showBell ? (
             <IconButton
               name="notifications-outline"

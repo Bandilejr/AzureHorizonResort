@@ -1,66 +1,44 @@
 import React, { useState, useEffect } from 'react';
-import {
-  StyleSheet,
-  Text,
-  View,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
-  Image,
-  SafeAreaView,
-  useColorScheme,
-  StatusBar,
-  RefreshControl,
-  Modal,
-} from 'react-native';
+import { View, ScrollView, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
-import { auth, db, listenForNotifications, markNotificationRead, deriveBookingPaymentState } from '../../services/firebase-services';
-import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
-import { getTheme } from '@/constants/theme';
+import { auth, db, listenForNotifications, markNotificationRead, deriveBookingPaymentState } from '@/services/firebase-services';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { useAppTheme } from '@/design/use-app-theme';
+import type { Theme } from '@/design/tokens';
 import { useTranslation } from '@/i18n/hooks';
-import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
+import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppShell } from '@/components/ui/app-shell';
+import { AppText } from '@/components/ui/text';
+import { Card } from '@/components/ui/surface';
+import { StatusPill } from '@/components/ui/status-pill';
+import { IconButton } from '@/components/ui/icon-button';
+import { Button } from '@/components/ui/button';
+import { SectionHeader } from '@/components/ui/screen';
+import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states';
 
 const PINNED_STORAGE_KEY = '@azure_horizon_pinned_tabs';
 
-const UPCOMING_RESORT_EVENTS = [
-  {
-    id: 'evt-1',
-    title: 'Sunset Lounge Cocktail & Jazz Soirée',
-    date: 'Tonight · 18:30',
-    venue: 'Oceanfront Sunset Terrace',
-    price: 'R250 / person',
-    category: 'Gala & Music',
-    imageUrl: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80',
-  },
-  {
-    id: 'evt-2',
-    title: 'Azure Horizon Grand Gala Dinner',
-    date: 'Tomorrow · 20:00',
-    venue: 'Grand Crystal Ballroom',
-    price: 'R450 / person',
-    category: 'Dining & Gala',
-    imageUrl: 'https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?auto=format&fit=crop&w=800&q=80',
-  },
-  {
-    id: 'evt-3',
-    title: 'Beachside Seafood & Wine Tasting',
-    date: 'Saturday · 12:30',
-    venue: 'Private Beach Pavilion',
-    price: 'R350 / person',
-    category: 'Culinary',
-    imageUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=800&q=80',
-  },
-];
+type TileTone = 'primary' | 'gold' | 'accent' | 'info' | 'success' | 'warning';
+
+function tileColors(theme: Theme, tone: TileTone): { fg: string; bg: string } {
+  const c = theme.colors;
+  switch (tone) {
+    case 'gold': return { fg: c.warningStrong, bg: c.warningSoft };
+    case 'accent': return { fg: c.accentStrong, bg: c.accentSoft };
+    case 'info': return { fg: c.infoStrong, bg: c.infoSoft };
+    case 'success': return { fg: c.successStrong, bg: c.successSoft };
+    case 'warning': return { fg: c.warningStrong, bg: c.warningSoft };
+    default: return { fg: c.primary, bg: c.primarySoft };
+  }
+}
 
 export default function GuestPortal() {
   const { profile, refreshProfile } = useAuth();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const { t } = useTranslation();
-  const styles = createStyles(theme);
 
   const AVAILABLE_TABS_TO_PIN = [
     { id: 'guest-portal', label: t('portalHome'), icon: 'home' },
@@ -73,154 +51,107 @@ export default function GuestPortal() {
   ];
 
   const [userBookings, setUserBookings] = useState<any[]>([]);
-  const [activeRoomStay, setActiveRoomStay] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinnedTabs, setPinnedTabs] = useState<string[]>([
-    'guest-portal', 'digital-key', 'event-booking', 'dining', 'spa', 'loyalty', 'profile'
+    'guest-portal', 'digital-key', 'event-booking', 'dining', 'spa', 'loyalty', 'profile',
   ]);
 
-  // Custom Alert State
-  const [alertConfig, setAlertConfig] = useState<AlertConfig>({
-    visible: false,
-    title: '',
-    message: '',
-  });
+  const [alertConfig, setAlertConfig] = useState<AlertConfig>({ visible: false, title: '', message: '' });
+  const showAlert = (config: Omit<AlertConfig, 'visible'>) => setAlertConfig({ ...config, visible: true });
 
-  const showAlert = (config: Omit<AlertConfig, 'visible'>) => {
-    setAlertConfig({ ...config, visible: true });
-  };
-
-  // Notifications
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifModal, setShowNotifModal] = useState(false);
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   const params = useLocalSearchParams();
   const user = auth.currentUser;
-  // Visitor Mode is active when navigating via Explore or when unauthenticated
   const isVisitor = params.mode === 'visitor' || !user || profile?.status === 'visitor';
   const isResident = !isVisitor && user !== null;
 
   const loadPortalData = async () => {
     try {
-      if (!user || isVisitor) {
-        setIsLoading(false);
-        setRefreshing(false);
-        return;
-      }
+      if (!user || isVisitor) { setIsLoading(false); setRefreshing(false); return; }
 
-      // Query active bookings for current user across collections
       const fetchedBookings: any[] = [];
-
       const todayStr = new Date().toISOString().split('T')[0];
+      let anyQueryOk = false;
 
       try {
-        const bookingsRef = collection(db, 'event_bookings');
-        const q = query(bookingsRef, where('guestId', '==', user.uid));
+        const q = query(collection(db, 'event_bookings'), where('guestId', '==', user.uid));
         const snap = await getDocs(q);
         snap.forEach((d) => {
           const data = d.data() as any;
           const status = (data.status || 'confirmed').toLowerCase();
           const dateVal = data.eventDate || data.date || data.eventDateStr || '';
-
-          // Only active/upcoming events (not cancelled or completed, and date >= today)
           if (status !== 'cancelled' && status !== 'completed') {
             if (!dateVal || dateVal >= todayStr || new Date(dateVal).getTime() >= new Date(todayStr).getTime()) {
               fetchedBookings.push({ id: d.id, type: 'Event', ...data });
             }
           }
         });
-      } catch (_) {}
+        anyQueryOk = true;
+      } catch { /* handled below */ }
 
       try {
-        const diningRef = collection(db, 'dining_reservations');
-        const qD = query(diningRef, where('guestId', '==', user.uid));
+        const qD = query(collection(db, 'dining_reservations'), where('guestId', '==', user.uid));
         const snapD = await getDocs(qD);
         snapD.forEach((d) => {
           const data = d.data() as any;
           const status = (data.status || 'confirmed').toLowerCase();
           const dateVal = data.reservationDate || data.date || '';
-
           if (status !== 'cancelled' && status !== 'completed') {
             if (!dateVal || dateVal >= todayStr || new Date(dateVal).getTime() >= new Date(todayStr).getTime()) {
               fetchedBookings.push({ id: d.id, type: 'Dining Table', ...data });
             }
           }
         });
-      } catch (_) {}
+        anyQueryOk = true;
+      } catch { /* handled below */ }
 
-      // Deduplicate by ID and sort chronologically
-      const uniqueBookings = Array.from(new Map(fetchedBookings.map(item => [item.id, item])).values());
+      const uniqueBookings = Array.from(new Map(fetchedBookings.map((item) => [item.id, item])).values());
       uniqueBookings.sort((a: any, b: any) => {
         const dA = a.eventDate || a.date || a.reservationDate || '';
         const dB = b.eventDate || b.date || b.reservationDate || '';
         return dA.localeCompare(dB);
       });
-
       setUserBookings(uniqueBookings);
+      setLoadError(anyQueryOk ? '' : 'We could not load your bookings just now.');
 
-      if (isResident) {
-        setActiveRoomStay({
-          id: 'res-101',
-          roomNumber: profile?.roomNumber !== 'N/A' && profile?.roomNumber ? profile.roomNumber : '101',
-          roomName: `Oceanfront Luxury Suite ${profile?.roomNumber || '101'}`,
-          checkInDate: 'Today',
-          checkOutDate: 'In 3 Days',
-          wifiPass: `AZURE-${profile?.roomNumber || '101'}`,
-          status: 'confirmed',
-        });
-      }
-
-      // Load pinned tabs
       const savedPins = await AsyncStorage.getItem(PINNED_STORAGE_KEY);
-      if (savedPins) {
-        setPinnedTabs(JSON.parse(savedPins));
-      }
-    } catch (error) {
-      console.error('Guest portal fetch error:', error);
+      if (savedPins) setPinnedTabs(JSON.parse(savedPins));
+    } catch {
+      setLoadError('We could not load your bookings just now.');
     } finally {
       setIsLoading(false);
       setRefreshing(false);
     }
   };
 
-  useEffect(() => {
-    loadPortalData();
-  }, [user, profile]);
+  useEffect(() => { loadPortalData(); }, [user, profile]);
 
-  // Live notification listener for resident
   useEffect(() => {
     if (!user || !isResident) return;
-    const unsub = listenForNotifications(user.uid, (notifs) => {
-      const sorted = [...notifs].sort((a, b) => {
-        const aT = a.createdAt?.seconds || 0;
-        const bT = b.createdAt?.seconds || 0;
-        return bT - aT;
-      });
-      setNotifications(sorted);
+    return listenForNotifications(user.uid, (notifs) => {
+      setNotifications(
+        [...notifs].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)),
+      );
     });
-    return unsub;
   }, [user?.uid, isResident]);
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    refreshProfile();
-    loadPortalData();
-  };
+  const onRefresh = () => { setRefreshing(true); refreshProfile(); loadPortalData(); };
 
   const handleTileClick = (featureTitle: string, route: string, locked: boolean) => {
     if (locked) {
       showAlert({
-        title: '🔒 Resident Access Required',
-        message: `"${featureTitle}" is reserved for checked-in resort guests.\n\nPlease sign in to your room stay to access digital room key, room service, and billing.`,
+        title: 'Resident access required',
+        message: `"${featureTitle}" is reserved for checked-in guests. Sign in to your room stay to use the digital room key, room service and billing.`,
         type: 'warning',
-        confirmText: 'Sign In Now',
-        cancelText: 'Cancel',
-        onConfirm: () => {
-          router.push('/login');
-        },
+        confirmText: 'Sign in',
+        cancelText: 'Not now',
+        onConfirm: () => router.push('/login'),
       });
       return;
     }
@@ -231,10 +162,10 @@ export default function GuestPortal() {
     let updated: string[];
     if (pinnedTabs.includes(tabId)) {
       if (pinnedTabs.length <= 3) {
-        showAlert({ title: 'Minimum Tabs Required', message: 'You must keep at least 3 pinned tabs.', type: 'warning' });
+        showAlert({ title: 'Keep at least 3 tabs', message: 'You must keep at least 3 pinned tabs.', type: 'warning' });
         return;
       }
-      updated = pinnedTabs.filter(id => id !== tabId);
+      updated = pinnedTabs.filter((id) => id !== tabId);
     } else {
       updated = [...pinnedTabs, tabId];
     }
@@ -242,360 +173,236 @@ export default function GuestPortal() {
     await AsyncStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(updated));
   };
 
-  const featuresGrid = [
-    { title: t('digitalRoomKey'), sub: t('nfcBiometricUnlock'), icon: 'key', color: '#c9a227', route: '/(guest)/digital-key', locked: isVisitor },
-    { title: 'Suites & Villas', sub: 'Explore Luxury Accommodations', icon: 'bed', color: '#3b82f6', route: '/(guest)/room-gallery', locked: false },
-    { title: t('resortDining'), sub: t('menusTableReservations'), icon: 'restaurant', color: '#eab308', route: '/(guest)/dining', locked: false },
-    { title: 'Room Service', sub: 'In-Room Food & Amenities', icon: 'fast-food', color: '#f97316', route: '/(guest)/room-service', locked: isVisitor },
-    { title: t('spaAndWellness'), sub: t('massagesHydrotherapy'), icon: 'leaf', color: '#10b981', route: '/(guest)/spa', locked: false },
-    { title: 'Resort Events', sub: 'Galas, Jazz & Beach Parties', icon: 'calendar', color: '#8b5cf6', route: '/(guest)/event-booking', locked: false },
-    { title: 'Loyalty Rewards', sub: 'Points, Tiers & Food Coupons', icon: 'diamond', color: '#ec4899', route: '/(guest)/loyalty', locked: false },
-    { title: 'My Stays', sub: 'View & Manage Reservations', icon: 'calendar-number', color: '#06b6d4', route: '/(guest)/reservations', locked: isVisitor },
-    { title: 'Folio & Billing', sub: 'Paystack Cards & Room Charges', icon: 'card', color: '#6366f1', route: '/(guest)/billing', locked: isVisitor },
-    { title: 'My Orders', sub: 'Track Room Service & Spa', icon: 'receipt', color: '#f43f5e', route: '/(guest)/my-orders', locked: isVisitor },
-    { title: 'Local Tours', sub: 'Guided Island Excursions', icon: 'boat', color: '#14b8a6', route: '/(guest)/tours', locked: false },
-    { title: 'Live Complaint', sub: 'Maintenance & Service Requests', icon: 'warning', color: '#ef4444', route: '/(guest)/live-complaint', locked: isVisitor },
-    { title: 'Leave Review', sub: 'Rate Your Stay & Events', icon: 'star', color: '#f59e0b', route: '/(guest)/leave-review', locked: false },
+  const featuresGrid: { title: string; sub: string; icon: string; tone: TileTone; route: string; locked: boolean }[] = [
+    { title: t('digitalRoomKey'), sub: t('nfcBiometricUnlock'), icon: 'key', tone: 'gold', route: '/(guest)/digital-key', locked: isVisitor },
+    { title: 'Suites & villas', sub: 'Explore luxury accommodations', icon: 'bed', tone: 'info', route: '/(guest)/room-gallery', locked: false },
+    { title: t('resortDining'), sub: t('menusTableReservations'), icon: 'restaurant', tone: 'gold', route: '/(guest)/dining', locked: false },
+    { title: 'Room service', sub: 'In-room food & amenities', icon: 'fast-food', tone: 'warning', route: '/(guest)/room-service', locked: isVisitor },
+    { title: t('spaAndWellness'), sub: t('massagesHydrotherapy'), icon: 'leaf', tone: 'success', route: '/(guest)/spa', locked: false },
+    { title: 'Resort events', sub: 'Galas, jazz & beach parties', icon: 'calendar', tone: 'primary', route: '/(guest)/event-booking', locked: false },
+    { title: 'Loyalty rewards', sub: 'Points, tiers & food coupons', icon: 'diamond', tone: 'accent', route: '/(guest)/loyalty', locked: false },
+    { title: 'My stays', sub: 'View & manage reservations', icon: 'calendar-number', tone: 'info', route: '/(guest)/reservations', locked: isVisitor },
+    { title: 'Folio & billing', sub: 'Cards & room charges', icon: 'card', tone: 'primary', route: '/(guest)/billing', locked: isVisitor },
+    { title: 'My orders', sub: 'Track room service & spa', icon: 'receipt', tone: 'accent', route: '/(guest)/my-orders', locked: isVisitor },
+    { title: 'Local tours', sub: 'Guided island excursions', icon: 'boat', tone: 'success', route: '/(guest)/tours', locked: false },
+    { title: 'Service request', sub: 'Maintenance & assistance', icon: 'construct', tone: 'warning', route: '/(guest)/live-complaint', locked: isVisitor },
+    { title: 'Leave a review', sub: 'Rate your stay & events', icon: 'star', tone: 'gold', route: '/(guest)/leave-review', locked: false },
   ];
 
-  // Increment 2 (UC37): NPO card only for linked NPO representatives —
-  // provisioned as users/{email} { role: 'npo_rep', npoId } on UC34 approval.
-  const profileAny = profile as any;
-  if (profileAny?.role === 'npo_rep' || profileAny?.npoId) {
-    featuresGrid.push(
-      { title: 'NPO Donations', sub: 'Claim allocated food batches', icon: 'gift', color: '#16a34a', route: '/(npo)/allocations', locked: false },
-    );
-  }
+  const headerRight = isVisitor ? (
+    <Button label="Sign in" onPress={() => router.push('/login')} fullWidth={false} style={{ paddingHorizontal: theme.space.lg }} />
+  ) : (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <IconButton
+        name="notifications-outline"
+        accessibilityLabel={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+        badge={unreadCount}
+        onPress={() => setShowNotifModal(true)}
+      />
+      <IconButton name="options-outline" accessibilityLabel="Customize pinned tabs" onPress={() => setShowPinModal(true)} />
+    </View>
+  );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
-      <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
-
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.greetingLabel}>GOOD MORNING,</Text>
-            <Text style={styles.userName}>
-              {isVisitor ? 'Guest Explorer' : (profile?.displayName || user?.displayName || 'Resort Resident')}
-            </Text>
-            <View style={[styles.statusBadge, isVisitor && styles.statusBadgeVisitor]}>
-              <Ionicons
-                name={isVisitor ? 'compass-outline' : 'shield-checkmark-sharp'}
-                size={12}
-                color={isVisitor ? '#d97706' : '#16a34a'}
-              />
-              <Text style={[styles.statusBadgeText, isVisitor && styles.statusBadgeTextVisitor]}>
-                {isVisitor
-                  ? 'Visitor Mode (Explore Access)'
-                  : `Verified Resident (Room ${profile?.roomNumber || '101'})`}
-              </Text>
-            </View>
+    <AppShell
+      context="Guest · Azure Horizon"
+      title={isVisitor ? 'Guest Explorer' : (profile?.displayName || user?.displayName || 'Welcome')}
+      subtitle="Welcome to Azure Horizon"
+      showBell={false}
+      showSync={false}
+      headerRight={headerRight}
+      onProfile={() => router.push('/(guest)/profile' as any)}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
+      {isVisitor ? (
+        <Card tone="primarySoft" bordered={false} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.md, marginBottom: theme.space.lg }}>
+          <Ionicons name="compass-outline" size={theme.iconSize.lg} color={theme.colors.warningStrong} />
+          <View style={{ flex: 1 }}>
+            <AppText variant="bodyStrong">Visitor access active</AppText>
+            <AppText variant="caption" tone="secondary">{t('signInToUnlock')}</AppText>
           </View>
+        </Card>
+      ) : null}
 
-          <View style={styles.headerActionRow}>
-            {isVisitor ? (
-              <TouchableOpacity
-                style={styles.signInHeaderBtn}
-                onPress={() => router.push('/login')}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="log-in-outline" size={16} color="#0f172a" />
-                <Text style={styles.signInHeaderBtnText}>Sign In</Text>
-              </TouchableOpacity>
-            ) : (
-              <>
-                {/* Notification Bell */}
-                <TouchableOpacity
-                  style={styles.pinBtn}
-                  onPress={() => setShowNotifModal(true)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="notifications-outline" size={20} color="#c9a227" />
-                  {unreadCount > 0 && (
-                    <View style={styles.notifBadge}>
-                      <Text style={styles.notifBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.pinBtn} onPress={() => setShowPinModal(true)} activeOpacity={0.8}>
-                  <Ionicons name="options-outline" size={20} color="#c9a227" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => router.push('/(guest)/profile')} style={styles.avatarButton}>
-                  <Ionicons name="person" size={22} color="#c9a227" />
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
-        </View>
-
-        {/* Visitor Banner with Direct Sign In */}
-        {isVisitor && (
-          <View style={styles.visitorBanner}>
-            <Ionicons name="lock-closed" size={20} color="#c9a227" />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.visitorBannerTitle}>Visitor Access Active</Text>
-              <Text style={styles.visitorBannerSub}>{t('signInToUnlock')}</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.visitorSignInBtn}
-              onPress={() => router.push('/login')}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.visitorSignInBtnText}>Sign In</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Resort Climate Widget */}
-        <View style={styles.weatherCard}>
-          <View style={styles.weatherInfo}>
-            <Ionicons name="sunny-outline" size={28} color="#eab308" />
-            <View>
-              <Text style={styles.weatherLocation}>Coastal Bay Resort</Text>
-              <Text style={styles.weatherTemp}>26°C · Sunny & Clear</Text>
-            </View>
-          </View>
-          <View style={styles.weatherMeta}>
-            <Text style={styles.weatherMetaText}>Humidity 58%</Text>
-            <Text style={styles.weatherMetaText}>UV Index: High</Text>
-          </View>
-        </View>
-
-        {/* Priority NFC Digital Room Key Banner for Residents */}
-        {isResident && (
-          <TouchableOpacity
-            style={styles.digitalKeyBanner}
-            onPress={() => router.push('/(guest)/digital-key')}
-            activeOpacity={0.85}
-          >
-            <View style={styles.digitalKeyIconWrap}>
-              <Ionicons name="key" size={28} color="#0f172a" />
+      {isResident ? (
+        <TouchableOpacity onPress={() => router.push('/(guest)/digital-key')} activeOpacity={0.85}>
+          <Card tone="primarySoft" bordered={false} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.md, marginBottom: theme.space.lg }}>
+            <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="key" size={theme.iconSize.lg} color={theme.colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.digitalKeyBannerTitle}>{t('digitalRoomKeyReady')}</Text>
-              <Text style={styles.digitalKeyBannerSub}>Tap to open Room {profile?.roomNumber || '101'} via NFC or Biometrics</Text>
+              <AppText variant="bodyStrong">{t('digitalRoomKeyReady')}</AppText>
+              <AppText variant="caption" tone="secondary">
+                Tap to open Room {profile?.roomNumber || '—'} via NFC or biometrics
+              </AppText>
             </View>
-            <Ionicons name="chevron-forward" size={20} color="#0f172a" />
-          </TouchableOpacity>
-        )}
+            <Ionicons name="chevron-forward" size={theme.iconSize.md} color={theme.colors.primary} />
+          </Card>
+        </TouchableOpacity>
+      ) : null}
 
-        {/* MY UPCOMING BOOKINGS & RESERVATIONS (RESIDENT PERSONAL LOG) */}
-        {isResident && (
-          <View style={{ marginTop: 12, marginBottom: 8 }}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>{t('myBookedEventsAndStays')}</Text>
-              <TouchableOpacity onPress={() => router.push('/(guest)/reservations')}>
-                <Text style={styles.seeAllText}>{t('manageStays')}</Text>
-              </TouchableOpacity>
-            </View>
-
-            {userBookings.length > 0 ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.eventsScroll}>
-                {userBookings.map((b) => {
-                  const rawStatus = (b.status || 'confirmed').toLowerCase();
-                  const isPending = rawStatus === 'pending' || rawStatus === 'pending_payment';
-                  const statusLabel = isPending ? 'PENDING PAYMENT' : rawStatus.replace('_', ' ').toUpperCase();
-                  const statusBg = isPending ? '#fffbeb' : '#f0fdf4';
-                  const statusColor = isPending ? '#d97706' : '#16a34a';
-                  const statusBorder = isPending ? '#f59e0b' : '#22c55e';
-
-                  const title = b.venueName
-                    ? `${b.venueName}${b.eventType ? ` · ${b.eventType}` : ''}`
-                    : b.restaurantName
+      {isResident ? (
+        <>
+          <SectionHeader title={t('myBookedEventsAndStays')} actionLabel={t('manageStays')} onAction={() => router.push('/(guest)/reservations')} />
+          {isLoading ? (
+            <Skeleton width="100%" height={140} radius={theme.radius.lg} />
+          ) : loadError ? (
+            <ErrorState title="Bookings unavailable" message={loadError} onRetry={loadPortalData} />
+          ) : userBookings.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space.md, paddingRight: theme.space.lg }}>
+              {userBookings.map((b) => {
+                const rawStatus = (b.status || 'confirmed').toLowerCase();
+                const isPending = rawStatus === 'pending' || rawStatus === 'pending_payment';
+                const statusLabel = isPending ? 'Pending payment' : rawStatus.replace(/_/g, ' ');
+                const title = b.venueName
+                  ? `${b.venueName}${b.eventType ? ` · ${b.eventType}` : ''}`
+                  : b.restaurantName
                     ? `${b.restaurantName} (Dining)`
-                    : b.eventTitle || b.title || b.roomName || 'Resort Stay Reservation';
-
-                  const dateStr = b.eventDate || b.reservationDate || b.date || b.eventDateStr || 'Upcoming';
-                  const guestNum = b.expectedAttendance || b.guestsCount || b.guests || b.partySize || b.numberOfGuests || 1;
-
-                  return (
-                    <TouchableOpacity
-                      key={b.id}
-                      style={styles.myBookingCard}
-                      onPress={() => router.push('/(guest)/reservations')}
-                      activeOpacity={0.85}
-                    >
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <View style={[styles.myBookingBadge, { backgroundColor: statusBg, borderColor: statusBorder, borderWidth: 1 }]}>
-                          <Text style={[styles.myBookingBadgeText, { color: statusColor }]}>{statusLabel}</Text>
-                        </View>
+                    : b.eventTitle || b.title || b.roomName || 'Resort reservation';
+                const dateStr = b.eventDate || b.reservationDate || b.date || b.eventDateStr || 'Upcoming';
+                const guestNum = b.expectedAttendance || b.guestsCount || b.guests || b.partySize || b.numberOfGuests || 1;
+                return (
+                  <TouchableOpacity key={b.id} onPress={() => router.push('/(guest)/reservations')} activeOpacity={0.85}>
+                    <Card style={{ width: 250, gap: theme.space.xs }}>
+                      <StatusPill status={isPending ? 'pending' : 'approved'} label={statusLabel} size="sm" />
+                      <AppText variant="bodyStrong" numberOfLines={1}>{title}</AppText>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Ionicons name="calendar-outline" size={12} color={theme.colors.textMuted} />
+                        <AppText variant="caption" tone="secondary">{dateStr}</AppText>
                       </View>
-
-                      <Text style={styles.myBookingTitle} numberOfLines={1}>{title}</Text>
-                      <Text style={styles.myBookingMeta}>
-                        <Ionicons name="calendar-outline" size={12} color="#c9a227" /> {dateStr}
-                      </Text>
-                      <Text style={styles.myBookingMeta}>
-                        <Ionicons name="people-outline" size={12} color="#94a3b8" /> Guests: {guestNum}
-                      </Text>
-
-                      {b.type === 'Event' && b.venueName && (
-                        (() => {
-                          const m = deriveBookingPaymentState(b);
-                          const nothingPaid = m.combinedTotal > 0 && m.balanceDue === m.combinedTotal;
-                          return (
-                            <View style={{ marginTop: 8, gap: 6 }}>
-                              <Text style={{ fontSize: 11, color: '#64748b' }}>
-                                Total <Text style={{ fontWeight: '800', color: '#0f172a' }}>R {m.combinedTotal.toLocaleString()}</Text>
-                                {' · '}Paid <Text style={{ fontWeight: '800', color: '#0f172a' }}>R {m.amountPaid.toLocaleString()}</Text>
-                                {' · '}Balance <Text style={{ fontWeight: '800', color: m.balanceDue > 0 ? '#d97706' : '#16a34a' }}>R {m.balanceDue.toLocaleString()}</Text>
-                              </Text>
-                              <View style={{ flexDirection: 'row', gap: 8 }}>
-                                {m.balanceDue > 0 && (
-                                  <TouchableOpacity
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: nothingPaid ? '#16a34a' : '#d97706', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}
-                                    onPress={() => router.push({ pathname: '/payment', params: { bookingId: b.id, payBalance: nothingPaid ? '' : '1' } } as any)}
-                                  >
-                                    <Ionicons name="card-outline" size={13} color="#fff" />
-                                    <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>{nothingPaid ? 'Pay Deposit' : 'Pay Balance'}</Text>
-                                  </TouchableOpacity>
-                                )}
-                                {m.cateringTotal === 0 && (
-                                  <TouchableOpacity
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#fee2e2', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}
-                                    onPress={() => router.push({ pathname: '/event-catering', params: { bookingId: b.id, expectedAttendance: String(guestNum || 30) } } as any)}
-                                  >
-                                    <Ionicons name="restaurant" size={13} color="#dc2626" />
-                                    <Text style={{ color: '#dc2626', fontSize: 11, fontWeight: '800' }}>Add Catering</Text>
-                                  </TouchableOpacity>
-                                )}
-                              </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Ionicons name="people-outline" size={12} color={theme.colors.textMuted} />
+                        <AppText variant="caption" tone="secondary">Guests: {guestNum}</AppText>
+                      </View>
+                      {b.type === 'Event' && b.venueName ? (() => {
+                        const m = deriveBookingPaymentState(b);
+                        const nothingPaid = m.combinedTotal > 0 && m.balanceDue === m.combinedTotal;
+                        return (
+                          <View style={{ marginTop: theme.space.xs, gap: theme.space.sm }}>
+                            <AppText variant="micro" tone="secondary">
+                              Total R {m.combinedTotal.toLocaleString()} · Paid R {m.amountPaid.toLocaleString()} · Balance{' '}
+                              <AppText variant="micro" color={m.balanceDue > 0 ? theme.colors.warningStrong : theme.colors.successStrong}>
+                                R {m.balanceDue.toLocaleString()}
+                              </AppText>
+                            </AppText>
+                            <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
+                              {m.balanceDue > 0 ? (
+                                <Button
+                                  label={nothingPaid ? 'Pay deposit' : 'Pay balance'}
+                                  icon="card-outline"
+                                  fullWidth={false}
+                                  onPress={() => router.push({ pathname: '/payment', params: { bookingId: b.id, payBalance: nothingPaid ? '' : '1' } } as any)}
+                                  style={{ flex: 1 }}
+                                />
+                              ) : null}
+                              {m.cateringTotal === 0 ? (
+                                <Button
+                                  label="Add catering"
+                                  icon="restaurant-outline"
+                                  variant="secondary"
+                                  fullWidth={false}
+                                  onPress={() => router.push({ pathname: '/event-catering', params: { bookingId: b.id, expectedAttendance: String(guestNum || 30) } } as any)}
+                                  style={{ flex: 1 }}
+                                />
+                              ) : null}
                             </View>
-                          );
-                        })()
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            ) : (
-              <View style={styles.emptyBookingsCard}>
-                <Ionicons name="calendar-outline" size={28} color="#c9a227" />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.emptyBookingsTitle}>{t('emptyBookingsTitle')}</Text>
-                  <Text style={styles.emptyBookingsSub}>Explore resort galas, jazz nights, and dining below to book your seats.</Text>
-                </View>
-              </View>
-            )}
-          </View>
-        )}
+                          </View>
+                        );
+                      })() : null}
+                    </Card>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          ) : (
+            <EmptyState
+              icon="calendar-outline"
+              title={t('emptyBookingsTitle')}
+              message="Explore resort galas, jazz nights and dining below to book your seats."
+              actionLabel="Browse events"
+              onAction={() => router.push('/(guest)/event-booking')}
+            />
+          )}
+        </>
+      ) : null}
 
-
-
-        {/* Explore Resort Feature Grid */}
-        <Text style={styles.sectionTitleGrid}>Explore Azure Horizon</Text>
-        <View style={styles.gridContainer}>
-          {featuresGrid.map((item, index) => (
+      <SectionHeader title="Explore Azure Horizon" />
+      <View style={styles.grid}>
+        {featuresGrid.map((item) => {
+          const c = tileColors(theme, item.tone);
+          return (
             <TouchableOpacity
-              key={index}
-              style={[styles.gridTile, item.locked && styles.gridTileLocked]}
+              key={item.title}
+              style={[styles.tile, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderRadius: theme.radius.xl, padding: theme.space.lg, opacity: item.locked ? 0.85 : 1 }]}
               onPress={() => handleTileClick(item.title, item.route, item.locked)}
               activeOpacity={0.8}
             >
-              <View style={[styles.tileIconWrap, { backgroundColor: item.color + '20' }]}>
-                <Ionicons name={item.icon as any} size={24} color={item.color} />
+              <View style={[styles.tileIcon, { backgroundColor: c.bg }]}>
+                <Ionicons name={item.icon as any} size={theme.iconSize.lg} color={c.fg} />
               </View>
-
-              {item.locked && (
-                <View style={styles.lockBadge}>
-                  <Ionicons name="lock-closed" size={12} color="#f59e0b" />
+              {item.locked ? (
+                <View style={[styles.lockBadge, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+                  <Ionicons name="lock-closed" size={12} color={theme.colors.warningStrong} />
                 </View>
-              )}
-
-              <Text style={styles.tileTitle}>{item.title}</Text>
-              <Text style={styles.tileSub} numberOfLines={2}>{item.sub}</Text>
+              ) : null}
+              <AppText variant="bodyStrong" numberOfLines={1}>{item.title}</AppText>
+              <AppText variant="micro" tone="secondary" numberOfLines={2}>{item.sub}</AppText>
             </TouchableOpacity>
-          ))}
-        </View>
+          );
+        })}
+      </View>
 
-      </ScrollView>
-
-      {/* CUSTOMIZE PINNED TABS MODAL */}
-      <Modal visible={showPinModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Customize Pinned Navigation</Text>
-              <TouchableOpacity onPress={() => setShowPinModal(false)} style={styles.modalCloseBtn}>
-                <Ionicons name="close" size={20} color="#fff" />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.modalSub}>Select which features stay pinned on your bottom tab bar for 1-tap access.</Text>
-
-            <ScrollView style={{ maxHeight: 300, marginVertical: 12 }}>
+      {/* Customize pinned tabs */}
+      <Modal visible={showPinModal} animationType="slide" transparent onRequestClose={() => setShowPinModal(false)}>
+        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setShowPinModal(false)}>
+          <View style={[styles.sheet, { backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius['2xl'], borderTopRightRadius: theme.radius['2xl'], padding: theme.space['2xl'] }]}>
+            <AppText variant="subtitle" style={{ marginBottom: theme.space.sm }}>Customize pinned navigation</AppText>
+            <AppText variant="caption" tone="secondary" style={{ marginBottom: theme.space.lg }}>
+              Choose which features stay pinned on your bottom tab bar for one-tap access.
+            </AppText>
+            <ScrollView style={{ maxHeight: 300 }}>
               {AVAILABLE_TABS_TO_PIN.map((tab) => {
                 const isPinned = pinnedTabs.includes(tab.id);
                 return (
                   <TouchableOpacity
                     key={tab.id}
-                    style={[styles.pinItem, isPinned && styles.pinItemActive]}
+                    style={[styles.pinItem, { backgroundColor: theme.colors.surfaceVariant, borderColor: isPinned ? theme.colors.primary : theme.colors.border, borderRadius: theme.radius.md }]}
                     onPress={() => togglePinTab(tab.id)}
                   >
-                    <Ionicons name={tab.icon as any} size={20} color={isPinned ? '#c9a227' : '#94a3b8'} />
-                    <Text style={[styles.pinItemLabel, isPinned && styles.pinItemLabelActive]}>{tab.label}</Text>
-                    <Ionicons
-                      name={isPinned ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={22}
-                      color={isPinned ? '#c9a227' : '#475569'}
-                    />
+                    <Ionicons name={tab.icon as any} size={theme.iconSize.md} color={isPinned ? theme.colors.primary : theme.colors.textMuted} />
+                    <AppText variant="bodyStrong" style={{ flex: 1 }}>{tab.label}</AppText>
+                    <Ionicons name={isPinned ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={isPinned ? theme.colors.primary : theme.colors.textMuted} />
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
-
-            <TouchableOpacity style={styles.modalSaveBtn} onPress={() => setShowPinModal(false)}>
-              <Text style={styles.modalSaveBtnText}>Done / Save Layout</Text>
-            </TouchableOpacity>
+            <Button label="Done" onPress={() => setShowPinModal(false)} style={{ marginTop: theme.space.lg }} />
           </View>
-        </View>
+        </TouchableOpacity>
       </Modal>
 
-      {/* NOTIFICATIONS MODAL */}
+      {/* Notifications */}
       <Modal visible={showNotifModal} animationType="slide" transparent onRequestClose={() => setShowNotifModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: '85%' }]}>
-            <View style={styles.modalHeader}>
+        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setShowNotifModal(false)}>
+          <View style={[styles.sheet, { backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius['2xl'], borderTopRightRadius: theme.radius['2xl'], padding: theme.space['2xl'], maxHeight: '85%' }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.space.md }}>
               <View>
-                <Text style={styles.modalTitle}>{t('notificationsTitle')}</Text>
-                {unreadCount > 0 && (
-                  <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginTop: 2 }}>
-                    {unreadCount} unread
-                  </Text>
-                )}
+                <AppText variant="subtitle">{t('notificationsTitle')}</AppText>
+                {unreadCount > 0 ? <AppText variant="caption" tone="muted">{unreadCount} unread</AppText> : null}
               </View>
-              <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
-                {unreadCount > 0 && (
-                  <TouchableOpacity
-                    onPress={async () => {
-                      await Promise.all(
-                        notifications.filter(n => !n.read).map(n => markNotificationRead(n.id))
-                      );
-                    }}
-                  >
-                    <Text style={{ fontSize: 12, color: '#c9a227', fontWeight: '700' }}>Mark all read</Text>
-                  </TouchableOpacity>
-                )}
-                <TouchableOpacity onPress={() => setShowNotifModal(false)} style={styles.modalCloseBtn}>
-                  <Ionicons name="close" size={20} color="#fff" />
+              {unreadCount > 0 ? (
+                <TouchableOpacity
+                  onPress={async () => { await Promise.all(notifications.filter((n) => !n.read).map((n) => markNotificationRead(n.id))); }}
+                >
+                  <AppText variant="label" tone="primary" weight="600">Mark all read</AppText>
                 </TouchableOpacity>
-              </View>
+              ) : null}
             </View>
-
             {notifications.length === 0 ? (
-              <View style={{ alignItems: 'center', paddingVertical: 40, gap: 12 }}>
-                <Ionicons name="notifications-off-outline" size={48} color={theme.colors.textMuted} />
-                <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '700' }}>{t('noNotifications')}</Text>
-                <Text style={{ color: theme.colors.textMuted, fontSize: 13, textAlign: 'center' }}>
-                  Staff updates about your bookings and events will appear here.
-                </Text>
-              </View>
+              <EmptyState icon="notifications-off-outline" title={t('noNotifications')} message="Updates about your bookings and events will appear here." />
             ) : (
-              <ScrollView style={{ marginVertical: 12 }} showsVerticalScrollIndicator={false}>
+              <ScrollView showsVerticalScrollIndicator={false}>
                 {notifications.map((notif) => {
                   const typeIcon: Record<string, any> = {
                     refund_update: 'cash-outline',
@@ -603,165 +410,47 @@ export default function GuestPortal() {
                     damage_record: 'warning-outline',
                     complaint_resolved: 'checkmark-done-outline',
                   };
-                  const iconName = typeIcon[notif.type] || 'notifications-outline';
                   const createdAt = notif.createdAt?.seconds
                     ? new Date(notif.createdAt.seconds * 1000).toLocaleString('en-ZA', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
                     : '—';
-
                   return (
                     <TouchableOpacity
                       key={notif.id}
-                      style={[
-                        styles.notifItem,
-                        !notif.read && styles.notifItemUnread,
-                      ]}
-                      onPress={async () => {
-                        if (!notif.read) await markNotificationRead(notif.id);
-                      }}
+                      style={[styles.notifItem, { backgroundColor: notif.read ? theme.colors.surface : theme.colors.primarySoft, borderColor: theme.colors.border, borderRadius: theme.radius.md }]}
+                      onPress={async () => { if (!notif.read) await markNotificationRead(notif.id); }}
                     >
-                      <View style={[styles.notifIcon, !notif.read && { backgroundColor: 'rgba(201,162,39,0.15)' }]}>
-                        <Ionicons name={iconName} size={20} color={notif.read ? theme.colors.textMuted : '#c9a227'} />
+                      <View style={[styles.notifIcon, { backgroundColor: theme.colors.surfaceVariant }]}>
+                        <Ionicons name={(typeIcon[notif.type] || 'notifications-outline') as any} size={theme.iconSize.md} color={notif.read ? theme.colors.textMuted : theme.colors.primary} />
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={[styles.notifTitle, !notif.read && { color: theme.colors.text }]}>
-                          {notif.title}
-                        </Text>
-                        <Text style={styles.notifMessage} numberOfLines={3}>{notif.message}</Text>
-                        <Text style={styles.notifTime}>{createdAt}</Text>
+                        <AppText variant="bodyStrong">{notif.title}</AppText>
+                        <AppText variant="caption" tone="secondary" numberOfLines={3}>{notif.message}</AppText>
+                        <AppText variant="micro" tone="muted" style={{ marginTop: 4 }}>{createdAt}</AppText>
                       </View>
-                      {!notif.read && <View style={styles.unreadDot} />}
+                      {!notif.read ? <View style={[styles.unreadDot, { backgroundColor: theme.colors.primary }]} /> : null}
                     </TouchableOpacity>
                   );
                 })}
               </ScrollView>
             )}
           </View>
-        </View>
+        </TouchableOpacity>
       </Modal>
 
-      <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </SafeAreaView>
+      <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
+    </AppShell>
   );
 }
 
-const createStyles = (theme: any) =>
-  StyleSheet.create({
-    content: { padding: 20, paddingTop: 10, paddingBottom: 40 },
-
-    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-    greetingLabel: { fontSize: 11, fontWeight: '800', color: theme.colors.textMuted, letterSpacing: 1 },
-    userName: { fontSize: 24, fontWeight: '900', color: theme.colors.text, marginTop: 2 },
-    statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(22,163,74,0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, marginTop: 6, alignSelf: 'flex-start' },
-    statusBadgeVisitor: { backgroundColor: 'rgba(217,119,6,0.15)' },
-    statusBadgeText: { fontSize: 11, fontWeight: '700', color: '#16a34a' },
-    statusBadgeTextVisitor: { color: '#d97706' },
-
-    headerActionRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
-    signInHeaderBtn: { backgroundColor: '#c9a227', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 6 },
-    signInHeaderBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 13 },
-    pinBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#c9a227' },
-    avatarButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#c9a227' },
-
-    visitorBanner: { backgroundColor: 'rgba(201,162,39,0.12)', borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: '#c9a227', marginBottom: 16 },
-    visitorBannerTitle: { color: '#c9a227', fontWeight: '800', fontSize: 14 },
-    visitorBannerSub: { color: '#94a3b8', fontSize: 12, marginTop: 2 },
-    visitorSignInBtn: { backgroundColor: '#c9a227', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
-    visitorSignInBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 12 },
-
-    weatherCard: { backgroundColor: theme.colors.surface, borderRadius: 20, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: theme.colors.border, marginBottom: 16 },
-    weatherInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    weatherLocation: { fontSize: 14, fontWeight: '800', color: theme.colors.text },
-    weatherTemp: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
-    weatherMeta: { alignItems: 'flex-end' },
-    weatherMetaText: { fontSize: 11, color: theme.colors.textMuted, fontWeight: '600' },
-
-    digitalKeyBanner: { backgroundColor: '#c9a227', borderRadius: 20, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 20, elevation: 4 },
-    digitalKeyIconWrap: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' },
-    digitalKeyBannerTitle: { color: '#0f172a', fontSize: 16, fontWeight: '900' },
-    digitalKeyBannerSub: { color: '#1e293b', fontSize: 12, marginTop: 2, fontWeight: '600' },
-
-    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-    sectionTitle: { fontSize: 18, fontWeight: '900', color: theme.colors.text },
-    seeAllText: { fontSize: 13, fontWeight: '700', color: theme.colors.primary },
-
-    eventsScroll: { gap: 14, paddingRight: 20, paddingBottom: 16 },
-    eventCard: { width: 280, backgroundColor: theme.colors.surface, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: theme.colors.border },
-    eventImage: { width: '100%', height: 130 },
-    eventBadge: { position: 'absolute', top: 12, left: 12, backgroundColor: 'rgba(15,23,42,0.85)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#c9a227' },
-    eventBadgeText: { color: '#c9a227', fontSize: 10, fontWeight: '800' },
-    eventBody: { padding: 14 },
-    eventTitle: { fontSize: 15, fontWeight: '800', color: theme.colors.text, marginBottom: 6 },
-    eventDate: { fontSize: 12, color: '#c9a227', fontWeight: '700', marginBottom: 4 },
-    eventVenue: { fontSize: 12, color: theme.colors.textMuted, marginBottom: 12 },
-    eventFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    eventPrice: { fontSize: 14, fontWeight: '900', color: theme.colors.text },
-    eventBookBtn: { backgroundColor: '#c9a227', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
-    eventBookBtnText: { color: '#0f172a', fontSize: 12, fontWeight: '800' },
-
-    myBookingCard: { width: 240, backgroundColor: theme.colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#c9a227' },
-    myBookingBadge: { backgroundColor: 'rgba(22,163,74,0.15)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, alignSelf: 'flex-start', marginBottom: 8 },
-    myBookingBadgeText: { color: '#16a34a', fontSize: 10, fontWeight: '800' },
-    myBookingTitle: { color: theme.colors.text, fontSize: 14, fontWeight: '800', marginBottom: 6 },
-    myBookingMeta: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
-
-    emptyBookingsCard: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: theme.colors.border },
-    emptyBookingsTitle: { color: theme.colors.text, fontSize: 14, fontWeight: '800' },
-    emptyBookingsSub: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
-
-    sectionTitleGrid: { fontSize: 18, fontWeight: '900', color: theme.colors.text, marginTop: 12, marginBottom: 14 },
-    gridContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-    gridTile: { width: '48%', backgroundColor: theme.colors.surface, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: theme.colors.border, position: 'relative' },
-    gridTileLocked: { opacity: 0.85, borderColor: 'rgba(245,158,11,0.3)' },
-    tileIconWrap: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-    lockBadge: { position: 'absolute', top: 12, right: 12, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(15,23,42,0.8)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#f59e0b' },
-    tileTitle: { fontSize: 15, fontWeight: '800', color: theme.colors.text, marginBottom: 4 },
-    tileSub: { fontSize: 11, color: theme.colors.textMuted, lineHeight: 15 },
-
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-    modalContent: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-    modalTitle: { fontSize: 20, fontWeight: '900', color: theme.colors.text },
-    modalCloseBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' },
-    modalSub: { fontSize: 13, color: theme.colors.textMuted, marginBottom: 16 },
-
-    pinItem: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.colors.surfaceVariant, padding: 14, borderRadius: 14, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
-    pinItemActive: { borderColor: '#c9a227', backgroundColor: 'rgba(201,162,39,0.1)' },
-    pinItemLabel: { flex: 1, fontSize: 14, fontWeight: '700', color: theme.colors.textSecondary },
-    pinItemLabelActive: { color: theme.colors.text, fontWeight: '800' },
-
-    modalSaveBtn: { backgroundColor: '#c9a227', paddingVertical: 14, borderRadius: 14, alignItems: 'center', marginTop: 12 },
-    modalSaveBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 15 },
-
-    // Notification bell
-    notifBadge: {
-      position: 'absolute', top: -4, right: -4,
-      backgroundColor: '#ef4444', borderRadius: 8,
-      minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center',
-      paddingHorizontal: 3, borderWidth: 1.5, borderColor: theme.colors.surface,
-    },
-    notifBadgeText: { color: '#fff', fontSize: 9, fontWeight: '800' },
-
-    // Notification items
-    notifItem: {
-      flexDirection: 'row', alignItems: 'flex-start', gap: 12,
-      padding: 14, borderRadius: 14, marginBottom: 8,
-      backgroundColor: theme.colors.surfaceVariant,
-      borderWidth: 1, borderColor: theme.colors.border,
-    },
-    notifItemUnread: {
-      borderColor: '#c9a227', backgroundColor: 'rgba(201,162,39,0.07)',
-    },
-    notifIcon: {
-      width: 40, height: 40, borderRadius: 20,
-      backgroundColor: theme.colors.border,
-      justifyContent: 'center', alignItems: 'center',
-      flexShrink: 0,
-    },
-    notifTitle: { fontSize: 14, fontWeight: '700', color: theme.colors.textMuted, marginBottom: 4 },
-    notifMessage: { fontSize: 13, color: theme.colors.textMuted, lineHeight: 18 },
-    notifTime: { fontSize: 11, color: theme.colors.textMuted, marginTop: 6 },
-    unreadDot: {
-      width: 8, height: 8, borderRadius: 4, backgroundColor: '#c9a227',
-      flexShrink: 0, marginTop: 4,
-    },
-  });
+const styles = StyleSheet.create({
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  tile: { width: '48%', borderWidth: 1, position: 'relative', gap: 4 },
+  tileIcon: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+  lockBadge: { position: 'absolute', top: 12, right: 12, width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1 },
+  overlay: { flex: 1, backgroundColor: 'rgba(16,24,40,0.55)', justifyContent: 'flex-end' },
+  sheet: { width: '100%' },
+  pinItem: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, marginBottom: 8, borderWidth: 1 },
+  notifItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 14, marginBottom: 8, borderWidth: 1 },
+  notifIcon: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+  unreadDot: { width: 8, height: 8, borderRadius: 4, marginTop: 4 },
+});
