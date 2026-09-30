@@ -601,7 +601,7 @@ export default function PaymentScreen() {
               style={[S.methodTab, paymentMethod === 'card' && S.methodTabActive]}
               onPress={() => setPaymentMethod('card')}
             >
-              <Ionicons name="card" size={16} color={paymentMethod === 'card' ? '#0f172a' : '#94a3b8'} />
+              <Ionicons name="card" size={16} color={paymentMethod === 'card' ? theme.colors.text : theme.colors.textMuted} />
               <Text style={[S.methodTabText, paymentMethod === 'card' && S.methodTabTextActive]}>Paystack Card</Text>
             </TouchableOpacity>
 
@@ -609,7 +609,7 @@ export default function PaymentScreen() {
               style={[S.methodTab, paymentMethod === 'biometric' && S.methodTabActive]}
               onPress={() => setPaymentMethod('biometric')}
             >
-              <Ionicons name="finger-print" size={16} color={paymentMethod === 'biometric' ? '#0f172a' : '#94a3b8'} />
+              <Ionicons name="finger-print" size={16} color={paymentMethod === 'biometric' ? theme.colors.text : theme.colors.textMuted} />
               <Text style={[S.methodTabText, paymentMethod === 'biometric' && S.methodTabTextActive]}>
                 Fingerprint / Face ID
               </Text>
@@ -901,14 +901,14 @@ const createStyles = (theme: any) =>
     // Method Switcher
     methodSwitcher: { flexDirection: 'row', backgroundColor: '#0f2744', padding: 4, borderRadius: 14, marginBottom: 16 },
     methodTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: 10 },
-    methodTabActive: { backgroundColor: '#c9a227' },
-    methodTabText: { fontSize: 12, fontWeight: '700', color: '#94a3b8' },
-    methodTabTextActive: { color: '#0f172a' },
+    methodTabActive: { backgroundColor: theme.colors.primary },
+    methodTabText: { fontSize: 12, fontWeight: '700', color: theme.colors.textMuted },
+    methodTabTextActive: { color: theme.colors.text },
 
     biometricForm: { backgroundColor: '#0f2744', borderRadius: 20, padding: 24, alignItems: 'center' },
     biometricIconBadge: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(201,162,39,0.15)', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
     biometricTitle: { fontSize: 18, fontWeight: '800', color: '#ffffff', textAlign: 'center' },
-    biometricSub: { fontSize: 13, color: '#94a3b8', textAlign: 'center', marginTop: 6, marginBottom: 24, lineHeight: 18 },
+    biometricSub: { fontSize: 13, color: theme.colors.textMuted, textAlign: 'center', marginTop: 6, marginBottom: 24, lineHeight: 18 },
 
     cardForm: { backgroundColor: '#0f2744', borderRadius: 20, padding: 20 },
     cardFormHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
@@ -932,13 +932,13 @@ const createStyles = (theme: any) =>
     testCardHint: { fontSize: 12, color: '#aaa', marginBottom: 4 },
 
     payNowBtn: {
-      backgroundColor: '#c9a227', borderRadius: 14, paddingVertical: 16,
+      backgroundColor: theme.colors.primary, borderRadius: 14, paddingVertical: 16,
       flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 8, width: '100%',
     },
-    payNowText: { color: '#0f172a', fontSize: 16, fontWeight: '900' },
+    payNowText: { color: theme.colors.text, fontSize: 16, fontWeight: '900' },
 
     psFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 24 },
-    psFooterText: { fontSize: 12, color: '#64748b' },
+    psFooterText: { fontSize: 12, color: theme.colors.textSecondary },
 
     successIconContainer: { alignItems: 'center', marginVertical: 30 },
     successCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: theme.colors.successLight, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },

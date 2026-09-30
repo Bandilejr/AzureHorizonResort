@@ -252,12 +252,12 @@ export default function SpaScreen() {
 
 const createStyles = (theme: any) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f8fafc' },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+    container: { flex: 1, backgroundColor: theme.colors.background },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: theme.colors.border },
     backButton: { padding: 4 },
     headerCenter: { alignItems: 'center' },
-    headerTitle: { fontSize: 18, fontWeight: '800', color: '#1e3a5f' },
-    headerSubtitle: { fontSize: 12, color: '#64748b' },
+    headerTitle: { fontSize: 18, fontWeight: '800', color: theme.colors.secondary },
+    headerSubtitle: { fontSize: 12, color: theme.colors.textSecondary },
 
     scrollContent: { padding: 20, paddingBottom: 40 },
     heroBanner: { height: 180, borderRadius: 20, overflow: 'hidden', marginBottom: 24 },

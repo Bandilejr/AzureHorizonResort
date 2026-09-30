@@ -141,10 +141,10 @@ export default function MyOrdersScreen() {
           Order tracking and history are reserved for checked-in resort residents. Please sign in to your room stay.
         </Text>
         <TouchableOpacity
-          style={{ backgroundColor: '#c9a227', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, marginTop: 24 }}
+          style={{ backgroundColor: theme.colors.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, marginTop: 24 }}
           onPress={() => router.push('/login')}
         >
-          <Text style={{ color: '#0f172a', fontWeight: '800', fontSize: 16 }}>Sign In to Your Stay</Text>
+          <Text style={{ color: theme.colors.text, fontWeight: '800', fontSize: 16 }}>Sign In to Your Stay</Text>
         </TouchableOpacity>
       </View>
     );

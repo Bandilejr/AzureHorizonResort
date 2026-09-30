@@ -19,12 +19,13 @@ import { getTheme } from '@/constants/theme';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import { lightColors } from '@/design/tokens';
 
 const TIERS = [
   { name: 'Bronze', min: 0, color: '#b45309' },
   { name: 'Silver', min: 500, color: '#475569' },
-  { name: 'Gold', min: 1500, color: '#d97706' },
-  { name: 'Platinum', min: 5000, color: '#0f172a' },
+  { name: 'Gold', min: 1500, color: lightColors.warning },
+  { name: 'Platinum', min: 5000, color: lightColors.text },
 ];
 
 const REWARDS = [
@@ -445,17 +446,17 @@ const createStyles = (theme: any) =>
 
     card: { borderRadius: 24, padding: 22, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 6 },
     cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-    cardLabel: { color: '#f8fafc', fontSize: 12, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '800' },
+    cardLabel: { color: theme.colors.background, fontSize: 12, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '800' },
 
     liveIndicator: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(22,163,74,0.3)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
     liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#4ade80' },
     liveText: { color: '#ffffff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
 
     cardPoints: { color: '#ffffff', fontSize: 44, fontWeight: '900', letterSpacing: -1 },
-    cardSubTitle: { color: '#e2e8f0', marginTop: 2, fontSize: 13, fontWeight: '600' },
+    cardSubTitle: { color: theme.colors.border, marginTop: 2, fontSize: 13, fontWeight: '600' },
 
     tierInfoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 14 },
-    tierLabel: { color: '#e2e8f0', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 },
+    tierLabel: { color: theme.colors.border, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 },
     tierValue: { color: '#ffffff', fontSize: 18, fontWeight: '800', marginTop: 2 },
 
     // HIGH CONTRAST BOLD PROGRESS BAR CONTAINER
@@ -464,15 +465,15 @@ const createStyles = (theme: any) =>
       borderRadius: 16,
       padding: 16,
       borderWidth: 1.5,
-      borderColor: '#c9a227',
+      borderColor: theme.colors.primary,
       marginTop: 4,
     },
     progressHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-    progressTitle: { color: '#c9a227', fontSize: 11, fontWeight: '900', letterSpacing: 1 },
+    progressTitle: { color: theme.colors.primary, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
     progressPctText: { color: '#ffffff', fontSize: 14, fontWeight: '900' },
 
     progressTrackContainer: { width: '100%', height: 14, backgroundColor: '#334155', borderRadius: 7, overflow: 'hidden', borderWidth: 1, borderColor: '#475569' },
-    progressTrackFill: { height: '100%', backgroundColor: '#c9a227', borderRadius: 7 },
+    progressTrackFill: { height: '100%', backgroundColor: theme.colors.primary, borderRadius: 7 },
 
     progressFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
     progressSubLeft: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
@@ -490,9 +491,9 @@ const createStyles = (theme: any) =>
     rewardTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
     rewardPoints: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2, fontWeight: '600' },
     rewardButton: { borderRadius: 12, paddingVertical: 10, paddingHorizontal: 16 },
-    rewardButtonActive: { backgroundColor: '#c9a227' },
+    rewardButtonActive: { backgroundColor: theme.colors.primary },
     rewardButtonDisabled: { borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surfaceVariant },
-    rewardButtonText: { color: '#0f172a', fontWeight: '800', fontSize: 13 },
+    rewardButtonText: { color: theme.colors.text, fontWeight: '800', fontSize: 13 },
     rewardButtonTextDisabled: { color: theme.colors.textMuted },
 
     emptyText: { color: theme.colors.textMuted, fontSize: 13, fontStyle: 'italic', marginVertical: 12 },
@@ -500,24 +501,24 @@ const createStyles = (theme: any) =>
     historyReason: { fontSize: 14, color: theme.colors.text, fontWeight: '600' },
     historyDate: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
     historyPoints: { fontSize: 15, fontWeight: '800' },
-    positive: { color: '#16a34a' },
-    negative: { color: '#dc2626' },
+    positive: { color: theme.colors.success },
+    negative: { color: theme.colors.error },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.background },
 
     // Voucher QR Modal
     modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-    modalContent: { width: '100%', maxWidth: 360, backgroundColor: '#0f172a', borderRadius: 28, padding: 24, alignItems: 'center', borderWidth: 1.5, borderColor: '#c9a227' },
+    modalContent: { width: '100%', maxWidth: 360, backgroundColor: theme.colors.text, borderRadius: 28, padding: 24, alignItems: 'center', borderWidth: 1.5, borderColor: theme.colors.primary },
     modalIconBadge: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(201, 162, 39, 0.15)', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
     voucherTitle: { fontSize: 20, fontWeight: '800', color: '#ffffff', textAlign: 'center' },
-    voucherSubtitle: { color: '#94a3b8', fontSize: 13, textAlign: 'center', marginTop: 4, marginBottom: 20 },
+    voucherSubtitle: { color: theme.colors.textMuted, fontSize: 13, textAlign: 'center', marginTop: 4, marginBottom: 20 },
     qrContainer: { padding: 16, backgroundColor: '#ffffff', borderRadius: 20, marginBottom: 16 },
     voucherCard: { backgroundColor: '#1e293b', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 20, marginBottom: 14, alignItems: 'center', borderWidth: 1, borderColor: '#334155', width: '100%' },
-    voucherCodeLabel: { fontSize: 10, color: '#94a3b8', fontWeight: '800', letterSpacing: 1.5 },
-    voucherCode: { fontSize: 20, fontWeight: '900', letterSpacing: 2, color: '#c9a227', marginTop: 2 },
+    voucherCodeLabel: { fontSize: 10, color: theme.colors.textMuted, fontWeight: '800', letterSpacing: 1.5 },
+    voucherCode: { fontSize: 20, fontWeight: '900', letterSpacing: 2, color: theme.colors.primary, marginTop: 2 },
     voucherText: { textAlign: 'center', color: '#cbd5e1', fontSize: 13, marginBottom: 20 },
     modalButtonRow: { flexDirection: 'row', gap: 10, width: '100%' },
-    downloadButton: { flex: 1.2, backgroundColor: '#1e3a5f', borderRadius: 14, paddingVertical: 14, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+    downloadButton: { flex: 1.2, backgroundColor: theme.colors.secondary, borderRadius: 14, paddingVertical: 14, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
     downloadButtonText: { color: '#ffffff', fontWeight: '700', fontSize: 14 },
-    closeButton: { flex: 0.8, backgroundColor: '#c9a227', borderRadius: 14, paddingVertical: 14, alignItems: 'center', justifyContent: 'center' },
-    closeButtonText: { color: '#0f172a', fontWeight: '800', fontSize: 14 },
+    closeButton: { flex: 0.8, backgroundColor: theme.colors.primary, borderRadius: 14, paddingVertical: 14, alignItems: 'center', justifyContent: 'center' },
+    closeButtonText: { color: theme.colors.text, fontWeight: '800', fontSize: 14 },
   });

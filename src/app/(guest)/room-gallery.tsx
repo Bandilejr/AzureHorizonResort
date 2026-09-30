@@ -279,8 +279,8 @@ const createStyles = (theme: any) =>
     imageContainer: { height: 220, width: '100%', position: 'relative' },
     cardImage: { width: '100%', height: '100%' },
 
-    priceBadge: { position: 'absolute', top: 14, right: 14, backgroundColor: '#0f172a', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#c9a227' },
-    priceBadgeText: { color: '#c9a227', fontWeight: '900', fontSize: 13 },
+    priceBadge: { position: 'absolute', top: 14, right: 14, backgroundColor: theme.colors.text, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.primary },
+    priceBadgeText: { color: theme.colors.primary, fontWeight: '900', fontSize: 13 },
 
     photoCountBadge: { position: 'absolute', bottom: 14, left: 14, backgroundColor: 'rgba(15, 23, 42, 0.75)', flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
     photoCountText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
@@ -298,15 +298,15 @@ const createStyles = (theme: any) =>
     amenityText: { fontSize: 11, color: theme.colors.textSecondary, fontWeight: '600' },
 
     cardFooter: { flexDirection: 'row', gap: 10, marginTop: 20 },
-    galleryBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: '#c9a227', borderRadius: 14, paddingVertical: 12 },
-    galleryBtnText: { color: '#c9a227', fontWeight: '800', fontSize: 13 },
-    bookBtn: { flex: 1, backgroundColor: '#c9a227', alignItems: 'center', justifyContent: 'center', borderRadius: 14, paddingVertical: 12 },
-    bookBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 14 },
+    galleryBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: theme.colors.primary, borderRadius: 14, paddingVertical: 12 },
+    galleryBtnText: { color: theme.colors.primary, fontWeight: '800', fontSize: 13 },
+    bookBtn: { flex: 1, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center', borderRadius: 14, paddingVertical: 12 },
+    bookBtnText: { color: theme.colors.text, fontWeight: '800', fontSize: 14 },
 
     modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.95)', padding: 20, paddingTop: 50, justifyContent: 'space-between' },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     modalTitle: { color: '#ffffff', fontSize: 20, fontWeight: '800' },
-    modalSubtitle: { color: '#94a3b8', fontSize: 12, marginTop: 2 },
+    modalSubtitle: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
     closeModalBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' },
 
     modalBody: { flex: 1, justifyContent: 'center', alignItems: 'center', marginVertical: 20 },
@@ -314,6 +314,6 @@ const createStyles = (theme: any) =>
 
     thumbnailRow: { flexDirection: 'row', gap: 10, justifyContent: 'center' },
     thumbnailWrap: { width: 70, height: 50, borderRadius: 10, overflow: 'hidden', borderWidth: 2, borderColor: 'transparent' },
-    thumbnailWrapActive: { borderColor: '#c9a227' },
+    thumbnailWrapActive: { borderColor: theme.colors.primary },
     thumbnailImage: { width: '100%', height: '100%' },
   });

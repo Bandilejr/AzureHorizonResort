@@ -404,7 +404,7 @@ export default function EventCateringScreen() {
           {bookingError}
         </Text>
         <TouchableOpacity
-          style={{ backgroundColor: '#1e3a5f', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 14, marginTop: 24 }}
+          style={{ backgroundColor: theme.colors.secondary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 14, marginTop: 24 }}
           onPress={() => router.back()}
         >
           <Text style={{ color: '#ffffff', fontWeight: '800' }}>Back to Venue Booking</Text>
@@ -611,7 +611,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   stepperBtn: { width: 30, height: 30, borderRadius: 8, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.warning, alignItems: 'center', justifyContent: 'center' },
   stepperValue: { fontSize: 15, fontWeight: '800', color: theme.colors.warning, minWidth: 34, textAlign: 'center' },
-  editBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(201,162,39,0.08)', borderWidth: 1, borderColor: '#c9a227', borderRadius: 12, padding: 10, marginBottom: 14 },
+  editBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(201,162,39,0.08)', borderWidth: 1, borderColor: theme.colors.primary, borderRadius: 12, padding: 10, marginBottom: 14 },
   editBannerText: { flex: 1, color: theme.colors.textSecondary, fontSize: 11, lineHeight: 15 },
   bottomTotalSub: { fontSize: 10, color: theme.colors.textMuted, marginTop: 2, maxWidth: 190 },
   

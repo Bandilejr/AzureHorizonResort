@@ -262,7 +262,7 @@ export default function ProfileScreen() {
           style={[styles.tabBtn, activeTab === 'details' && styles.tabBtnActive]}
           onPress={() => setActiveTab('details')}
         >
-          <Ionicons name="person-outline" size={16} color={activeTab === 'details' ? '#0f172a' : '#94a3b8'} />
+          <Ionicons name="person-outline" size={16} color={activeTab === 'details' ? theme.colors.text : theme.colors.textMuted} />
           <Text style={[styles.tabBtnText, activeTab === 'details' && styles.tabBtnTextActive]}>Details</Text>
         </TouchableOpacity>
 
@@ -270,7 +270,7 @@ export default function ProfileScreen() {
           style={[styles.tabBtn, activeTab === 'security' && styles.tabBtnActive]}
           onPress={() => setActiveTab('security')}
         >
-          <Ionicons name="shield-checkmark-outline" size={16} color={activeTab === 'security' ? '#0f172a' : '#94a3b8'} />
+          <Ionicons name="shield-checkmark-outline" size={16} color={activeTab === 'security' ? theme.colors.text : theme.colors.textMuted} />
           <Text style={[styles.tabBtnText, activeTab === 'security' && styles.tabBtnTextActive]}>Security</Text>
         </TouchableOpacity>
 
@@ -278,7 +278,7 @@ export default function ProfileScreen() {
           style={[styles.tabBtn, activeTab === 'payment' && styles.tabBtnActive]}
           onPress={() => setActiveTab('payment')}
         >
-          <Ionicons name="card-outline" size={16} color={activeTab === 'payment' ? '#0f172a' : '#94a3b8'} />
+          <Ionicons name="card-outline" size={16} color={activeTab === 'payment' ? theme.colors.text : theme.colors.textMuted} />
           <Text style={[styles.tabBtnText, activeTab === 'payment' && styles.tabBtnTextActive]}>Cards</Text>
         </TouchableOpacity>
       </View>
@@ -354,8 +354,8 @@ export default function ProfileScreen() {
             <Switch
               value={notificationsEnabled}
               onValueChange={setNotificationsEnabled}
-              trackColor={{ false: '#334155', true: '#c9a227' }}
-              thumbColor={notificationsEnabled ? '#0f172a' : '#94a3b8'}
+              trackColor={{ false: '#334155', true: theme.colors.primary }}
+              thumbColor={notificationsEnabled ? theme.colors.text : theme.colors.textMuted}
             />
           </View>
 
@@ -367,8 +367,8 @@ export default function ProfileScreen() {
             <Switch
               value={biometricsEnabled}
               onValueChange={setBiometricsEnabled}
-              trackColor={{ false: '#334155', true: '#c9a227' }}
-              thumbColor={biometricsEnabled ? '#0f172a' : '#94a3b8'}
+              trackColor={{ false: '#334155', true: theme.colors.primary }}
+              thumbColor={biometricsEnabled ? theme.colors.text : theme.colors.textMuted}
             />
           </View>
 
@@ -518,23 +518,23 @@ const createStyles = (theme: any) =>
     lockedIconBadge: { width: 88, height: 88, borderRadius: 44, backgroundColor: 'rgba(201, 162, 39, 0.15)', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
     lockedTitle: { fontSize: 22, fontWeight: '800', color: theme.colors.text, textAlign: 'center' },
     lockedSubtitle: { fontSize: 14, color: theme.colors.textSecondary, textAlign: 'center', marginTop: 8, marginBottom: 28, lineHeight: 20 },
-    lockedSignInBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#c9a227', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, width: '100%', justifyContent: 'center' },
-    lockedSignInBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 15 },
+    lockedSignInBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, width: '100%', justifyContent: 'center' },
+    lockedSignInBtnText: { color: theme.colors.text, fontWeight: '800', fontSize: 15 },
     lockedBackBtn: { paddingVertical: 14, marginTop: 12 },
     lockedBackBtnText: { color: theme.colors.textMuted, fontSize: 14, fontWeight: '600' },
 
-    userCard: { backgroundColor: theme.colors.surface, borderRadius: 24, padding: 20, flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 16, borderWidth: 1, borderColor: '#c9a227' },
+    userCard: { backgroundColor: theme.colors.surface, borderRadius: 24, padding: 20, flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 16, borderWidth: 1, borderColor: theme.colors.primary },
     avatarContainer: { width: 68, height: 68, borderRadius: 34, backgroundColor: 'rgba(201, 162, 39, 0.15)', justifyContent: 'center', alignItems: 'center' },
     userName: { fontSize: 20, fontWeight: '800', color: theme.colors.text },
     userEmail: { fontSize: 13, color: theme.colors.textMuted, marginTop: 2 },
     statusPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(22, 163, 74, 0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, alignSelf: 'flex-start', marginTop: 8 },
-    statusPillText: { color: '#16a34a', fontSize: 12, fontWeight: '700' },
+    statusPillText: { color: theme.colors.success, fontSize: 12, fontWeight: '700' },
 
     tabSwitcher: { flexDirection: 'row', backgroundColor: theme.colors.surfaceVariant, borderRadius: 16, padding: 4, marginBottom: 20 },
     tabBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: 12 },
-    tabBtnActive: { backgroundColor: '#c9a227' },
+    tabBtnActive: { backgroundColor: theme.colors.primary },
     tabBtnText: { fontSize: 13, fontWeight: '700', color: theme.colors.textMuted },
-    tabBtnTextActive: { color: '#0f172a' },
+    tabBtnTextActive: { color: theme.colors.text },
 
     tabSection: { backgroundColor: theme.colors.surface, borderRadius: 24, padding: 20 },
     sectionTitle: { fontSize: 18, fontWeight: '800', color: theme.colors.text, marginBottom: 16 },
@@ -545,12 +545,12 @@ const createStyles = (theme: any) =>
 
     langRow: { flexDirection: 'row', gap: 10, marginTop: 6, marginBottom: 12 },
     langChip: { flex: 1, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center', backgroundColor: theme.colors.surfaceVariant },
-    langChipActive: { backgroundColor: '#c9a227', borderColor: '#c9a227' },
+    langChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
     langChipText: { fontSize: 13, fontWeight: '700', color: theme.colors.textSecondary },
-    langChipTextActive: { color: '#0f172a' },
+    langChipTextActive: { color: theme.colors.text },
 
-    saveBtn: { backgroundColor: '#c9a227', borderRadius: 16, paddingVertical: 16, alignItems: 'center', marginTop: 24 },
-    saveBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 15 },
+    saveBtn: { backgroundColor: theme.colors.primary, borderRadius: 16, paddingVertical: 16, alignItems: 'center', marginTop: 24 },
+    saveBtnText: { color: theme.colors.text, fontWeight: '800', fontSize: 15 },
 
     settingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
     settingTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
@@ -561,24 +561,24 @@ const createStyles = (theme: any) =>
     signOutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 14, paddingVertical: 14, marginTop: 12 },
     signOutBtnText: { color: '#ef4444', fontWeight: '800', fontSize: 14 },
 
-    cardItem: { backgroundColor: '#0f172a', borderRadius: 20, padding: 20, borderWidth: 1.5, borderColor: '#c9a227', marginBottom: 16 },
+    cardItem: { backgroundColor: theme.colors.text, borderRadius: 20, padding: 20, borderWidth: 1.5, borderColor: theme.colors.primary, marginBottom: 16 },
     cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     cardBrand: { color: '#ffffff', fontWeight: '800', fontSize: 16 },
     cardNumber: { color: '#ffffff', fontSize: 20, fontWeight: '900', letterSpacing: 3, marginVertical: 20 },
     cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     cardHolder: { color: '#cbd5e1', fontSize: 13, fontWeight: '600' },
-    cardExpiry: { color: '#c9a227', fontSize: 13, fontWeight: '700' },
+    cardExpiry: { color: theme.colors.primary, fontSize: 13, fontWeight: '700' },
     emptyText: { color: theme.colors.textMuted, fontStyle: 'italic', marginVertical: 12 },
 
-    addCardBtn: { backgroundColor: '#c9a227', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, paddingVertical: 14, marginTop: 12 },
-    addCardBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 14 },
+    addCardBtn: { backgroundColor: theme.colors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, paddingVertical: 14, marginTop: 12 },
+    addCardBtnText: { color: theme.colors.text, fontWeight: '800', fontSize: 14 },
 
     modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-    modalContent: { width: '100%', maxWidth: 360, backgroundColor: '#0f172a', borderRadius: 24, padding: 24, borderWidth: 1.5, borderColor: '#c9a227' },
+    modalContent: { width: '100%', maxWidth: 360, backgroundColor: theme.colors.text, borderRadius: 24, padding: 24, borderWidth: 1.5, borderColor: theme.colors.primary },
     modalTitle: { fontSize: 20, fontWeight: '800', color: '#fff', marginBottom: 16, textAlign: 'center' },
     modalBtnRow: { flexDirection: 'row', gap: 10, marginTop: 20 },
-    modalSaveBtn: { flex: 1, backgroundColor: '#c9a227', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-    modalSaveBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 14 },
+    modalSaveBtn: { flex: 1, backgroundColor: theme.colors.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+    modalSaveBtnText: { color: theme.colors.text, fontWeight: '800', fontSize: 14 },
     modalCancelBtn: { flex: 1, backgroundColor: '#334155', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
     modalCancelBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   });

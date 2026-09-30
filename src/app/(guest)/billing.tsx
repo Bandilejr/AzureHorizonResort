@@ -246,10 +246,10 @@ export default function BillingScreen() {
           Resort folio details and express checkout are reserved for checked-in resort residents. Please sign in to your stay.
         </Text>
         <TouchableOpacity
-          style={{ backgroundColor: '#c9a227', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, marginTop: 24 }}
+          style={{ backgroundColor: theme.colors.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, marginTop: 24 }}
           onPress={() => router.push('/login')}
         >
-          <Text style={{ color: '#0f172a', fontWeight: '800', fontSize: 16 }}>Sign In to Your Stay</Text>
+          <Text style={{ color: theme.colors.text, fontWeight: '800', fontSize: 16 }}>Sign In to Your Stay</Text>
         </TouchableOpacity>
       </View>
     );
@@ -437,8 +437,8 @@ export default function BillingScreen() {
                 <Text style={{ fontSize: 16, fontWeight: '800', color: theme.colors.text }}>R {payableAmount.toLocaleString()}</Text>
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-                <Text style={{ fontSize: 13, color: '#16a34a', fontWeight: '700' }}>🎁 Loyalty Reward</Text>
-                <Text style={{ fontSize: 13, color: '#16a34a', fontWeight: '800' }}>+{Math.floor(payableAmount / 10)} Points</Text>
+                <Text style={{ fontSize: 13, color: theme.colors.success, fontWeight: '700' }}>🎁 Loyalty Reward</Text>
+                <Text style={{ fontSize: 13, color: theme.colors.success, fontWeight: '800' }}>+{Math.floor(payableAmount / 10)} Points</Text>
               </View>
 
               <TouchableOpacity 
@@ -512,7 +512,7 @@ export default function BillingScreen() {
                       <Ionicons name="checkmark-circle" size={20} color="#16a34a" />
                       <Text style={{ fontSize: 15, fontWeight: '800', color: theme.colors.text }}>{inv.invoiceNumber}</Text>
                     </View>
-                    <Text style={{ fontSize: 16, fontWeight: '900', color: '#16a34a' }}>R {inv.amount?.toLocaleString()}</Text>
+                    <Text style={{ fontSize: 16, fontWeight: '900', color: theme.colors.success }}>R {inv.amount?.toLocaleString()}</Text>
                   </View>
 
                   <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginBottom: 8 }}>
@@ -545,8 +545,8 @@ export default function BillingScreen() {
             </Text>
 
             <View style={{ backgroundColor: '#16a34a15', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 14, marginVertical: 16, alignItems: 'center' }}>
-              <Text style={{ fontSize: 18, fontWeight: '900', color: '#16a34a' }}>+ {paymentSuccessModal.points} Loyalty Points Earned!</Text>
-              <Text style={{ fontSize: 12, color: '#16a34a', marginTop: 2 }}>Added directly to your reward balance</Text>
+              <Text style={{ fontSize: 18, fontWeight: '900', color: theme.colors.success }}>+ {paymentSuccessModal.points} Loyalty Points Earned!</Text>
+              <Text style={{ fontSize: 12, color: theme.colors.success, marginTop: 2 }}>Added directly to your reward balance</Text>
             </View>
 
             <TouchableOpacity
@@ -574,10 +574,10 @@ export default function BillingScreen() {
               </View>
 
               <View style={{ backgroundColor: selectedInvoiceModal.type === 'damage' ? '#f59e0b18' : '#16a34a10', borderRadius: 12, padding: 14, marginBottom: 14, alignItems: 'center' }}>
-                <Text style={{ fontSize: 12, color: selectedInvoiceModal.type === 'damage' ? '#f59e0b' : '#16a34a', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>
+                <Text style={{ fontSize: 12, color: selectedInvoiceModal.type === 'damage' ? '#f59e0b' : theme.colors.success, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>
                   {selectedInvoiceModal.type === 'damage' ? 'Invoice Outstanding' : 'Amount Paid'}
                 </Text>
-                <Text style={{ fontSize: 26, fontWeight: '900', color: selectedInvoiceModal.type === 'damage' ? '#f59e0b' : '#16a34a', marginTop: 2 }}>
+                <Text style={{ fontSize: 26, fontWeight: '900', color: selectedInvoiceModal.type === 'damage' ? '#f59e0b' : theme.colors.success, marginTop: 2 }}>
                   R {(selectedInvoiceModal.amount || selectedInvoiceModal.subtotal || 0).toLocaleString()}
                 </Text>
               </View>
@@ -679,19 +679,19 @@ const createStyles = (theme: any) => StyleSheet.create({
     paddingBottom: 100,
   },
   balanceCard: {
-    backgroundColor: '#1e3a5f',
+    backgroundColor: theme.colors.secondary,
     borderRadius: 20,
     padding: 24,
     alignItems: 'center',
     marginBottom: 24,
-    shadowColor: '#1e3a5f',
+    shadowColor: theme.colors.secondary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.2,
     shadowRadius: 12,
     elevation: 8,
   },
   balanceLabel: {
-    color: '#94a3b8',
+    color: theme.colors.textMuted,
     fontSize: 14,
     marginBottom: 8,
     textTransform: 'uppercase',
@@ -717,7 +717,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     fontSize: 13,
   },
   guestInfoDot: {
-    color: '#64748b',
+    color: theme.colors.textSecondary,
     fontSize: 16,
   },
   sectionTitle: {

@@ -22,22 +22,23 @@ import { todayISO } from '@/utils/dates';
 import { auth, db, createRefundRequest, deriveBookingPaymentState } from '../../services/firebase-services';
 import { listenForGuestActivity, GuestActivity } from '../../services/firebase-services';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { lightColors } from '@/design/tokens';
 
 const STATUS_COLORS: Record<string, string> = {
-  confirmed: '#16a34a',
-  pending_payment: '#d97706',
-  pending: '#d97706',
+  confirmed: lightColors.success,
+  pending_payment: lightColors.warning,
+  pending: lightColors.warning,
   completed: '#2563eb',
-  cancelled: '#dc2626',
-  checked_in: '#16a34a',
-  delivered: '#16a34a',
-  preparing: '#d97706',
+  cancelled: lightColors.error,
+  checked_in: lightColors.success,
+  delivered: lightColors.success,
+  preparing: lightColors.warning,
   ready: '#2563eb',
-  deposit_paid: '#d97706',
-  'Deposit Paid': '#d97706',
-  paid_in_full: '#16a34a',
-  'Paid In Full': '#16a34a',
-  'Venue Approved for Guests': '#16a34a',
+  deposit_paid: lightColors.warning,
+  'Deposit Paid': lightColors.warning,
+  paid_in_full: lightColors.success,
+  'Paid In Full': lightColors.success,
+  'Venue Approved for Guests': lightColors.success,
 };
 
 const formatStatus = (status: string) =>
@@ -338,10 +339,10 @@ export default function ReservationsScreen() {
             {t('activityLockedDesc')}
           </Text>
           <TouchableOpacity
-            style={{ backgroundColor: '#c9a227', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, marginTop: 24 }}
+            style={{ backgroundColor: theme.colors.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, marginTop: 24 }}
             onPress={() => router.push('/login')}
           >
-            <Text style={{ color: '#0f172a', fontWeight: '800', fontSize: 16 }}>{t('signInToYourStay')}</Text>
+            <Text style={{ color: theme.colors.text, fontWeight: '800', fontSize: 16 }}>{t('signInToYourStay')}</Text>
           </TouchableOpacity>
         </View>
       ) : isLoading ? (
@@ -396,7 +397,7 @@ export default function ReservationsScreen() {
                             <Text style={styles.paymentMeta}>
                               Total <Text style={styles.paymentStrong}>{formatMoney(money.combinedTotal)}</Text>
                               {'  ·  '}Paid <Text style={styles.paymentStrong}>{formatMoney(money.amountPaid)}</Text>
-                              {'  ·  '}Balance <Text style={[styles.paymentStrong, { color: money.balanceDue > 0 ? '#d97706' : '#16a34a' }]}>{formatMoney(money.balanceDue)}</Text>
+                              {'  ·  '}Balance <Text style={[styles.paymentStrong, { color: money.balanceDue > 0 ? theme.colors.warning : theme.colors.success }]}>{formatMoney(money.balanceDue)}</Text>
                             </Text>
                             {money.cateringTotal > 0 && (
                               <Text style={styles.paymentCateringNote}>
@@ -405,7 +406,7 @@ export default function ReservationsScreen() {
                             )}
                           </View>
                           {money.balanceDue > 0 && !isPastEvent(booking) ? (
-                            <TouchableOpacity style={[styles.payNowBtn, nothingPaid && { backgroundColor: '#16a34a' }]} onPress={() => handlePayNow(booking)}>
+                            <TouchableOpacity style={[styles.payNowBtn, nothingPaid && { backgroundColor: theme.colors.success }]} onPress={() => handlePayNow(booking)}>
                               <Ionicons name="card-outline" size={15} color="#fff" />
                               <Text style={styles.payNowBtnText}>{nothingPaid ? 'Pay Deposit' : 'Pay Balance'}</Text>
                             </TouchableOpacity>
@@ -415,7 +416,7 @@ export default function ReservationsScreen() {
                             </View>
                           ) : (
                             <View style={[styles.statusBadge, { backgroundColor: '#16a34a22' }]}>
-                              <Text style={[styles.statusText, { color: '#16a34a' }]}>Paid In Full</Text>
+                              <Text style={[styles.statusText, { color: theme.colors.success }]}>Paid In Full</Text>
                             </View>
                           )}
                         </View>
@@ -443,12 +444,12 @@ export default function ReservationsScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.eventActionBtn} onPress={() => openRefundModal(booking)}>
                       <Ionicons name="cash-outline" size={16} color="#dc2626" />
-                      <Text style={[styles.eventActionText, { color: '#dc2626' }]}>{t('refund')}</Text>
+                      <Text style={[styles.eventActionText, { color: theme.colors.error }]}>{t('refund')}</Text>
                     </TouchableOpacity>
                     {booking.status !== 'cancelled' && !isPastEvent(booking) && (
                       <TouchableOpacity style={styles.eventActionBtn} onPress={() => handleCancelBooking(booking)}>
                         <Ionicons name="close-circle-outline" size={16} color="#64748b" />
-                        <Text style={[styles.eventActionText, { color: '#64748b' }]}>{t('cancel')}</Text>
+                        <Text style={[styles.eventActionText, { color: theme.colors.textSecondary }]}>{t('cancel')}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -617,13 +618,13 @@ export default function ReservationsScreen() {
               </TouchableOpacity>
             </View>
 
-            <Text style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
+            <Text style={{ fontSize: 13, color: theme.colors.textSecondary, marginBottom: 12 }}>
               Original Paid Amount: <Text style={{ fontWeight: '800', color: '#1e293b' }}>R {selectedBookingForRefund?.paidAmount}</Text>
             </Text>
 
             <Text style={{ fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 6 }}>Refund Reason</Text>
             <TextInput
-              style={{ backgroundColor: '#f1f5f9', borderRadius: 12, padding: 12, fontSize: 14, color: '#0f172a', marginBottom: 14, borderWidth: 1, borderColor: '#cbd5e1' }}
+              style={{ backgroundColor: '#f1f5f9', borderRadius: 12, padding: 12, fontSize: 14, color: theme.colors.text, marginBottom: 14, borderWidth: 1, borderColor: '#cbd5e1' }}
               placeholder="State reason for refund request..."
               placeholderTextColor="#94a3b8"
               value={refundReason}
@@ -632,7 +633,7 @@ export default function ReservationsScreen() {
 
             <Text style={{ fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 6 }}>Requested Refund Amount (R)</Text>
             <TextInput
-              style={{ backgroundColor: '#f1f5f9', borderRadius: 12, padding: 12, fontSize: 14, color: '#0f172a', marginBottom: 16, borderWidth: 1, borderColor: '#cbd5e1' }}
+              style={{ backgroundColor: '#f1f5f9', borderRadius: 12, padding: 12, fontSize: 14, color: theme.colors.text, marginBottom: 16, borderWidth: 1, borderColor: '#cbd5e1' }}
               placeholder="Amount in ZAR"
               placeholderTextColor="#94a3b8"
               keyboardType="numeric"
@@ -641,7 +642,7 @@ export default function ReservationsScreen() {
             />
 
             <TouchableOpacity
-              style={{ backgroundColor: '#dc2626', paddingVertical: 14, borderRadius: 14, alignItems: 'center' }}
+              style={{ backgroundColor: theme.colors.error, paddingVertical: 14, borderRadius: 14, alignItems: 'center' }}
               onPress={handleConfirmRefundSubmit}
               disabled={submittingRefund}
             >
@@ -678,9 +679,9 @@ const createStyles = (theme: any) => StyleSheet.create({
   emptyTitle: { fontSize: 20, fontWeight: 'bold', color: theme.colors.text, marginTop: 16, marginBottom: 8 },
   emptyText: { textAlign: 'center', color: theme.colors.textMuted, lineHeight: 22 },
 
-  stayCard: { backgroundColor: '#1e3a5f', borderRadius: 20, padding: 20, marginBottom: 24 },
+  stayCard: { backgroundColor: theme.colors.secondary, borderRadius: 20, padding: 20, marginBottom: 24 },
   stayHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  stayLabel: { color: '#c9a227', fontSize: 12, fontWeight: 'bold', letterSpacing: 1 },
+  stayLabel: { color: theme.colors.primary, fontSize: 12, fontWeight: 'bold', letterSpacing: 1 },
   stayRoom: { color: '#fff', fontSize: 26, fontWeight: 'bold' },
   stayName: { color: 'rgba(255,255,255,0.8)', fontSize: 14, marginTop: 2, marginBottom: 12 },
   stayRow: { flexDirection: 'row', justifyContent: 'space-between' },
@@ -706,7 +707,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   paymentCateringNote: { fontSize: 10, color: theme.colors.textMuted, marginTop: 2 },
   payNowBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#d97706', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
+    backgroundColor: theme.colors.warning, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
   },
   payNowBtnText: { color: '#fff', fontSize: 12, fontWeight: '800' },
   eventActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },

@@ -34,7 +34,7 @@ let statusConfig = (theme: any, status: string) => {
         };
       default:
         return {
-          color: '#c9a227',
+          color: theme.colors.primary,
           bg: '#fef3c7',
           label: 'Pending',
           icon: 'time'
@@ -267,7 +267,7 @@ async function fetchRefundRequests() {
           marginTop: 8,
           lineHeight: 20
         }}>Refund management and approval (UC33) is strictly restricted to resort Administrators.</Text>}{/*#__PURE__*/<TouchableOpacity style={{
-          backgroundColor: '#1e3a5f',
+          backgroundColor: theme.colors.secondary,
           paddingHorizontal: 24,
           paddingVertical: 14,
           borderRadius: 16,
@@ -362,9 +362,9 @@ async function fetchRefundRequests() {
               }}>Invoices 🧾</Text>}</TouchableOpacity>}</View>}</View>}{!loading && /*#__PURE__*/<Fragment>{/*#__PURE__*/<View style={S.statsRow}>{/*#__PURE__*/<View style={[S.statBox, {
               backgroundColor: '#fef3c7'
             }]}>{/*#__PURE__*/<Text style={[S.statNum, {
-                color: '#c9a227'
+                color: theme.colors.primary
               }]}>{pending}</Text>}{/*#__PURE__*/<Text style={[S.statLbl, {
-                color: '#c9a227'
+                color: theme.colors.primary
               }]}>Pending</Text>}</View>}{/*#__PURE__*/<View style={[S.statBox, {
               backgroundColor: theme.colors.successLight
             }]}>{/*#__PURE__*/<Text style={[S.statNum, {
@@ -407,14 +407,14 @@ async function fetchRefundRequests() {
                   paddingHorizontal: 6,
                   paddingVertical: 2,
                   borderWidth: 1,
-                  borderColor: req_2.riskLevel === 'high' ? '#dc2626' : req_2.riskLevel === 'medium' ? '#d97706' : '#16a34a',
+                  borderColor: req_2.riskLevel === 'high' ? theme.colors.error : req_2.riskLevel === 'medium' ? theme.colors.warning : theme.colors.success,
                   gap: 3
                 }}>{/*#__PURE__*/<Text style={{
                     fontSize: 9
                   }}>{req_2.riskLevel === 'high' ? '🚨' : req_2.riskLevel === 'medium' ? '⚠️' : '✅'}</Text>}{/*#__PURE__*/<Text style={{
                     fontSize: 9,
                     fontWeight: '800',
-                    color: req_2.riskLevel === 'high' ? '#dc2626' : req_2.riskLevel === 'medium' ? '#d97706' : '#16a34a'
+                    color: req_2.riskLevel === 'high' ? theme.colors.error : req_2.riskLevel === 'medium' ? theme.colors.warning : theme.colors.success
                   }}>{req_2.riskLevel.toUpperCase()} RISK {req_2.riskScore}/100</Text>}</View>}</View>}</View>}{/*#__PURE__*/<View style={S.infoGrid}>{/*#__PURE__*/<View style={S.infoRow}>{/*#__PURE__*/<Text style={S.infoLabel}>Guest:</Text>}{/*#__PURE__*/<Text style={S.infoValue}>{req_2.guestName || '—'}</Text>}</View>}{/*#__PURE__*/<View style={S.infoRow}>{/*#__PURE__*/<Text style={S.infoLabel}>Amount:</Text>}{/*#__PURE__*/<Text style={[S.infoValue, {
                   color: theme.colors.error,
                   fontWeight: '800'
@@ -525,7 +525,7 @@ async function fetchRefundRequests() {
                   }}>💰 Amount {'>'} 150% Average</Text>}{/*#__PURE__*/<Text style={{
                     fontSize: 13,
                     fontWeight: '800',
-                    color: '#dc2626'
+                    color: theme.colors.error
                   }}>+30 Points</Text>}</View>}{/*#__PURE__*/<Text style={{
                   fontSize: 11,
                   color: theme.colors.textMuted
@@ -543,7 +543,7 @@ async function fetchRefundRequests() {
                   }}>⚠️ Active Damage Conflict</Text>}{/*#__PURE__*/<Text style={{
                     fontSize: 13,
                     fontWeight: '800',
-                    color: '#dc2626'
+                    color: theme.colors.error
                   }}>+25 Points</Text>}</View>}{/*#__PURE__*/<Text style={{
                   fontSize: 11,
                   color: theme.colors.textMuted
@@ -561,7 +561,7 @@ async function fetchRefundRequests() {
                   }}>🔁 {'>'}1 Prior Refund Claims</Text>}{/*#__PURE__*/<Text style={{
                     fontSize: 13,
                     fontWeight: '800',
-                    color: '#dc2626'
+                    color: theme.colors.error
                   }}>+20 Points</Text>}</View>}{/*#__PURE__*/<Text style={{
                   fontSize: 11,
                   color: theme.colors.textMuted
@@ -579,7 +579,7 @@ async function fetchRefundRequests() {
                   }}>⏱️ Filed {'<'}24h Post-Event</Text>}{/*#__PURE__*/<Text style={{
                     fontSize: 13,
                     fontWeight: '800',
-                    color: '#dc2626'
+                    color: theme.colors.error
                   }}>+15 Points</Text>}</View>}{/*#__PURE__*/<Text style={{
                   fontSize: 11,
                   color: theme.colors.textMuted
@@ -597,7 +597,7 @@ async function fetchRefundRequests() {
                   }}>💯 Full 100% Refund Claim</Text>}{/*#__PURE__*/<Text style={{
                     fontSize: 13,
                     fontWeight: '800',
-                    color: '#dc2626'
+                    color: theme.colors.error
                   }}>+10 Points</Text>}</View>}{/*#__PURE__*/<Text style={{
                   fontSize: 11,
                   color: theme.colors.textMuted

@@ -324,10 +324,10 @@ export default function DigitalKeyScreen() {
           Digital Room Key & NFC door unlock are reserved for checked-in resort residents. Please sign in to access your key.
         </Text>
         <TouchableOpacity
-          style={{ backgroundColor: '#c9a227', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, marginTop: 24 }}
+          style={{ backgroundColor: theme.colors.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, marginTop: 24 }}
           onPress={() => router.push('/login')}
         >
-          <Text style={{ color: '#0f172a', fontWeight: '800', fontSize: 16 }}>Sign In to Your Stay</Text>
+          <Text style={{ color: theme.colors.text, fontWeight: '800', fontSize: 16 }}>Sign In to Your Stay</Text>
         </TouchableOpacity>
       </View>
     );
@@ -379,7 +379,7 @@ export default function DigitalKeyScreen() {
                     {
                       transform: [{ scale: pulseAnim1 }],
                       opacity: pulseOpacity1,
-                      borderColor: unlocked ? '#16a34a' : readingTag ? '#c9a227' : keyActive ? '#16a34a' : 'rgba(255,255,255,0.2)',
+                      borderColor: unlocked ? theme.colors.success : readingTag ? theme.colors.primary : keyActive ? theme.colors.success : 'rgba(255,255,255,0.2)',
                     },
                   ]}
                 />
@@ -395,7 +395,7 @@ export default function DigitalKeyScreen() {
                   <Ionicons
                     name={unlocked ? 'key-sharp' : readingTag ? 'wifi-sharp' : keyActive ? 'key-sharp' : 'lock-closed-sharp'}
                     size={46}
-                    color={unlocked ? '#16a34a' : readingTag ? '#c9a227' : keyActive ? '#16a34a' : '#ffffff'}
+                    color={unlocked ? theme.colors.success : readingTag ? theme.colors.primary : keyActive ? theme.colors.success : '#ffffff'}
                   />
                 </TouchableOpacity>
               </View>
@@ -436,12 +436,12 @@ export default function DigitalKeyScreen() {
                   <Ionicons
                     name="finger-print"
                     size={14}
-                    color={biometricEnrolled ? '#16a34a' : '#d97706'}
+                    color={biometricEnrolled ? theme.colors.success : theme.colors.warning}
                   />
                   <Text
                     style={[
                       styles.chipText,
-                      { color: biometricEnrolled ? '#16a34a' : '#d97706' },
+                      { color: biometricEnrolled ? theme.colors.success : theme.colors.warning },
                     ]}
                   >
                     {biometricEnrolled ? 'Fingerprint Ready' : 'Biometrics Not Setup'}
@@ -457,12 +457,12 @@ export default function DigitalKeyScreen() {
                   <Ionicons
                     name="key"
                     size={14}
-                    color={keyActive ? '#16a34a' : '#d97706'}
+                    color={keyActive ? theme.colors.success : theme.colors.warning}
                   />
                   <Text
                     style={[
                       styles.chipText,
-                      { color: keyActive ? '#16a34a' : '#d97706' },
+                      { color: keyActive ? theme.colors.success : theme.colors.warning },
                     ]}
                   >
                     {keyActive
@@ -484,12 +484,12 @@ export default function DigitalKeyScreen() {
                   <Ionicons
                     name="wifi"
                     size={14}
-                    color={nfcSupported ? '#16a34a' : '#d97706'}
+                    color={nfcSupported ? theme.colors.success : theme.colors.warning}
                   />
                   <Text
                     style={[
                       styles.chipText,
-                      { color: nfcSupported ? '#16a34a' : '#d97706' },
+                      { color: nfcSupported ? theme.colors.success : theme.colors.warning },
                     ]}
                   >
                     {nfcSupported ? (nfcEnabled ? 'NFC Ready' : 'NFC Disabled') : 'NFC Inactive'}
@@ -579,7 +579,7 @@ export default function DigitalKeyScreen() {
 
 const createStyles = (theme: any) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#0f172a' },
+    container: { flex: 1, backgroundColor: theme.colors.text },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -598,7 +598,7 @@ const createStyles = (theme: any) =>
       borderRadius: 28,
       padding: 24,
       borderWidth: 1.5,
-      borderColor: '#c9a227',
+      borderColor: theme.colors.primary,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 10 },
       shadowOpacity: 0.4,
@@ -616,7 +616,7 @@ const createStyles = (theme: any) =>
       borderRadius: 20,
       marginBottom: 8,
     },
-    resortPillText: { color: '#c9a227', fontWeight: '800', fontSize: 11, letterSpacing: 1 },
+    resortPillText: { color: theme.colors.primary, fontWeight: '800', fontSize: 11, letterSpacing: 1 },
     roomName: { color: '#ffffff', fontSize: 26, fontWeight: '900', textAlign: 'center' },
     
     keyDates: {
@@ -629,7 +629,7 @@ const createStyles = (theme: any) =>
       borderColor: 'rgba(255,255,255,0.1)',
     },
     dateItem: { flex: 1, alignItems: 'center' },
-    dateLabel: { color: '#94a3b8', fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 },
+    dateLabel: { color: theme.colors.textMuted, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 },
     dateValue: { color: '#ffffff', fontSize: 15, fontWeight: '700' },
     dateDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.1)' },
     
@@ -652,18 +652,18 @@ const createStyles = (theme: any) =>
       width: 100,
       height: 100,
       borderRadius: 50,
-      backgroundColor: '#0f172a',
+      backgroundColor: theme.colors.text,
       borderWidth: 2,
       borderColor: 'rgba(255,255,255,0.3)',
       alignItems: 'center',
       justifyContent: 'center',
       elevation: 6,
     },
-    nfcRingActive: { borderColor: '#c9a227', backgroundColor: 'rgba(201,162,39,0.15)' },
-    nfcRingUnlocked: { borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,0.15)' },
+    nfcRingActive: { borderColor: theme.colors.primary, backgroundColor: 'rgba(201,162,39,0.15)' },
+    nfcRingUnlocked: { borderColor: theme.colors.success, backgroundColor: 'rgba(22,163,74,0.15)' },
     
     nfcText: { color: '#ffffff', fontSize: 18, fontWeight: '800', marginBottom: 4, textAlign: 'center' },
-    nfcSubtext: { color: '#94a3b8', fontSize: 12, marginBottom: 20, textAlign: 'center' },
+    nfcSubtext: { color: theme.colors.textMuted, fontSize: 12, marginBottom: 20, textAlign: 'center' },
     
     hardwareRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
     hardwareChip: {
@@ -680,19 +680,19 @@ const createStyles = (theme: any) =>
     
     buttonStack: { width: '100%', gap: 12 },
     unlockBtn: {
-      backgroundColor: '#c9a227',
+      backgroundColor: theme.colors.primary,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       paddingVertical: 16,
       borderRadius: 14,
     },
-    unlockBtnSuccess: { backgroundColor: '#16a34a' },
-    unlockBtnText: { color: '#0f172a', fontWeight: '900', fontSize: 15 },
+    unlockBtnSuccess: { backgroundColor: theme.colors.success },
+    unlockBtnText: { color: theme.colors.text, fontWeight: '900', fontSize: 15 },
     
     nfcScanBtn: {
       borderWidth: 1.5,
-      borderColor: '#c9a227',
+      borderColor: theme.colors.primary,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
@@ -700,7 +700,7 @@ const createStyles = (theme: any) =>
       borderRadius: 14,
       backgroundColor: 'rgba(201,162,39,0.05)',
     },
-    nfcScanBtnText: { color: '#c9a227', fontWeight: '700', fontSize: 14 },
+    nfcScanBtnText: { color: theme.colors.primary, fontWeight: '700', fontSize: 14 },
     noNfcNote: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -710,7 +710,7 @@ const createStyles = (theme: any) =>
       borderRadius: 12,
       backgroundColor: 'rgba(148,163,184,0.12)',
     },
-    noNfcNoteText: { color: '#94a3b8', fontSize: 12, fontWeight: '600', flex: 1, lineHeight: 17 },
+    noNfcNoteText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600', flex: 1, lineHeight: 17 },
     
     securityInfo: {
       flexDirection: 'row',
@@ -720,8 +720,8 @@ const createStyles = (theme: any) =>
       borderTopWidth: 1,
       borderColor: 'rgba(255,255,255,0.1)',
     },
-    securityText: { color: '#94a3b8', fontSize: 11, flex: 1, lineHeight: 16 },
+    securityText: { color: theme.colors.textMuted, fontSize: 11, flex: 1, lineHeight: 16 },
     loading: { marginVertical: 40 },
     backBtn: { marginTop: 24, alignItems: 'center' },
-    backBtnText: { color: '#94a3b8', fontSize: 14, fontWeight: '600' },
+    backBtnText: { color: theme.colors.textMuted, fontSize: 14, fontWeight: '600' },
   });

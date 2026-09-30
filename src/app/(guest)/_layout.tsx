@@ -34,12 +34,12 @@ export default function GuestLayout() {
               <Ionicons
                 name={iconName as any}
                 size={isDigitalKey ? size + 4 : size}
-                color={isDigitalKey ? '#c9a227' : color}
+                color={isDigitalKey ? theme.colors.primary : color}
               />
             );
           },
           tabBarLabel: config.label,
-          tabBarActiveTintColor: isDigitalKey ? '#c9a227' : theme.colors.primary,
+          tabBarActiveTintColor: isDigitalKey ? theme.colors.primary : theme.colors.primary,
           tabBarInactiveTintColor: theme.colors.textMuted,
           tabBarStyle: {
             backgroundColor: theme.colors.surface,

@@ -309,7 +309,7 @@ export default function LoyaltyScannerScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.awardBtn, { backgroundColor: '#1e3a5f' }]}
+                  style={[styles.awardBtn, { backgroundColor: theme.colors.secondary }]}
                   onPress={() => handleAwardPoints(100)}
                   disabled={awarding}
                 >
@@ -337,42 +337,42 @@ export default function LoyaltyScannerScreen() {
 
 const createStyles = (theme: any) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#0f172a' },
+    container: { flex: 1, backgroundColor: theme.colors.text },
     headerRow: { flexDirection: 'row', alignItems: 'center', paddingTop: 56, paddingHorizontal: 20, paddingBottom: 16, gap: 12, backgroundColor: '#1e293b' },
     backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' },
     title: { fontSize: 20, fontWeight: '800', color: '#fff' },
-    subtitle: { fontSize: 12, color: '#94a3b8', marginTop: 2 },
+    subtitle: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
 
     scannerContainer: { flex: 1, position: 'relative' },
-    noCameraView: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#0f172a' },
-    noCamText: { color: '#94a3b8', fontSize: 14, textAlign: 'center' },
+    noCameraView: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: theme.colors.text },
+    noCamText: { color: theme.colors.textMuted, fontSize: 14, textAlign: 'center' },
 
     overlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15,23,42,0.4)' },
     scanFrame: { width: 240, height: 240, position: 'relative', borderRadius: 20 },
-    cornerTopLeft: { position: 'absolute', top: 0, left: 0, width: 30, height: 30, borderTopWidth: 4, borderLeftWidth: 4, borderColor: '#c9a227', borderTopLeftRadius: 16 },
-    cornerTopRight: { position: 'absolute', top: 0, right: 0, width: 30, height: 30, borderTopWidth: 4, borderRightWidth: 4, borderColor: '#c9a227', borderTopRightRadius: 16 },
-    cornerBottomLeft: { position: 'absolute', bottom: 0, left: 0, width: 30, height: 30, borderBottomWidth: 4, borderLeftWidth: 4, borderColor: '#c9a227', borderBottomLeftRadius: 16 },
-    cornerBottomRight: { position: 'absolute', bottom: 0, right: 0, width: 30, height: 30, borderBottomWidth: 4, borderRightWidth: 4, borderColor: '#c9a227', borderBottomRightRadius: 16 },
+    cornerTopLeft: { position: 'absolute', top: 0, left: 0, width: 30, height: 30, borderTopWidth: 4, borderLeftWidth: 4, borderColor: theme.colors.primary, borderTopLeftRadius: 16 },
+    cornerTopRight: { position: 'absolute', top: 0, right: 0, width: 30, height: 30, borderTopWidth: 4, borderRightWidth: 4, borderColor: theme.colors.primary, borderTopRightRadius: 16 },
+    cornerBottomLeft: { position: 'absolute', bottom: 0, left: 0, width: 30, height: 30, borderBottomWidth: 4, borderLeftWidth: 4, borderColor: theme.colors.primary, borderBottomLeftRadius: 16 },
+    cornerBottomRight: { position: 'absolute', bottom: 0, right: 0, width: 30, height: 30, borderBottomWidth: 4, borderRightWidth: 4, borderColor: theme.colors.primary, borderBottomRightRadius: 16 },
     scanText: { color: '#ffffff', marginTop: 24, fontSize: 14, fontWeight: '600', backgroundColor: 'rgba(15,23,42,0.7)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
 
     manualBar: { padding: 16, backgroundColor: '#1e293b', borderTopWidth: 1, borderColor: '#334155' },
-    manualTitle: { fontSize: 12, fontWeight: '700', color: '#c9a227', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+    manualTitle: { fontSize: 12, fontWeight: '700', color: theme.colors.primary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
     manualInputRow: { flexDirection: 'row', gap: 10 },
-    manualInput: { flex: 1, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#334155', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, color: '#fff', fontSize: 14 },
-    manualBtn: { backgroundColor: '#c9a227', paddingHorizontal: 20, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-    manualBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 14 },
+    manualInput: { flex: 1, backgroundColor: theme.colors.text, borderWidth: 1, borderColor: '#334155', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, color: '#fff', fontSize: 14 },
+    manualBtn: { backgroundColor: theme.colors.primary, paddingHorizontal: 20, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
+    manualBtnText: { color: theme.colors.text, fontWeight: '800', fontSize: 14 },
 
-    resultCard: { position: 'absolute', bottom: 90, left: 20, right: 20, backgroundColor: '#1e293b', borderRadius: 24, padding: 20, alignItems: 'center', borderWidth: 1.5, borderColor: '#16a34a', elevation: 10 },
+    resultCard: { position: 'absolute', bottom: 90, left: 20, right: 20, backgroundColor: '#1e293b', borderRadius: 24, padding: 20, alignItems: 'center', borderWidth: 1.5, borderColor: theme.colors.success, elevation: 10 },
     resultName: { fontSize: 20, fontWeight: '800', color: '#fff', marginTop: 6, textAlign: 'center' },
     voucherBadge: { marginTop: 12, backgroundColor: 'rgba(22,163,74,0.15)', padding: 12, borderRadius: 12, alignItems: 'center', width: '100%' },
-    voucherBadgeText: { color: '#16a34a', fontWeight: '800', fontSize: 13, letterSpacing: 0.5 },
+    voucherBadgeText: { color: theme.colors.success, fontWeight: '800', fontSize: 13, letterSpacing: 0.5 },
     voucherDetail: { color: '#cbd5e1', fontSize: 13, marginTop: 4 },
     resultDetails: { width: '100%', marginTop: 10, alignItems: 'center', gap: 4 },
     resultDetail: { fontSize: 14, color: '#cbd5e1', fontWeight: '600' },
 
     awardRow: { flexDirection: 'row', gap: 10, marginTop: 12, width: '100%' },
-    awardBtn: { flex: 1, backgroundColor: '#c9a227', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 12 },
-    awardBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 13 },
+    awardBtn: { flex: 1, backgroundColor: theme.colors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 12 },
+    awardBtnText: { color: theme.colors.text, fontWeight: '800', fontSize: 13 },
 
     scanAgainBtn: { backgroundColor: '#334155', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12, marginTop: 14 },
     scanAgainBtnText: { color: '#ffffff', fontWeight: '800', fontSize: 13 },

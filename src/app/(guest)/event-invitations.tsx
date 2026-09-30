@@ -217,16 +217,16 @@ export default function EventInvitationsScreen() {
         {/* RSVP STATUS DASHBOARD */}
         <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
           <View style={{ flex: 1, backgroundColor: '#f1f5f9', padding: 12, borderRadius: 12, alignItems: 'center' }}>
-            <Text style={{ fontSize: 18, fontWeight: '900', color: '#64748b' }}>{invitedCount}</Text>
-            <Text style={{ fontSize: 11, color: '#64748b', fontWeight: '700' }}>Invited</Text>
+            <Text style={{ fontSize: 18, fontWeight: '900', color: theme.colors.textSecondary }}>{invitedCount}</Text>
+            <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontWeight: '700' }}>Invited</Text>
           </View>
           <View style={{ flex: 1, backgroundColor: '#dcfce7', padding: 12, borderRadius: 12, alignItems: 'center' }}>
-            <Text style={{ fontSize: 18, fontWeight: '900', color: '#16a34a' }}>{acceptedCount}</Text>
-            <Text style={{ fontSize: 11, color: '#16a34a', fontWeight: '700' }}>Accepted</Text>
+            <Text style={{ fontSize: 18, fontWeight: '900', color: theme.colors.success }}>{acceptedCount}</Text>
+            <Text style={{ fontSize: 11, color: theme.colors.success, fontWeight: '700' }}>Accepted</Text>
           </View>
           <View style={{ flex: 1, backgroundColor: '#fee2e2', padding: 12, borderRadius: 12, alignItems: 'center' }}>
-            <Text style={{ fontSize: 18, fontWeight: '900', color: '#dc2626' }}>{declinedCount}</Text>
-            <Text style={{ fontSize: 11, color: '#dc2626', fontWeight: '700' }}>Declined</Text>
+            <Text style={{ fontSize: 18, fontWeight: '900', color: theme.colors.error }}>{declinedCount}</Text>
+            <Text style={{ fontSize: 11, color: theme.colors.error, fontWeight: '700' }}>Declined</Text>
           </View>
         </View>
 
@@ -242,19 +242,19 @@ export default function EventInvitationsScreen() {
                 <Text style={styles.invitationEmail}>{inv.inviteeEmail}</Text>
                 {inv.status === 'checked_in' ? (
                   <View style={[styles.rsvpBadge, { backgroundColor: '#dcfce7' }]}>
-                    <Text style={[styles.rsvpBadgeText, { color: '#16a34a' }]}>🟢 Checked-In</Text>
+                    <Text style={[styles.rsvpBadgeText, { color: theme.colors.success }]}>🟢 Checked-In</Text>
                   </View>
                 ) : inv.rsvpStatus === 'accepted' ? (
                   <View style={[styles.rsvpBadge, { backgroundColor: '#dcfce7' }]}>
-                    <Text style={[styles.rsvpBadgeText, { color: '#16a34a' }]}>✅ Accepted</Text>
+                    <Text style={[styles.rsvpBadgeText, { color: theme.colors.success }]}>✅ Accepted</Text>
                   </View>
                 ) : inv.rsvpStatus === 'declined' ? (
                   <View style={[styles.rsvpBadge, { backgroundColor: '#fee2e2' }]}>
-                    <Text style={[styles.rsvpBadgeText, { color: '#dc2626' }]}>❌ Declined</Text>
+                    <Text style={[styles.rsvpBadgeText, { color: theme.colors.error }]}>❌ Declined</Text>
                   </View>
                 ) : (
                   <View style={[styles.rsvpBadge, { backgroundColor: '#f1f5f9' }]}>
-                    <Text style={[styles.rsvpBadgeText, { color: '#64748b' }]}>⏳ Invited — Awaiting RSVP</Text>
+                    <Text style={[styles.rsvpBadgeText, { color: theme.colors.textSecondary }]}>⏳ Invited — Awaiting RSVP</Text>
                   </View>
                 )}
               </View>
@@ -279,18 +279,18 @@ export default function EventInvitationsScreen() {
             <Text style={{ fontSize: 20, fontWeight: '900', color: '#1e293b', marginBottom: 4 }}>Event Access Pass</Text>
             <Text style={{ fontSize: 14, fontWeight: '700', color: '#0284c7', marginBottom: 16 }}>{selectedQrPass?.inviteeName}</Text>
             
-            <View style={{ backgroundColor: '#ffffff', padding: 16, borderRadius: 16, borderWidth: 2, borderColor: '#e2e8f0', marginBottom: 16 }}>
+            <View style={{ backgroundColor: '#ffffff', padding: 16, borderRadius: 16, borderWidth: 2, borderColor: theme.colors.border, marginBottom: 16 }}>
               {selectedQrPass?.qrCode ? (
                 <QRCode value={selectedQrPass.qrCode} size={200} />
               ) : null}
             </View>
 
-            <Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center', marginBottom: 20 }}>
+            <Text style={{ fontSize: 12, color: theme.colors.textSecondary, textAlign: 'center', marginBottom: 20 }}>
               Show this QR code at the door for entry (UC27 scan).
             </Text>
 
             <TouchableOpacity 
-              style={{ backgroundColor: '#1e3a5f', paddingHorizontal: 28, paddingVertical: 12, borderRadius: 14 }}
+              style={{ backgroundColor: theme.colors.secondary, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 14 }}
               onPress={() => setSelectedQrPass(null)}
             >
               <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 14 }}>Close</Text>

@@ -204,7 +204,7 @@ export default function LiveComplaintScreen() {
                 <View key={idx} style={{ position: 'relative', marginRight: 10 }}>
                   <Image source={{ uri }} style={{ width: 70, height: 70, borderRadius: 10 }} />
                   <TouchableOpacity
-                    style={{ position: 'absolute', top: -4, right: -4, backgroundColor: '#dc2626', borderRadius: 10, padding: 2 }}
+                    style={{ position: 'absolute', top: -4, right: -4, backgroundColor: theme.colors.error, borderRadius: 10, padding: 2 }}
                     onPress={() => setPhotoUris(photoUris.filter((_, i) => i !== idx))}
                   >
                     <Ionicons name="close" size={14} color="#ffffff" />

@@ -325,9 +325,9 @@ export default function GuestRefundRequestScreen() {
                                   <View style={{
                                     paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
                                     backgroundColor: existingRef.status === 'approved' ? '#f0fdf4' : existingRef.status === 'rejected' ? '#fef2f2' : '#fef3c7',
-                                    borderWidth: 1, borderColor: existingRef.status === 'approved' ? '#16a34a' : existingRef.status === 'rejected' ? '#dc2626' : '#f59e0b'
+                                    borderWidth: 1, borderColor: existingRef.status === 'approved' ? theme.colors.success : existingRef.status === 'rejected' ? theme.colors.error : '#f59e0b'
                                   }}>
-                                    <Text style={{ fontSize: 9, fontWeight: '800', color: existingRef.status === 'approved' ? '#16a34a' : existingRef.status === 'rejected' ? '#dc2626' : '#d97706' }}>
+                                    <Text style={{ fontSize: 9, fontWeight: '800', color: existingRef.status === 'approved' ? theme.colors.success : existingRef.status === 'rejected' ? theme.colors.error : theme.colors.warning }}>
                                       {existingRef.status === 'approved' ? '✅ REFUNDED' : existingRef.status === 'rejected' ? '❌ DECLINED' : '⏳ PENDING'}
                                     </Text>
                                   </View>
@@ -337,7 +337,7 @@ export default function GuestRefundRequestScreen() {
                               <Text style={[S.bookingChipDate, isSelected && { color: 'rgba(255,255,255,0.8)' }]}>
                                 {b.eventDate || b.date || 'Upcoming'}
                               </Text>
-                              <Text style={[S.bookingChipAmount, isSelected && { color: '#c9a227' }]}>
+                              <Text style={[S.bookingChipAmount, isSelected && { color: theme.colors.primary }]}>
                                 Paid: R {paid.toLocaleString()}
                               </Text>
                             </TouchableOpacity>
@@ -482,12 +482,12 @@ const createStyles = (theme: any) => StyleSheet.create({
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingTop: Platform.OS === 'android' ? 44 : 12, paddingHorizontal: 16, paddingBottom: 16,
-    backgroundColor: '#1e3a5f', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: theme.colors.secondary, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   backBtn: { padding: 4 },
   headerCenter: { alignItems: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#ffffff' },
-  headerSubtitle: { fontSize: 11, color: '#c9a227', marginTop: 2 },
+  headerSubtitle: { fontSize: 11, color: theme.colors.primary, marginTop: 2 },
   content: { padding: 16, paddingBottom: 40 },
 
   card: {
@@ -507,7 +507,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     backgroundColor: theme.colors.surfaceVariant, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10,
     borderWidth: 1, borderColor: theme.colors.border, minWidth: 160,
   },
-  bookingChipSelected: { backgroundColor: '#1e3a5f', borderColor: '#c9a227' },
+  bookingChipSelected: { backgroundColor: theme.colors.secondary, borderColor: theme.colors.primary },
   bookingChipVenue: { fontSize: 14, fontWeight: '700', color: theme.colors.text },
   bookingChipVenueSelected: { color: '#ffffff' },
   bookingChipDate: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
@@ -540,7 +540,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   thumbnailImg: { width: '100%', height: '100%' },
   removeImgBtn: { position: 'absolute', top: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 10, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
 
-  primaryBtn: { backgroundColor: '#1e3a5f', paddingVertical: 16, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
+  primaryBtn: { backgroundColor: theme.colors.secondary, paddingVertical: 16, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
   primaryBtnText: { color: '#ffffff', fontWeight: '900', fontSize: 16 },
 
   successCard: { backgroundColor: theme.colors.surface, borderRadius: 20, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: theme.colors.border, marginVertical: 20 },
