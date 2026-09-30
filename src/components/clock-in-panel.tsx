@@ -1,17 +1,11 @@
+// Clock-in panel. Layer 11: token-based presentation only — every attendance /
+// geofence / device / clock-window call and state derivation is unchanged.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-  useColorScheme,
-  Platform,
-} from 'react-native';
+import { View, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
-import { getTheme } from '@/constants/theme';
-import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
+import { useAppTheme } from '@/design/use-app-theme';
+import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
 import {
   PunchRecord,
   getCurrentPosition,
@@ -30,12 +24,15 @@ import { ensureDeviceEnrollment, requestDeviceReset } from '@/services/device';
 import { getDefaultWorksite, getAttendanceConfig, evaluateGeofence } from '@/services/worksites';
 import { DEFAULT_ATTENDANCE_CONFIG, type AttendanceSession, type Worksite, type AttendanceConfig } from '@/types/workforce';
 import { WorksiteMap } from '@/components/WorksiteMap';
+import { AppText } from '@/components/ui/text';
+import { Card } from '@/components/ui/surface';
+import { Button } from '@/components/ui/button';
+import { StatusPill } from '@/components/ui/status-pill';
+import { ListSkeleton } from '@/components/ui/states';
 
 export default function ClockInPanel() {
-  const { user, profile, signOut } = useAuth();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const S = createStyles(theme);
+  const { user, profile } = useAuth();
+  const theme = useAppTheme();
 
   const [punches, setPunches] = useState<PunchRecord[]>([]);
   const [session, setSession] = useState<AttendanceSession | null>(null);
@@ -48,13 +45,8 @@ export default function ClockInPanel() {
   const [myFixAt, setMyFixAt] = useState<number | null>(null);
   const [deviceNote, setDeviceNote] = useState('');
 
-  const [alertConfig, setAlertConfig] = useState<AlertConfig>({
-    visible: false,
-    title: '',
-    message: '',
-  });
-  const showAlert = (c: Omit<AlertConfig, 'visible'>) =>
-    setAlertConfig({ ...c, visible: true });
+  const [alertConfig, setAlertConfig] = useState<AlertConfig>({ visible: false, title: '', message: '' });
+  const showAlert = (c: Omit<AlertConfig, 'visible'>) => setAlertConfig({ ...c, visible: true });
 
   const identityName = profile?.displayName || user?.displayName || 'Staff Member';
   const employeeId = profile?.employeeId || '—';
@@ -73,17 +65,11 @@ export default function ClockInPanel() {
       autoCloseOverdueSessions().catch(() => {});
       try {
         const enr = await ensureDeviceEnrollment();
-        setDeviceNote(
-          enr.isFirstEnrollment
-            ? 'Device registered for this account.'
-            : 'This device is authorized.',
-        );
+        setDeviceNote(enr.isFirstEnrollment ? 'Device registered for this account.' : 'This device is authorized.');
       } catch (e: any) {
         setDeviceNote(e?.message || 'Device not authorized.');
       }
       if (ws) {
-        // Phase 1 (§15/§17): capture the REAL fix (never substituted) for the
-        // schematic map; punches re-validate with a fresh fix in the session service.
         try {
           if (Platform.OS !== 'web') {
             const { requestForegroundPermissionsAsync } = await import('expo-location');
@@ -101,32 +87,21 @@ export default function ClockInPanel() {
         }
       }
     } catch (e: any) {
-      showAlert({
-        title: 'Attendance unavailable',
-        message: e?.message || 'Could not load attendance data.',
-        type: 'error',
-      });
+      showAlert({ title: 'Attendance unavailable', message: e?.message || 'Could not load attendance data.', type: 'error' });
     } finally {
       setBooting(false);
     }
   }, []);
 
-  useEffect(() => {
-    bootstrap();
-  }, [bootstrap]);
+  useEffect(() => { bootstrap(); }, [bootstrap]);
 
   useEffect(() => {
     if (!user?.uid) return;
-    return listenTodaysPunches(
-      (all) => setPunches(all.filter((p) => p.staffUid === user.uid)),
-      () => {},
-    );
+    return listenTodaysPunches((all) => setPunches(all.filter((p) => p.staffUid === user.uid)), () => {});
   }, [user?.uid]);
 
   const clockedIn = session?.status === 'clocked_in';
 
-  // Phase 1 (§17): indicative client-side geofence state for the map display.
-  // The session service re-validates with a fresh fix — transaction is authoritative.
   const geofenceResult = useMemo(() => {
     if (!worksite || !myFix || myFixAt == null) return null;
     return evaluateGeofence(
@@ -138,10 +113,7 @@ export default function ClockInPanel() {
 
   const doPunch = async (type: 'in' | 'out') => {
     if (busy) return;
-    if (!user) {
-      showAlert({ title: 'Not signed in', message: 'Sign in to clock in/out.', type: 'error' });
-      return;
-    }
+    if (!user) { showAlert({ title: 'Not signed in', message: 'Sign in to clock in/out.', type: 'error' }); return; }
     setBusy(true);
     try {
       if (type === 'in') {
@@ -168,11 +140,7 @@ export default function ClockInPanel() {
     } catch (e: any) {
       const msg = e?.message || 'Punch failed.';
       if (/device is not authorized|different device|reset/i.test(msg)) {
-        showAlert({
-          title: 'Device not authorized',
-          message: `${msg}\n\nRequest a device reset?`,
-          type: 'warning',
-        });
+        showAlert({ title: 'Device not authorized', message: `${msg}\n\nRequest a device reset?`, type: 'warning' });
         setDeviceNote(msg);
       } else {
         showAlert({ title: type === 'in' ? 'Clock-in blocked' : 'Clock-out blocked', message: msg, type: 'error' });
@@ -186,11 +154,7 @@ export default function ClockInPanel() {
     try {
       await requestDeviceReset('Employee requested reset from clock-in panel');
       setDeviceNote('Device reset requested — waiting for administrator approval.');
-      showAlert({
-        title: 'Reset requested',
-        message: 'Your administrator must approve the reset before a new device can enroll.',
-        type: 'info',
-      });
+      showAlert({ title: 'Reset requested', message: 'Your administrator must approve the reset before a new device can enroll.', type: 'info' });
     } catch (e: any) {
       showAlert({ title: 'Request failed', message: e?.message || 'Could not submit request.', type: 'error' });
     }
@@ -198,154 +162,104 @@ export default function ClockInPanel() {
 
   if (booting) {
     return (
-      <View style={S.wrap}>
-        <ActivityIndicator color={theme.colors.primary} size="large" />
-        <Text style={S.muted}>Preparing attendance…</Text>
+      <View style={{ padding: theme.space.lg, gap: theme.space.md }}>
+        <ListSkeleton rows={2} />
+        <AppText variant="caption" tone="muted" align="center">Preparing attendance…</AppText>
       </View>
     );
   }
 
+  const deviceUnauthorized = /not authorized|reset|different device/i.test(deviceNote);
+
+  // Location status derived from the existing GeofenceResult fields (no new states).
+  const locationStatus = !myFix
+    ? { status: 'pending', label: 'Location unavailable' }
+    : !geofenceResult
+      ? { status: 'pending', label: 'Checking location' }
+      : !geofenceResult.ageOk
+        ? { status: 'stale', label: 'Location stale' }
+        : !geofenceResult.accuracyOk
+          ? { status: 'pending', label: 'GPS inaccurate' }
+          : !geofenceResult.withinRadius
+            ? { status: 'outside_geofence', label: 'Off site' }
+            : geofenceResult.ok
+              ? { status: 'verified', label: 'On site' }
+              : { status: 'pending', label: 'Location unclear' };
+
   return (
-    <View style={S.wrap}>
-      <View style={S.identityCard}>
-        <Ionicons name="person-circle" size={28} color={theme.colors.primary} />
-        <View style={{ flex: 1, marginLeft: 10 }}>
-          <Text style={S.identityLabel}>{`You're clocking in as`}</Text>
-          <Text style={S.identityName}>{identityName}</Text>
-          <Text style={S.identityMeta}>
-            Employee ID {employeeId} • {profile?.employmentType || 'Staff'} • {profile?.department || '—'}
-          </Text>
+    <View style={{ padding: theme.space.lg, gap: theme.space.md }}>
+      <Card>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.md }}>
+          <Ionicons name="person-circle" size={28} color={theme.colors.primary} />
+          <View style={{ flex: 1 }}>
+            <AppText variant="micro" tone="muted" weight="700">{"YOU'RE CLOCKING IN AS"}</AppText>
+            <AppText variant="subtitle">{identityName}</AppText>
+            <AppText variant="caption" tone="secondary">
+              Employee ID {employeeId} • {profile?.employmentType || 'Staff'} • {profile?.department || '—'}
+            </AppText>
+          </View>
         </View>
-      </View>
+      </Card>
 
-      <View style={S.metaCard}>
-        <Text style={S.metaTitle}>{worksite?.name || 'Worksite not configured'}</Text>
-        <Text style={S.metaLine}>
-          {worksite
-            ? `Geofence ${worksite.radiusM}m • ${config?.timezone || 'Africa/Johannesburg'}`
-            : 'Contact your administrator to assign a worksite.'}
-        </Text>
-        <Text style={S.metaLine}>
+      <Card style={{ gap: theme.space.sm }}>
+        <AppText variant="bodyStrong">{worksite?.name || 'Worksite not configured'}</AppText>
+        <AppText variant="caption" tone="secondary">
+          {worksite ? `Geofence ${worksite.radiusM}m • ${config?.timezone || 'Africa/Johannesburg'}` : 'Contact your administrator to assign a worksite.'}
+        </AppText>
+        <AppText variant="caption" tone="secondary">
           Clock window: {config?.clockInBeforeMinutes ?? 15}m before → {config?.clockInAfterMinutes ?? 30}m after shift start
-        </Text>
-        <Text style={S.deviceNote}>{deviceNote}</Text>
-        {deviceNote && /not authorized|reset|different device/i.test(deviceNote) && (
-          <TouchableOpacity style={S.resetBtn} onPress={onRequestReset}>
-            <Text style={S.resetBtnText}>Request device reset</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+        </AppText>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.sm, marginTop: theme.space.xs }}>
+          <StatusPill status={clockedIn ? 'clocked_in' : 'scheduled'} label={clockedIn ? 'Clocked in' : 'Ready'} />
+          <StatusPill status={locationStatus.status} label={locationStatus.label} />
+          <StatusPill status={deviceUnauthorized ? 'pending_reset' : 'active'} label={deviceUnauthorized ? 'Device not authorized' : 'Device verified'} />
+        </View>
+        {deviceUnauthorized ? (
+          <View style={{ marginTop: theme.space.xs }}>
+            <Button label="Request device reset" variant="secondary" onPress={onRequestReset} fullWidth={false} />
+          </View>
+        ) : null}
+      </Card>
 
-      {worksite && (
+      {worksite ? (
         <WorksiteMap
           worksite={{ name: worksite.name, lat: worksite.lat, lng: worksite.lng, radiusM: worksite.radiusM }}
           fix={myFix ? { lat: myFix.lat, lng: myFix.lng, accuracyM: myFix.accuracyM, ageMs: myFixAt != null ? Date.now() - myFixAt : 0 } : null}
           result={geofenceResult}
           fixAgeMs={myFixAt != null ? Date.now() - myFixAt : undefined}
         />
-      )}
+      ) : null}
 
-      <TouchableOpacity
-        style={[S.punchBtn, clockedIn ? S.punchOut : S.punchIn, busy ? S.punchDisabled : null]}
+      <Button
+        label={clockedIn ? 'Clock Out' : 'Clock In'}
+        icon={clockedIn ? 'log-out-outline' : 'log-in-outline'}
+        variant={clockedIn ? 'danger' : 'primary'}
+        size="lg"
+        loading={busy}
         onPress={() => doPunch(clockedIn ? 'out' : 'in')}
-        disabled={busy}
-      >
-        {busy ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <>
-            <Ionicons name={clockedIn ? 'log-out-outline' : 'log-in-outline'} size={22} color="#fff" />
-            <Text style={S.punchBtnText}>{clockedIn ? 'Clock Out' : 'Clock In'}</Text>
-          </>
-        )}
-      </TouchableOpacity>
+      />
 
-      {session?.status === 'clocked_in' && session.clockInAt && (
-        <Text style={S.sessionLine}>
+      {session?.status === 'clocked_in' && session.clockInAt ? (
+        <AppText variant="caption" tone="secondary" align="center">
           Clocked in at {new Date(session.clockInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           {session.clockInDistanceM != null ? ` • ${formatDistance(session.clockInDistanceM)}` : ''}
-        </Text>
-      )}
+        </AppText>
+      ) : null}
 
-      {punches.length > 0 && (
-        <View style={S.history}>
-          <Text style={S.historyTitle}>{`Today's punches`}</Text>
+      {punches.length > 0 ? (
+        <Card style={{ gap: theme.space.xs }}>
+          <AppText variant="micro" tone="muted" weight="700">{"TODAY'S PUNCHES"}</AppText>
           {punches.slice(0, 6).map((p) => (
-            <Text key={p.id} style={S.historyRow}>
-              {p.punchType === 'in' ? 'IN ' : 'OUT'}
-              {'  '}
+            <AppText key={p.id} variant="body" style={{ fontVariant: ['tabular-nums'] }}>
+              {p.punchType === 'in' ? 'IN ' : 'OUT'}{'  '}
               {p.isoTime ? new Date(p.isoTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
               {typeof p.distanceM === 'number' ? `  • ${formatDistance(p.distanceM)}` : ''}
-            </Text>
+            </AppText>
           ))}
-        </View>
-      )}
+        </Card>
+      ) : null}
 
-      <CustomAlertModal
-        config={alertConfig}
-        onClose={() => setAlertConfig((c) => ({ ...c, visible: false }))}
-      />
+      <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((c) => ({ ...c, visible: false }))} />
     </View>
   );
 }
-
-const createStyles = (theme: any) =>
-  StyleSheet.create({
-    wrap: { padding: 16, gap: 12 },
-    muted: { color: theme.colors.textMuted, textAlign: 'center', marginTop: 8 },
-    identityCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: theme.colors.surface,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      padding: 14,
-    },
-    identityLabel: { fontSize: 11, color: theme.colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
-    identityName: { fontSize: 18, fontWeight: '700', color: theme.colors.text, marginTop: 2 },
-    identityMeta: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
-    metaCard: {
-      backgroundColor: theme.colors.surface,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      padding: 14,
-      gap: 4,
-    },
-    metaTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
-    metaLine: { fontSize: 12, color: theme.colors.textMuted },
-    deviceNote: { fontSize: 12, color: theme.colors.textMuted, marginTop: 4 },
-    resetBtn: {
-      marginTop: 8,
-      alignSelf: 'flex-start',
-      backgroundColor: theme.colors.errorLight || '#fee2e2',
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      borderRadius: 8,
-    },
-    resetBtnText: { color: theme.colors.error, fontWeight: '600', fontSize: 13 },
-    punchBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 8,
-      paddingVertical: 16,
-      borderRadius: 14,
-    },
-    punchIn: { backgroundColor: '#15803d' },
-    punchOut: { backgroundColor: '#b91c1c' },
-    punchDisabled: { opacity: 0.6 },
-    punchBtnText: { color: '#fff', fontSize: 17, fontWeight: '700' },
-    sessionLine: { textAlign: 'center', fontSize: 13, color: theme.colors.textMuted },
-    history: {
-      backgroundColor: theme.colors.surface,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      padding: 14,
-      gap: 4,
-    },
-    historyTitle: { fontSize: 12, fontWeight: '700', color: theme.colors.textMuted, textTransform: 'uppercase', marginBottom: 4 },
-    historyRow: { fontSize: 13, color: theme.colors.text, fontVariant: ['tabular-nums'] },
-  });
