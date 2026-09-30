@@ -1,27 +1,20 @@
+// (staff) Clock in / out — the routed staff screen (staff dashboard + the
+// notification deep-link route '/(staff)/clock-in-out').
+// Batch B: rebuilt on the design system; shared ClockInPanel logic unchanged.
 import React from 'react';
-import { View, Text, StyleSheet, useColorScheme } from 'react-native';
 import ClockInPanel from '@/components/clock-in-panel';
-import { getTheme } from '@/constants/theme';
+import { Screen, PageHeader } from '@/components/ui/screen';
 
 export default function StaffClockInOutScreen() {
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const styles = createStyles(theme);
-
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Clock In / Out</Text>
-        <Text style={styles.subtitle}>GPS-verified shifts • identity = signed-in account</Text>
-      </View>
+    <Screen scroll>
+      <PageHeader
+        title="Clock in / out"
+        subtitle="GPS-verified shifts • identity = signed-in account"
+        showBack
+        fallback="/(staff)/staff-dashboard"
+      />
       <ClockInPanel />
-    </View>
+    </Screen>
   );
 }
-
-const createStyles = (theme: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
-  header: { paddingTop: 60, paddingHorizontal: 20, paddingBottom: 0 },
-  title: { fontSize: 28, fontWeight: 'bold', color: theme.colors.text },
-  subtitle: { fontSize: 13, color: theme.colors.textMuted, marginTop: 4 },
-});

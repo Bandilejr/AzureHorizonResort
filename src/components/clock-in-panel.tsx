@@ -1,7 +1,9 @@
-// Clock-in panel. Layer 11: token-based presentation only — every attendance /
+// Clock-in panel. Batch B: token-based presentation only — every attendance /
 // geofence / device / clock-window call and state derivation is unchanged.
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Platform } from 'react-native';
+// Adds: live elapsed timer (30s tick + foreground recompute, no writes),
+// inline blocked card with a next step, and a clocked-out hours summary.
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Platform, AppState, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/design/use-app-theme';
@@ -30,6 +32,63 @@ import { Button } from '@/components/ui/button';
 import { StatusPill } from '@/components/ui/status-pill';
 import { ListSkeleton } from '@/components/ui/states';
 
+type BlockKind = 'offsite' | 'stale' | 'inaccurate' | 'unavailable' | 'denied' | 'device' | 'window' | 'other';
+interface Block { kind: BlockKind; message: string }
+
+const BLOCK_TITLE: Record<BlockKind, string> = {
+  offsite: 'You are off site',
+  stale: 'Location is stale',
+  inaccurate: 'GPS is inaccurate',
+  unavailable: 'Location unavailable',
+  denied: 'Location permission needed',
+  device: 'Device not authorized',
+  window: 'Outside the clock window',
+  other: 'Clock-in blocked',
+};
+
+function nextStepFor(kind: BlockKind, config: AttendanceConfig | null): string {
+  switch (kind) {
+    case 'offsite': return 'Move within the worksite area and try again.';
+    case 'stale': return 'Wait a moment and refresh your location.';
+    case 'inaccurate': return 'Move to open sky, then try again.';
+    case 'unavailable': return 'Enable GPS and try again.';
+    case 'denied': return 'Open Settings to allow location, then try again.';
+    case 'device': return 'Request a device reset from your administrator.';
+    case 'window': return `You can clock in ${config?.clockInBeforeMinutes ?? 15} min before and up to ${config?.clockInAfterMinutes ?? 30} min after your shift starts.`;
+    default: return 'Try again, or contact your administrator.';
+  }
+}
+
+function classifyBlock(msg: string): BlockKind {
+  const m = (msg || '').toLowerCase();
+  if (/device|different device|reset|authorized/.test(m)) return 'device';
+  if (/too old|stale/.test(m)) return 'stale';
+  if (/accuracy|too low|reliable enough/.test(m)) return 'inaccurate';
+  if (/off-?site|on site|worksite|off site/.test(m)) return 'offsite';
+  if (/clock in up to|before your shift|shift starts|window/.test(m)) return 'window';
+  if (/permission|denied/.test(m)) return 'denied';
+  if (/location unavailable|enable gps|no real fix/.test(m)) return 'unavailable';
+  return 'other';
+}
+
+function formatElapsed(ms: number): string {
+  const totalMin = Math.floor(Math.max(0, ms) / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+}
+
+function hoursBetween(a?: string, b?: string): number | null {
+  if (!a || !b) return null;
+  const ms = new Date(b).getTime() - new Date(a).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  return ms / 3600000;
+}
+
+function timeOf(iso?: string): string {
+  return iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+}
+
 export default function ClockInPanel() {
   const { user, profile } = useAuth();
   const theme = useAppTheme();
@@ -44,12 +103,38 @@ export default function ClockInPanel() {
   const [myFix, setMyFix] = useState<PositionFix | null>(null);
   const [myFixAt, setMyFixAt] = useState<number | null>(null);
   const [deviceNote, setDeviceNote] = useState('');
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [blocked, setBlocked] = useState<Block | null>(null);
+  const locationRequestedRef = useRef(false);
 
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({ visible: false, title: '', message: '' });
   const showAlert = (c: Omit<AlertConfig, 'visible'>) => setAlertConfig({ ...c, visible: true });
 
   const identityName = profile?.displayName || user?.displayName || 'Staff Member';
   const employeeId = profile?.employeeId || '—';
+
+  const loadLocation = useCallback(async (ws: Worksite) => {
+    try {
+      // Ask for permission at most once per session; later refreshes rely on the
+      // already-granted permission (or surface the denied state).
+      if (Platform.OS !== 'web' && !locationRequestedRef.current) {
+        const { requestForegroundPermissionsAsync } = await import('expo-location');
+        const { status } = await requestForegroundPermissionsAsync();
+        locationRequestedRef.current = true;
+        if (status !== 'granted') throw new Error('Location permission not granted.');
+      }
+      const pos = await getCurrentPosition();
+      setMyFix(pos);
+      setMyFixAt(Date.now());
+      setMyDistance(haversineMeters(pos.lat, pos.lng, ws.lat, ws.lng));
+    } catch (e: any) {
+      setMyFix(null);
+      setMyFixAt(null);
+      setMyDistance(null);
+      const m = String(e?.message || '');
+      if (/permission|denied|not granted/i.test(m)) setBlocked({ kind: 'denied', message: 'Location permission is off.' });
+    }
+  }, []);
 
   const bootstrap = useCallback(async () => {
     setBooting(true);
@@ -69,29 +154,13 @@ export default function ClockInPanel() {
       } catch (e: any) {
         setDeviceNote(e?.message || 'Device not authorized.');
       }
-      if (ws) {
-        try {
-          if (Platform.OS !== 'web') {
-            const { requestForegroundPermissionsAsync } = await import('expo-location');
-            const { status } = await requestForegroundPermissionsAsync();
-            if (status !== 'granted') throw new Error('Location permission not granted.');
-          }
-          const pos = await getCurrentPosition();
-          setMyFix(pos);
-          setMyFixAt(Date.now());
-          setMyDistance(haversineMeters(pos.lat, pos.lng, ws.lat, ws.lng));
-        } catch {
-          setMyFix(null);
-          setMyFixAt(null);
-          setMyDistance(null);
-        }
-      }
+      if (ws) await loadLocation(ws);
     } catch (e: any) {
       showAlert({ title: 'Attendance unavailable', message: e?.message || 'Could not load attendance data.', type: 'error' });
     } finally {
       setBooting(false);
     }
-  }, []);
+  }, [loadLocation]);
 
   useEffect(() => { bootstrap(); }, [bootstrap]);
 
@@ -101,6 +170,20 @@ export default function ClockInPanel() {
   }, [user?.uid]);
 
   const clockedIn = session?.status === 'clocked_in';
+  const clockedOut = session?.status === 'clocked_out' || session?.status === 'auto_closed';
+
+  // Live elapsed timer: tick at most every 30s while clocked in; recompute when
+  // the app returns to the foreground; cleared on unmount. No writes.
+  useEffect(() => {
+    if (!clockedIn) return;
+    const tick = () => setNowMs(Date.now());
+    tick();
+    const id = setInterval(tick, 30_000);
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') tick(); });
+    return () => { clearInterval(id); sub.remove(); };
+  }, [clockedIn]);
+
+  const elapsedMs = clockedIn && session?.clockInAt ? nowMs - new Date(session.clockInAt).getTime() : 0;
 
   const geofenceResult = useMemo(() => {
     if (!worksite || !myFix || myFixAt == null) return null;
@@ -110,64 +193,6 @@ export default function ClockInPanel() {
       config || DEFAULT_ATTENDANCE_CONFIG,
     );
   }, [worksite, myFix, myFixAt, config]);
-
-  const doPunch = async (type: 'in' | 'out') => {
-    if (busy) return;
-    if (!user) { showAlert({ title: 'Not signed in', message: 'Sign in to clock in/out.', type: 'error' }); return; }
-    setBusy(true);
-    try {
-      if (type === 'in') {
-        const res = await clockIn();
-        setSession(res.session);
-        setMyDistance(res.distanceM);
-        showAlert({
-          title: 'Clocked In',
-          message: `You're clocking in as ${identityName} (${employeeId}).\nDistance: ${formatDistance(res.distanceM)} from ${worksite?.name || 'worksite'}.`,
-          type: 'success',
-        });
-      } else {
-        const res = await clockOut();
-        setSession(res.session);
-        setMyDistance(res.distanceM);
-        showAlert({
-          title: 'Clocked Out',
-          message: `Clocked out at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.\nDistance: ${formatDistance(res.distanceM)}.`,
-          type: 'success',
-        });
-      }
-      const sess = await getTodaysSession().catch(() => null);
-      setSession(sess);
-    } catch (e: any) {
-      const msg = e?.message || 'Punch failed.';
-      if (/device is not authorized|different device|reset/i.test(msg)) {
-        showAlert({ title: 'Device not authorized', message: `${msg}\n\nRequest a device reset?`, type: 'warning' });
-        setDeviceNote(msg);
-      } else {
-        showAlert({ title: type === 'in' ? 'Clock-in blocked' : 'Clock-out blocked', message: msg, type: 'error' });
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onRequestReset = async () => {
-    try {
-      await requestDeviceReset('Employee requested reset from clock-in panel');
-      setDeviceNote('Device reset requested — waiting for administrator approval.');
-      showAlert({ title: 'Reset requested', message: 'Your administrator must approve the reset before a new device can enroll.', type: 'info' });
-    } catch (e: any) {
-      showAlert({ title: 'Request failed', message: e?.message || 'Could not submit request.', type: 'error' });
-    }
-  };
-
-  if (booting) {
-    return (
-      <View style={{ padding: theme.space.lg, gap: theme.space.md }}>
-        <ListSkeleton rows={2} />
-        <AppText variant="caption" tone="muted" align="center">Preparing attendance…</AppText>
-      </View>
-    );
-  }
 
   const deviceUnauthorized = /not authorized|reset|different device/i.test(deviceNote);
 
@@ -185,6 +210,102 @@ export default function ClockInPanel() {
             : geofenceResult.ok
               ? { status: 'verified', label: 'On site' }
               : { status: 'pending', label: 'Location unclear' };
+
+  // Proactive blocker (before any punch attempt): device, off-site, stale, inaccurate.
+  const proactive: Block | null = !clockedIn
+    ? deviceUnauthorized
+      ? { kind: 'device', message: deviceNote || 'This device is not authorized for your account.' }
+      : geofenceResult && !geofenceResult.ageOk
+        ? { kind: 'stale', message: geofenceResult.blockedReason || 'Location fix is too old.' }
+        : geofenceResult && !geofenceResult.accuracyOk
+          ? { kind: 'inaccurate', message: geofenceResult.blockedReason || 'GPS accuracy is too low.' }
+          : geofenceResult && !geofenceResult.withinRadius
+            ? { kind: 'offsite', message: geofenceResult.blockedReason || 'You are off site.' }
+            : null
+    : null;
+
+  const activeBlock = clockedIn ? null : (blocked ?? proactive);
+
+  const refreshLocation = useCallback(async () => {
+    if (!worksite) return;
+    setBlocked(null);
+    await loadLocation(worksite);
+  }, [worksite, loadLocation]);
+
+  const doPunch = async (type: 'in' | 'out') => {
+    if (busy) return;
+    if (!user) { showAlert({ title: 'Not signed in', message: 'Sign in to clock in/out.', type: 'error' }); return; }
+    setBusy(true);
+    setBlocked(null);
+    try {
+      if (type === 'in') {
+        const res = await clockIn();
+        setSession(res.session);
+        setMyDistance(res.distanceM);
+        showAlert({
+          title: 'Clocked In',
+          message: `You're clocking in as ${identityName} (${employeeId}).\nDistance: ${formatDistance(res.distanceM)} from ${worksite?.name || 'worksite'}.`,
+          type: 'success',
+        });
+      } else {
+        const res = await clockOut();
+        setSession(res.session);
+        setMyDistance(res.distanceM);
+        showAlert({
+          title: 'Clocked Out',
+          message: `Clocked out at ${timeOf(new Date().toISOString())}.\nDistance: ${formatDistance(res.distanceM)}.`,
+          type: 'success',
+        });
+      }
+      const sess = await getTodaysSession().catch(() => null);
+      setSession(sess);
+    } catch (e: any) {
+      const msg = e?.message || 'Punch failed.';
+      const kind = classifyBlock(msg);
+      setBlocked({ kind, message: msg });
+      if (kind === 'device') setDeviceNote(msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onRequestReset = async () => {
+    try {
+      await requestDeviceReset('Employee requested reset from clock-in panel');
+      setDeviceNote('Device reset requested — waiting for administrator approval.');
+      setBlocked({ kind: 'device', message: 'Reset requested — waiting for administrator approval.' });
+    } catch (e: any) {
+      showAlert({ title: 'Request failed', message: e?.message || 'Could not submit request.', type: 'error' });
+    }
+  };
+
+  if (booting) {
+    return (
+      <View style={{ padding: theme.space.lg, gap: theme.space.md }}>
+        <ListSkeleton rows={2} />
+        <AppText variant="caption" tone="muted" align="center">Preparing attendance…</AppText>
+      </View>
+    );
+  }
+
+  const workedHours = hoursBetween(session?.clockInAt, session?.clockOutAt);
+
+  const blockAction = (() => {
+    if (!activeBlock) return null;
+    if (activeBlock.kind === 'device') return <Button label="Request device reset" variant="secondary" onPress={onRequestReset} fullWidth={false} />;
+    if (activeBlock.kind === 'denied') {
+      return (
+        <View style={{ flexDirection: 'row', gap: theme.space.sm, flexWrap: 'wrap' }}>
+          <Button label="Open Settings" icon="settings-outline" variant="secondary" onPress={() => Linking.openSettings()} fullWidth={false} />
+          <Button label="Try again" variant="secondary" onPress={refreshLocation} fullWidth={false} />
+        </View>
+      );
+    }
+    if (activeBlock.kind === 'offsite' || activeBlock.kind === 'stale' || activeBlock.kind === 'inaccurate' || activeBlock.kind === 'unavailable') {
+      return <Button label="Refresh location" icon="refresh-outline" variant="secondary" onPress={refreshLocation} fullWidth={false} />;
+    }
+    return null;
+  })();
 
   return (
     <View style={{ padding: theme.space.lg, gap: theme.space.md }}>
@@ -214,12 +335,19 @@ export default function ClockInPanel() {
           <StatusPill status={locationStatus.status} label={locationStatus.label} />
           <StatusPill status={deviceUnauthorized ? 'pending_reset' : 'active'} label={deviceUnauthorized ? 'Device not authorized' : 'Device verified'} />
         </View>
-        {deviceUnauthorized ? (
-          <View style={{ marginTop: theme.space.xs }}>
-            <Button label="Request device reset" variant="secondary" onPress={onRequestReset} fullWidth={false} />
-          </View>
-        ) : null}
       </Card>
+
+      {activeBlock ? (
+        <Card style={{ backgroundColor: theme.colors.warningSoft, borderColor: theme.colors.warningSoft, gap: theme.space.sm }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.sm }}>
+            <Ionicons name="alert-circle-outline" size={theme.iconSize.md} color={theme.colors.warningStrong} />
+            <AppText variant="bodyStrong" color={theme.colors.warningStrong} style={{ flex: 1 }}>{BLOCK_TITLE[activeBlock.kind]}</AppText>
+          </View>
+          <AppText variant="caption" color={theme.colors.warningStrong}>{activeBlock.message}</AppText>
+          <AppText variant="caption" color={theme.colors.warningStrong} weight="600">{nextStepFor(activeBlock.kind, config)}</AppText>
+          {blockAction ? <View style={{ marginTop: theme.space.xs }}>{blockAction}</View> : null}
+        </Card>
+      ) : null}
 
       {worksite ? (
         <WorksiteMap
@@ -239,11 +367,36 @@ export default function ClockInPanel() {
         onPress={() => doPunch(clockedIn ? 'out' : 'in')}
       />
 
-      {session?.status === 'clocked_in' && session.clockInAt ? (
-        <AppText variant="caption" tone="secondary" align="center">
-          Clocked in at {new Date(session.clockInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          {session.clockInDistanceM != null ? ` • ${formatDistance(session.clockInDistanceM)}` : ''}
-        </AppText>
+      {clockedIn && session?.clockInAt ? (
+        <Card style={{ alignItems: 'center', gap: theme.space.xs }}>
+          <AppText variant="micro" tone="muted" weight="700">ELAPSED TODAY</AppText>
+          <AppText variant="metric" style={{ fontVariant: ['tabular-nums'] }}>{formatElapsed(elapsedMs)}</AppText>
+          <AppText variant="caption" tone="secondary">
+            Clocked in at {timeOf(session.clockInAt)}
+            {session.clockInDistanceM != null ? ` • ${formatDistance(session.clockInDistanceM)}` : ''}
+          </AppText>
+        </Card>
+      ) : null}
+
+      {clockedOut ? (
+        <Card style={{ gap: theme.space.xs }}>
+          <AppText variant="micro" tone="muted" weight="700">{"TODAY'S SHIFT"}</AppText>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <AppText variant="caption" tone="secondary">Clocked in</AppText>
+            <AppText variant="bodyStrong">{timeOf(session?.clockInAt)}</AppText>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <AppText variant="caption" tone="secondary">Clocked out</AppText>
+            <AppText variant="bodyStrong">{timeOf(session?.clockOutAt || session?.autoClosedAt)}</AppText>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <AppText variant="caption" tone="secondary">Hours worked</AppText>
+            <AppText variant="bodyStrong">{workedHours != null ? `${workedHours.toFixed(2)} h` : '—'}</AppText>
+          </View>
+          {session?.status === 'auto_closed' ? (
+            <AppText variant="caption" color={theme.colors.warningStrong}>Auto-closed — missing clock-out. A manager will review.</AppText>
+          ) : null}
+        </Card>
       ) : null}
 
       {punches.length > 0 ? (
