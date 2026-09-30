@@ -23,7 +23,7 @@ export interface EmailJSNotificationParams {
 }
 
 const EMAILJS_PUBLIC_KEY = 'e9wHktkV2OU_QMaYq';
-const EMAILJS_PRIVATE_KEY = 'MbOqjaY8NL-yqLuQFhBmX';
+const EMAILJS_PRIVATE_KEY = process.env.EXPO_PUBLIC_EMAILJS_PRIVATE_KEY || '';
 const EMAILJS_SERVICE_ID = 'service_jdrtevg';
 export const DEFAULT_TEMPLATE_ID = 'template_yjx0xlw';
 

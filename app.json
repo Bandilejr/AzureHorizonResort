@@ -12,7 +12,9 @@
       "infoPlist": {
         "NFCReaderUsageDescription": "This app uses NFC to read room keys and event tickets",
         "NSFaceIDUsageDescription": "This app uses Face ID for secure room access",
-        "NSCameraUsageDescription": "This app uses camera for QR code scanning"
+        "NSCameraUsageDescription": "This app uses camera for QR code scanning and food-safety photos",
+        "NSLocationWhenInUseUsageDescription": "Azure Hotel uses your location to verify attendance at your assigned worksite.",
+        "NSPhotoLibraryUsageDescription": "Azure Hotel accesses your photos to attach food-safety evidence and leave documents."
       }
     },
     "android": {
@@ -25,24 +27,12 @@
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "pan",
       "permissions": [
-        "NFC",
         "CAMERA",
+        "NFC",
         "USE_BIOMETRIC",
         "USE_FINGERPRINT",
-        "android.permission.USE_BIOMETRIC",
-        "android.permission.USE_FINGERPRINT",
-        "android.permission.NFC",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "NFC",
-        "CAMERA",
-        "USE_BIOMETRIC",
-        "USE_FINGERPRINT",
-        "android.permission.USE_BIOMETRIC",
-        "android.permission.USE_FINGERPRINT",
-        "android.permission.NFC",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
       ],
       "package": "com.justskii.Azure",
       "runtimeVersion": {
@@ -76,9 +66,21 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera.",
-          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone.",
-          "recordAudioAndroid": true
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera for QR scanning and food-safety photos.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to verify attendance at your worksite."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to attach food-safety evidence and leave documents.",
+          "cameraPermission": "Allow $(PRODUCT_NAME) to take photos for food-safety evidence."
         }
       ],
       "expo-secure-store",

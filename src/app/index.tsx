@@ -12,16 +12,28 @@ import { Alert } from 'react-native';
 const HERO_IMAGE = require('../../assets/images/resort-exterior.jpg');
 
 // One-tap demos — one chip per SRS Increment-2 actor (no duplicate roles).
-const DEMO_ACCOUNTS = [
-  { label: 'Admin', icon: 'shield-checkmark-outline' as const, email: 'staff@azure.com', password: 'Staff.1234' },
-  { label: 'Kitchen Mgr', icon: 'people-outline' as const, email: 'kim.kitchen@azurehorizon.demo', password: 'Kitchen.1234' },
-  { label: 'Kitchen Staff', icon: 'restaurant-outline' as const, email: 's.khoza@azurehorizon.com', password: 'Kitchen.1234' },
-  { label: 'Staff A', icon: 'person-outline' as const, email: 'staffa@azurehorizon.demo', password: 'Staff.1234' },
-  { label: 'Staff B', icon: 'person-outline' as const, email: 'staffb@azurehorizon.demo', password: 'Staff.1234' },
-  { label: 'Courier', icon: 'basket-outline' as const, email: 'sam.staff@azurehorizon.demo', password: 'Staff.1234' },
-  { label: 'Hotel Staff', icon: 'person-outline' as const, email: 'joe.staff@azurehorizon.demo', password: 'Staff.1234' },
-  { label: 'NPO Rep', icon: 'heart-outline' as const, email: 'npo1@azurehorizon.demo', password: 'password123' },
-];
+type DemoAccount = { label: string; icon: React.ComponentProps<typeof Ionicons>['name']; email: string; password: string };
+const DEMO_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
+  Admin: 'shield-checkmark-outline', 'Kitchen Mgr': 'people-outline', 'Kitchen Staff': 'restaurant-outline',
+  'Staff A': 'person-outline', 'Staff B': 'person-outline', Courier: 'basket-outline',
+  'Hotel Staff': 'person-outline', 'NPO Rep': 'heart-outline',
+};
+// Demo credentials are NOT in source. Provide EXPO_PUBLIC_DEMO_ACCOUNTS (JSON)
+// in the gitignored .env to show one-tap chips; otherwise they are hidden.
+const DEMO_ACCOUNTS: DemoAccount[] = (() => {
+  try {
+    const raw = process.env.EXPO_PUBLIC_DEMO_ACCOUNTS;
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((a: any) => ({
+      label: String(a.label || ''),
+      icon: (DEMO_ICONS[a.label] || 'person-outline') as React.ComponentProps<typeof Ionicons>['name'],
+      email: String(a.email || ''),
+      password: String(a.password || ''),
+    }));
+  } catch { return []; }
+})();
 
 export default function WelcomePage() {
   const colorScheme = useColorScheme();
@@ -110,6 +122,7 @@ export default function WelcomePage() {
           </TouchableOpacity>
         </View>
 
+        {DEMO_ACCOUNTS.length > 0 ? (
         <View style={styles.quickAccess}>
           <Text style={styles.quickAccessLabel}>One-tap demo logins</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickChips}>
@@ -130,6 +143,7 @@ export default function WelcomePage() {
             ))}
           </ScrollView>
         </View>
+        ) : null}
       </SafeAreaView>
     </View>
   );
