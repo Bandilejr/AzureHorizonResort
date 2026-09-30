@@ -3,7 +3,7 @@
 // advisory only and never blocks manual entry. logDonationFromMobile payload
 // unchanged (preparedAt/expiryAt ISO, safetyChecklist, photoUri).
 import React, { useState, useEffect, useRef } from 'react';
-import { View, TouchableOpacity, Switch, Image } from 'react-native';
+import { View, TouchableOpacity, Pressable, Switch, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -49,7 +49,9 @@ export default function DonationLogScreen() {
   const [weight, setWeight] = useState('5');
   const [allergens, setAllergens] = useState('');
   const [preparedAt, setPreparedAt] = useState(() => isoLocal(new Date()));
-  const [expiryAt, setExpiryAt] = useState(() => isoLocal(new Date(Date.now() + 24 * 3600000)));
+  // Use-by starts EMPTY — staff must set it (a printed label date, a quick
+  // chip, or the picker). No now+24h default is ever pre-filled.
+  const [expiryAt, setExpiryAt] = useState('');
   const [checks, setChecks] = useState<SafetyChecklist>({
     coreTemperatureVerified: false, packagingIntegrityVerified: false,
     allergenLabelsVerified: false, safePreparationWindowVerified: false,
@@ -59,6 +61,9 @@ export default function DonationLogScreen() {
   const [gemini, setGemini] = useState<GeminiFoodResult | null>(null);
   const [geminiBusy, setGeminiBusy] = useState(false);
   const [geminiError, setGeminiError] = useState('');
+  // Advisory AI use-by estimate (computed when the result arrives, never during
+  // render). Shown as a hint only — never pre-filled into the form.
+  const [aiEstimateAt, setAiEstimateAt] = useState<string | null>(null);
   // Fields the user has edited (AI must never overwrite these) and the fields
   // the current AI suggestion actually filled (for the "AI suggestion" tag).
   const [touched, setTouched] = useState<Set<string>>(new Set());
@@ -101,6 +106,9 @@ export default function DonationLogScreen() {
 
   const applyGeminiResult = (res: GeminiFoodResult) => {
     setGemini(res);
+    setAiEstimateAt(res.expiryHoursFromNow != null && res.expiryHoursFromNow > 0
+      ? isoLocal(new Date(Date.now() + res.expiryHoursFromNow * 3600000))
+      : null);
     const suggestion = geminiToDonationForm(res);
     const current = { itemName, mealCategory, portions, weight, allergens, expiryAt };
     const { next, applied } = mergeSuggestionIntoForm(current, suggestion, touched);
@@ -153,6 +161,7 @@ export default function DonationLogScreen() {
       setPhotoUri(asset.uri);
       setPhotoBase64(asset.base64 || null);
       setGemini(null);
+      setAiEstimateAt(null);
       setAiFields(new Set());
       setGeminiError(isGeminiConfigured() ? '' : GEMINI_UNAVAILABLE_MESSAGE);
       if (isGeminiConfigured()) await runGeminiAnalysis(asset.uri, asset.base64 || null);
@@ -161,6 +170,7 @@ export default function DonationLogScreen() {
 
   const submit = async () => {
     if (!itemName.trim()) { showAlert({ title: 'Incomplete', message: 'Food item name is required.', type: 'error' }); return; }
+    if (!expiryAt) { showAlert({ title: 'Incomplete', message: 'Set a use-by time for the batch.', type: 'error' }); return; }
     const missing = CHECKS.filter((c) => !checks[c.key]);
     if (missing.length > 0) { showAlert({ title: 'Safety checks incomplete', message: `All four food-safety checks must be verified. Missing: ${missing.map((m) => m.label).join('; ')}.`, type: 'error' }); return; }
     if (!photoUri) { showAlert({ title: 'Photo required', message: 'Food-safety photo evidence is required.', type: 'error' }); return; }
@@ -175,7 +185,8 @@ export default function DonationLogScreen() {
       });
       showAlert({ title: 'Donation logged', message: `Batch ${batchId} is now Safety Verified — Unassigned. The kitchen allocation board updates automatically.`, type: 'success' });
       setItemName(''); setAllergens(''); setPortions('10'); setWeight('5'); setPhotoUri(null); setPhotoBase64(null);
-      setGemini(null); setGeminiError('');
+      setGemini(null); setAiEstimateAt(null); setGeminiError('');
+      setExpiryAt('');
       setChecks({ coreTemperatureVerified: false, packagingIntegrityVerified: false, allergenLabelsVerified: false, safePreparationWindowVerified: false });
       setConfirming(false);
     } catch (e: any) {
@@ -185,6 +196,7 @@ export default function DonationLogScreen() {
 
   const validateForm = (): string => {
     if (!itemName.trim()) return 'Food item name is required.';
+    if (!expiryAt) return 'Set a use-by time for the batch.';
     const missing = CHECKS.filter((c) => !checks[c.key]);
     if (missing.length > 0) return `All four food-safety checks must be verified. Missing: ${missing.map((m) => m.label).join('; ')}.`;
     if (!photoUri) return 'Food-safety photo evidence is required.';
@@ -207,6 +219,8 @@ export default function DonationLogScreen() {
   }
 
   const lowConfidence = gemini != null && (gemini.confidence == null || gemini.confidence < 0.6);
+  // Advisory AI estimate only — shown as a hint, never pre-filled into the form.
+  const aiEstimate = aiEstimateAt ? new Date(aiEstimateAt) : null;
 
   return (
     <Screen scroll>
@@ -225,7 +239,7 @@ export default function DonationLogScreen() {
             </View>
           )}
           {photoUri ? (
-            <View style={{ position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(16,24,40,0.6)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: theme.radius.pill }}>
+            <View style={{ position: 'absolute', bottom: 8, right: 8, backgroundColor: theme.colors.overlay, paddingHorizontal: 8, paddingVertical: 4, borderRadius: theme.radius.pill }}>
               <AppText variant="micro" color={theme.colors.textInverse} weight="600">Tap to retake</AppText>
             </View>
           ) : null}
@@ -287,7 +301,7 @@ export default function DonationLogScreen() {
               <AppText variant="bodyStrong">{gemini.estimatedWeightKg ?? '—'} kg</AppText>
             </Surface>
           </View>
-          <AppText variant="caption" tone="secondary">Allergens: {(gemini.allergens || []).join(', ') || 'none'}</AppText>
+          <AppText variant="caption" tone="secondary">Possible allergens (AI), verify: {(gemini.allergens || []).join(', ') || 'None listed by AI, verify manually'}</AppText>
           {lowConfidence ? (
             <AppText variant="caption" color={theme.colors.warningStrong}>⚠ {gemini.confidence == null ? 'AI did not report confidence' : 'Low confidence'} — verify category, portions, allergens & use-by</AppText>
           ) : null}
@@ -338,6 +352,22 @@ export default function DonationLogScreen() {
           </Card>
         </TouchableOpacity>
       </View>
+
+      {/* Use-by quick set — staff must tap a chip or pick a time. */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.sm, marginBottom: theme.space.xs }}>
+        {([['+4h', 4], ['+12h', 12], ['+24h', 24]] as const).map(([label, h]) => (
+          <Chip key={label} label={label} onPress={() => { markTouched('expiryAt'); setExpiryAt(isoLocal(new Date(Date.now() + h * 3600000))); }} />
+        ))}
+        <Chip label="Custom" icon="calendar-outline" onPress={() => setShowExpiryPicker(true)} />
+      </View>
+      {!expiryAt && aiEstimate ? (
+        <AppText variant="caption" color={theme.colors.warningStrong} style={{ marginBottom: theme.space.sm }}>
+          Estimated, verify: {aiEstimate.toLocaleString('en-ZA', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} — set the real use-by above.
+        </AppText>
+      ) : null}
+      {!expiryAt ? (
+        <AppText variant="caption" tone="error" style={{ marginBottom: theme.space.sm }}>Use-by is required.</AppText>
+      ) : null}
       {showPreparedPicker ? <DateTimePicker value={preparedAt ? new Date(preparedAt) : new Date()} mode="datetime" display="default" onChange={(_, d) => { setShowPreparedPicker(false); if (d) setPreparedAt(isoLocal(d)); }} /> : null}
       {showExpiryPicker ? <DateTimePicker value={expiryAt ? new Date(expiryAt) : new Date(Date.now() + 24 * 3600000)} mode="datetime" display="default" onChange={(_, d) => { setShowExpiryPicker(false); if (d) { markTouched('expiryAt'); setExpiryAt(isoLocal(d)); } }} /> : null}
 
@@ -385,7 +415,7 @@ export default function DonationLogScreen() {
             <KV label="Category" value={inspected.mealCategory} />
             <KV label="Portions" value={String(inspected.portionCount)} />
             <KV label="Weight" value={`${inspected.estimatedWeightKg} kg`} />
-            <KV label="Allergens" value={(inspected.allergens || []).join(', ') || 'none'} />
+            <KV label="Allergens" value={(inspected.allergens || []).join(', ') || 'None recorded'} />
             <KV label="Prepared" value={inspected.preparedAt ? new Date(inspected.preparedAt).toLocaleString() : '—'} />
             <KV label="Use by" value={inspected.expiryAt ? new Date(inspected.expiryAt).toLocaleString() : '—'} />
             <SectionTitle>SAFETY</SectionTitle>
@@ -414,7 +444,7 @@ export default function DonationLogScreen() {
           rows={[
             ['Item', `${itemName || '—'} (${mealCategory})`],
             ['Quantity', `${portions} portions · ${weight}kg`],
-            ['Allergens', allergens.split(',').map((s) => s.trim()).filter(Boolean).join(', ') || 'none'],
+            ['Allergens', allergens.split(',').map((s) => s.trim()).filter(Boolean).join(', ') || 'None recorded'],
             ['Prepared', preparedAt ? new Date(preparedAt).toLocaleString() : '—'],
             ['Use by', expiryAt ? new Date(expiryAt).toLocaleString() : '—'],
             ['Photo evidence', photoUri ? 'attached' : 'missing'],
@@ -433,4 +463,20 @@ export default function DonationLogScreen() {
 // Small tag shown next to fields that were pre-filled by the AI (advisory only).
 function AiTag() {
   return <AppText variant="micro" tone="primary" weight="600">AI suggestion</AppText>;
+}
+
+// Compact quick-set chip (design tokens only; no hardcoded colors).
+function Chip({ label, onPress, icon }: { label: string; onPress: () => void; icon?: React.ComponentProps<typeof Ionicons>['name'] }) {
+  const theme = useAppTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: theme.space.md, paddingVertical: theme.space.sm, borderRadius: theme.radius.pill, borderWidth: 1, borderColor: theme.colors.primaryBorder, backgroundColor: theme.colors.primarySoft, opacity: pressed ? 0.7 : 1 }]}
+    >
+      {icon ? <Ionicons name={icon} size={theme.iconSize.xs} color={theme.colors.primary} /> : null}
+      <AppText variant="label" tone="primary" weight="600">{label}</AppText>
+    </Pressable>
+  );
 }

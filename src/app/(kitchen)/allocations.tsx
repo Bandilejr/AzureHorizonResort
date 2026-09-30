@@ -88,7 +88,7 @@ export default function KitchenAllocationsScreen() {
             <View key={b.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
               <ListRow
                 title={`${b.batchId} — ${b.itemName}`}
-                subtitle={`${b.portionCount} portions · ${b.estimatedWeightKg}kg · allergens: ${b.allergens.join(', ') || 'none'}`}
+                subtitle={`${b.portionCount} portions · ${b.estimatedWeightKg}kg · allergens: ${b.allergens.join(', ') || 'None recorded'}`}
                 status={<StatusPill status={b.status} size="sm" />}
                 onPress={() => openBatch(b)}
               />
@@ -105,7 +105,7 @@ export default function KitchenAllocationsScreen() {
             <KV label="Category" value={selected.mealCategory} />
             <KV label="Portions" value={String(selected.portionCount)} />
             <KV label="Weight" value={`${selected.estimatedWeightKg} kg`} />
-            <KV label="Allergens" value={(selected.allergens || []).join(', ') || 'none'} />
+            <KV label="Allergens" value={(selected.allergens || []).join(', ') || 'None recorded'} />
             <KV label="Prepared" value={selected.preparedAt ? new Date(selected.preparedAt).toLocaleString() : '—'} />
             <KV label="Use by" value={selected.expiryAt ? new Date(selected.expiryAt).toLocaleString() : '—'} />
             <SectionTitle>SAFETY CHECKS</SectionTitle>

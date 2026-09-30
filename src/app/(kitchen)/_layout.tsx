@@ -36,6 +36,7 @@ function KitchenTabs() {
       <Tabs.Screen name="order-queue" options={{ href: null }} />
       <Tabs.Screen name="leave-manage" options={{ href: null }} />
       <Tabs.Screen name="sync-queue" options={{ href: null }} />
+      <Tabs.Screen name="collection/[id]" options={{ href: null }} />
     </Tabs>
   );
 }

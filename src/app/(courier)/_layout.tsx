@@ -22,6 +22,7 @@ function CourierTabs() {
       <Tabs.Screen name="sync" options={{ title: 'Sync' }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
       <Tabs.Screen name="notifications" options={{ href: null }} />
+      <Tabs.Screen name="collection/[id]" options={{ href: null }} />
     </Tabs>
   );
 }

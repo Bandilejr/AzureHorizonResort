@@ -1,11 +1,12 @@
 // (courier) UC38/39 — Courier & Collections home (Phase 1 §24).
-// Logistics briefing: today's collections as a route, scan action, sync,
-// recent history. No manager-only controls. No raw NPO ids.
+// Batch A: scoped listeners (single-equality + limit, no index) and rows open
+// the shared Collection Detail. Logistics briefing: today's collections as a
+// route, scan action, sync, recent history. No manager-only controls. No raw NPO ids.
 import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { listenDonationBatches } from '@/services/increment2-services';
+import { listenDonationBatchesByStatus } from '@/services/increment2-services';
 import type { DonationBatch } from '@/types/increment2';
 import { todayISO } from '@/utils/dates';
 import { useAppTheme } from '@/design/use-app-theme';
@@ -28,13 +29,15 @@ export default function CourierDashboardScreen() {
   const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
-    setLoadError('');
+    setLoadError(''); setLoaded(false);
     const onErr = (e: Error) => { setLoadError(e.message); setLoaded(true); };
-    return listenDonationBatches(
-      (list) => { setBatches(list); setLoaded(true); },
-      undefined,
-      onErr,
-    );
+    // Two scoped, no-index listeners (no composite index → nothing deployed).
+    let scheduled: DonationBatch[] = [];
+    let completed: DonationBatch[] = [];
+    const emit = () => setBatches([...scheduled, ...completed]);
+    const u1 = listenDonationBatchesByStatus('collection_scheduled', 50, (l) => { scheduled = l; setLoaded(true); emit(); }, onErr);
+    const u2 = listenDonationBatchesByStatus('collected_completed', 20, (l) => { completed = l; emit(); }, onErr);
+    return () => { u1(); u2(); };
   }, [retryKey]);
 
   const today = todayISO();
@@ -51,13 +54,16 @@ export default function CourierDashboardScreen() {
   };
   const partnerOf = (b: DonationBatch) => b.receivingFacility || 'NPO partner';
 
+  const openDetail = (b: DonationBatch) =>
+    router.push({ pathname: '/(courier)/collection/[id]', params: { id: b.id } } as any);
+
   const collectionRow = (b: DonationBatch) => (
     <ListRow
       key={b.id}
       title={b.itemName}
       subtitle={`${timeOf(b)} · ${b.loadingBay || 'Bay TBC'} · ${partnerOf(b)}`}
       status={<StatusPill status={b.status} size="sm" />}
-      onPress={() => router.push('/(kitchen)/logistics' as any)}
+      onPress={() => openDetail(b)}
     />
   );
 
@@ -138,6 +144,7 @@ export default function CourierDashboardScreen() {
                     leading={
                       <StatusPill status="collected_completed" size="sm" label="Collected" />
                     }
+                    onPress={() => openDetail(b)}
                   />
                 </View>
               ))}

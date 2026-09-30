@@ -3,7 +3,7 @@
 // call and offline queue payload are UNCHANGED; result states map only to what
 // verifyCollectionFromMobile actually returns.
 import React, { useState, useEffect } from 'react';
-import { View, TouchableOpacity, TextInput, Switch } from 'react-native';
+import { View, TouchableOpacity, TextInput, Switch, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, Camera } from 'expo-camera';
 import { verifyCollectionFromMobile } from '@/services/increment2-services';
@@ -102,16 +102,22 @@ export default function DonationScanScreen() {
   };
 
   const resultTone = result?.state === 'verified' ? 'success' : result?.state === 'offline' ? 'info' : 'error';
+  // Viewfinder state color: searching (primary) → detected (success) → error (error).
+  const frameColor = result?.state === 'verified' ? theme.colors.success : result ? theme.colors.error : theme.colors.primary;
 
   return (
     <Screen scroll>
       <PageHeader title="Scan collection pass" subtitle="Verify a collection" showBack fallback="/(kitchen)/dashboard" />
 
       {hasPermission ? (
-        <View style={{ height: 260, borderRadius: theme.radius.lg, overflow: 'hidden', marginBottom: theme.space.md, backgroundColor: '#000' }}>
+        <View style={{ height: 300, borderRadius: theme.radius.lg, overflow: 'hidden', marginBottom: theme.space.sm, backgroundColor: theme.colors.cameraBackdrop }}>
           <CameraView style={{ flex: 1 }} facing="back" onBarcodeScanned={scanned ? undefined : handleScan} barcodeScannerSettings={{ barcodeTypes: ['qr'] }} />
+          <Viewfinder color={frameColor} />
+          <View style={{ position: 'absolute', top: 10, alignSelf: 'center', backgroundColor: theme.colors.overlay, paddingHorizontal: 12, paddingVertical: 6, borderRadius: theme.radius.pill }}>
+            <AppText variant="micro" color={theme.colors.textInverse} weight="600">Point at the collection pass</AppText>
+          </View>
           {scanned ? (
-            <TouchableOpacity style={{ position: 'absolute', bottom: 12, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: theme.radius.sm }} onPress={() => { setScanned(false); setQr(''); setResult(null); }}>
+            <TouchableOpacity style={{ position: 'absolute', bottom: 12, alignSelf: 'center', backgroundColor: theme.colors.overlay, paddingHorizontal: 12, paddingVertical: 8, borderRadius: theme.radius.sm }} onPress={() => { setScanned(false); setQr(''); setResult(null); }}>
               <AppText variant="caption" color={theme.colors.textInverse}>Tap to scan again</AppText>
             </TouchableOpacity>
           ) : null}
@@ -167,5 +173,19 @@ export default function DonationScanScreen() {
       </AppText>
       <View style={{ height: theme.space['4xl'] }} />
     </Screen>
+  );
+}
+
+// Viewfinder corner brackets (token-colored; no assets). Colour communicates
+// scanner state: searching / detected / error.
+function Viewfinder({ color }: { color: string }) {
+  const corner = (pos: ViewStyle): ViewStyle => ({ position: 'absolute', width: 28, height: 28, borderColor: color, ...pos });
+  return (
+    <View pointerEvents="none" style={{ position: 'absolute', left: '15%', right: '15%', top: '16%', bottom: '16%' }}>
+      <View style={corner({ top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 12 })} />
+      <View style={corner({ top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 12 })} />
+      <View style={corner({ bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 12 })} />
+      <View style={corner({ bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 12 })} />
+    </View>
   );
 }

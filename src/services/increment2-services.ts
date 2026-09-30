@@ -148,6 +148,28 @@ export function listenDonationBatches(cb: (items: DonationBatch[]) => void, stat
     (err) => onError?.(err as Error));
 }
 
+// Batch A: scoped, no-index listener (single equality + limit — no composite
+// index required, so nothing is deployed). Add-only; existing listeners and all
+// write functions are untouched.
+export function listenDonationBatchesByStatus(
+  status: DonationStatus,
+  max: number,
+  cb: (items: DonationBatch[]) => void,
+  onError?: (e: Error) => void,
+) {
+  const q = query(collection(db, 'donation_batches'), where('status', '==', status), limit(max));
+  return onSnapshot(q, (snap) =>
+    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as DonationBatch)),
+    (err) => onError?.(err as Error));
+}
+
+// Batch A: single-document listener for the Collection Detail screen (1 read).
+export function listenDonationBatch(docId: string, cb: (item: DonationBatch | null) => void, onError?: (e: Error) => void) {
+  return onSnapshot(doc(db, 'donation_batches', docId), (snap) =>
+    cb(snap.exists() ? ({ id: snap.id, ...(snap.data() as object) } as DonationBatch) : null),
+    (err) => onError?.(err as Error));
+}
+
 export function listenMyAllocations(npoId: string, cb: (items: DonationBatch[]) => void, onError?: (e: Error) => void) {
   const q = query(collection(db, 'donation_batches'), where('allocatedNpoId', '==', npoId));
   return onSnapshot(q, (snap) =>

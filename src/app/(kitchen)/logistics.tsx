@@ -119,7 +119,7 @@ export default function KitchenLogisticsScreen() {
             <StatusBadge status={selected.status} />
             <SectionTitle>DONATION</SectionTitle>
             <KV label="Item" value={`${selected.itemName} · ${selected.portionCount} portions · ${selected.estimatedWeightKg}kg`} />
-            <KV label="Allergens" value={(selected.allergens || []).join(', ') || 'none'} />
+            <KV label="Allergens" value={(selected.allergens || []).join(', ') || 'None recorded'} />
             <KV label="Use by" value={selected.expiryAt ? new Date(selected.expiryAt).toLocaleString() : '—'} />
             <KV label="Facility" value={selected.receivingFacility || '—'} />
             <SectionTitle>CURRENT SCHEDULE</SectionTitle>

@@ -128,6 +128,7 @@ export const lightColors = {
   // utility
   overlay: 'rgba(16, 24, 40, 0.5)',
   shadow: 'rgba(16, 24, 40, 0.08)',
+  cameraBackdrop: '#000000',
 
   // ── legacy aliases (keep old screens compiling) ──
   primaryDark: palette.indigo600,
@@ -181,6 +182,7 @@ export const darkColors = {
 
   overlay: 'rgba(0, 0, 0, 0.7)',
   shadow: 'rgba(0, 0, 0, 0.4)',
+  cameraBackdrop: '#000000',
 
   // legacy aliases
   primaryDark: palette.indigo400,

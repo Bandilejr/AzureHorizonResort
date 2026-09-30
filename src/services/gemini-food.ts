@@ -49,6 +49,9 @@ export interface GeminiFoodResult {
   itemName: string;
   estimatedPortions: number | null;
   estimatedWeightKg: number | null;
+  /** A use-by date actually printed on the label ("YYYY-MM-DD"), else null. */
+  expiryDateOnLabel: string | null;
+  /** Optional advisory estimate only — never treated as a printed date. */
   expiryHoursFromNow: number | null;
   allergens: string[];
   confidence: number | null;
@@ -156,6 +159,7 @@ async function callGeminiRest(base64: string, mimeType: string): Promise<GeminiF
     category: typeof json.category === 'string' ? json.category : 'Other',
     estimatedPortions: toNum(json.estimatedPortions),
     estimatedWeightKg: toNum(json.estimatedWeightKg),
+    expiryDateOnLabel: typeof json.expiryDateOnLabel === 'string' && json.expiryDateOnLabel.trim() ? json.expiryDateOnLabel.trim() : null,
     expiryHoursFromNow: toNum(json.expiryHoursFromNow),
     allergens: Array.isArray(json.allergens) ? (json.allergens as unknown[]).map((a) => String(a)).filter(Boolean) : [],
     confidence: toNum(json.confidence),

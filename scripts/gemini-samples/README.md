@@ -11,7 +11,7 @@ Suggested files (any of .jpg/.jpeg/.png/.webp):
 - `food2.jpg` — fresh produce / bakery
 - `nonfood.jpg` — a non-food image (e.g. a chair) — model should return low confidence / "Other"
 - `blurry.jpg` — a blurry or dark photo — model should return low confidence
-- `date_label.jpg` — packaging with a printed use-by date — should return `expiryHoursFromNow`
+- `date_label.jpg` — packaging with a printed use-by date — should return `expiryDateOnLabel` (a bare date; an `expiryHoursFromNow` estimate alone must NOT fill the use-by field)
 
 Images are read locally and sent to the Gemini API with the app's exact prompt.
 The script never prints your API key. These files are for local testing only.

@@ -4,8 +4,9 @@
 //
 // Guarantees:
 //  - NEVER sets the safety checklist (AI cannot pre-tick safety).
-//  - Expiry is only suggested when the model returned a positive
-//    `expiryHoursFromNow` (i.e. a date/use-by was inferable from the photo).
+//  - Expiry is only suggested when the model reported a date actually PRINTED
+//    on the label (`expiryDateOnLabel`). An advisory `expiryHoursFromNow`
+//    estimate is NEVER written into `expiryAt` (staff set the real use-by).
 //  - Numbers-as-strings are coerced; missing/malformed fields are skipped.
 //  - JSON wrapped in markdown fences is unwrapped.
 import { localDateTimeISO } from './dates';
@@ -24,10 +25,25 @@ export interface GeminiRawFields {
   category?: unknown;
   estimatedPortions?: unknown;
   estimatedWeightKg?: unknown;
+  expiryDateOnLabel?: unknown;
   expiryHoursFromNow?: unknown;
   allergens?: unknown;
   confidence?: unknown;
   notes?: unknown;
+}
+
+/**
+ * Normalize a date the model read off a label into the form's local
+ * 'YYYY-MM-DDTHH:mm' shape. A bare date is treated as end-of-day (23:59) since
+ * that is what a printed "use by <date>" means. Anything unparseable is ignored.
+ */
+function normalizePrintedExpiry(v: string): string | null {
+  const s = v.trim();
+  const dateOnly = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) return `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}T23:59`;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return localDateTimeISO(d);
 }
 
 /** Unwrap a JSON object from raw model text (handles ```json fences). */
@@ -62,15 +78,11 @@ function normalize(input: unknown): GeminiRawFields | null {
 
 /**
  * Map a Gemini response (raw text or parsed object) to donation-form fields.
- * `now` is injectable for deterministic tests.
+ * Pure and deterministic — no clock is used (printed dates pass through as-is).
  */
-export function geminiToDonationForm(
-  input: unknown,
-  opts?: { now?: number },
-): DonationFormSuggestion {
+export function geminiToDonationForm(input: unknown): DonationFormSuggestion {
   const raw = normalize(input);
   if (!raw) return {};
-  const now = opts?.now ?? Date.now();
   const out: DonationFormSuggestion = {};
 
   if (typeof raw.itemName === 'string' && raw.itemName.trim()) out.itemName = raw.itemName.trim();
@@ -90,8 +102,13 @@ export function geminiToDonationForm(
     if (uniq.length) out.allergens = uniq.join(', ');
   }
 
-  const hours = toNum(raw.expiryHoursFromNow);
-  if (hours != null && hours > 0) out.expiryAt = localDateTimeISO(new Date(now + hours * 3600000));
+  // Only a date PRINTED on the label may pre-fill expiryAt. An hours-from-now
+  // estimate is advisory only and is never written here (staff set the real
+  // use-by via the quick chips / picker).
+  if (typeof raw.expiryDateOnLabel === 'string' && raw.expiryDateOnLabel.trim()) {
+    const normalized = normalizePrintedExpiry(raw.expiryDateOnLabel);
+    if (normalized) out.expiryAt = normalized;
+  }
 
   // Intentionally NO safety-checklist output.
   return out;

@@ -132,7 +132,7 @@ export default function NpoAllocationsScreen() {
             <KV label="Category" value={selected.mealCategory} />
             <KV label="Portions" value={String(selected.portionCount)} />
             <KV label="Weight" value={`${selected.estimatedWeightKg} kg`} />
-            <KV label="Allergens" value={(selected.allergens || []).join(', ') || 'none'} />
+            <KV label="Allergens" value={(selected.allergens || []).join(', ') || 'None recorded'} />
             <KV label="Prepared" value={selected.preparedAt ? new Date(selected.preparedAt).toLocaleString() : '—'} />
             <KV label="Use by" value={selected.expiryAt ? new Date(selected.expiryAt).toLocaleString() : '—'} />
             <SectionTitle>FOOD SAFETY</SectionTitle>
@@ -200,7 +200,7 @@ export default function NpoAllocationsScreen() {
             rows={[
               ['Batch', `${selected.batchId} — ${selected.itemName}`],
               ['Quantity', `${selected.portionCount} portions · ${selected.estimatedWeightKg}kg`],
-              ['Allergens', (selected.allergens || []).join(', ') || 'none'],
+              ['Allergens', (selected.allergens || []).join(', ') || 'None recorded'],
               ['Use by', selected.expiryAt ? new Date(selected.expiryAt).toLocaleString() : '—'],
               ['Facility', facility],
             ]}

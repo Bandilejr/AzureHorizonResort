@@ -21,6 +21,7 @@ function NpoTabs() {
       <Tabs.Screen name="organisation" options={{ title: 'Facilities' }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
       <Tabs.Screen name="notifications" options={{ href: null }} />
+      <Tabs.Screen name="collection/[id]" options={{ href: null }} />
     </Tabs>
   );
 }
