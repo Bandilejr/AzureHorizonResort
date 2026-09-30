@@ -1,8 +1,7 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
 import RouteGuard from '@/components/RouteGuard';
 
 const TAB_ICONS: Record<string, { label: string; icon: string }> = {
@@ -16,8 +15,7 @@ const TAB_ICONS: Record<string, { label: string; icon: string }> = {
 };
 
 export default function GuestLayout() {
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
 
   return (
     <RouteGuard allow="guest">

@@ -6,21 +6,17 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  useColorScheme,
   TextInput,
   Platform,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import { auth, db, awardLoyaltyPoints, deriveBookingPaymentState, applyEventPayment, getCateringForBooking } from '../../services/firebase-services';
 import { doc, addDoc, collection, getDoc, serverTimestamp } from 'firebase/firestore';
 import { generateAndSendInvoice } from '../../services/invoice-service';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
-
-// Paystack brand colours
-const PS_BLUE = '#0BA4DB';
-const PS_DARK = '#011B33';
 
 const getLocalAuth = async () => {
   if (Platform.OS === 'web') return null;
@@ -33,8 +29,7 @@ const getLocalAuth = async () => {
 };
 
 export default function PaymentScreen() {
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const S = createStyles(theme);
   const user = auth.currentUser;
   const params = useLocalSearchParams();
@@ -410,7 +405,7 @@ export default function PaymentScreen() {
   // DISCLAIMER STEP
   if (step === 'disclaimer') {
     return (
-      <View style={S.container}>
+      <Screen scroll={false} padded={false}>
         <View style={S.header}>
           <TouchableOpacity style={S.backButton} onPress={() => router.back()}>
             <Ionicons name="chevron-back" size={26} color={theme.colors.secondary} />
@@ -505,7 +500,7 @@ export default function PaymentScreen() {
                       onPress={() => setPaymentMode(opt.key as any)}
                     >
                       <Text style={[S.toggleBtnText, paymentMode === opt.key && S.toggleBtnTextActive]}>{opt.label}</Text>
-                      <Text style={[{ fontSize: 11, marginTop: 2 }, paymentMode === opt.key && { color: '#fff' }]}>
+                      <Text style={[{ fontSize: 11, marginTop: 2 }, paymentMode === opt.key && { color: theme.colors.textInverse }]}>
                         R {opt.amount.toLocaleString()}
                       </Text>
                     </TouchableOpacity>
@@ -515,7 +510,7 @@ export default function PaymentScreen() {
                 <View style={[S.paymentToggleContainer, { marginBottom: 0 }]}>
                   <View style={[S.toggleBtn, S.toggleBtnActive]}>
                     <Text style={[S.toggleBtnText, S.toggleBtnTextActive]}>Pay Remaining Balance</Text>
-                    <Text style={[{ fontSize: 11, marginTop: 2, color: '#fff' }]}>
+                    <Text style={[{ fontSize: 11, marginTop: 2, color: theme.colors.textInverse }]}>
                       R {money.balanceDue.toLocaleString()}
                     </Text>
                   </View>
@@ -543,7 +538,7 @@ export default function PaymentScreen() {
 
           {/* Secure Badge */}
           <View style={S.secureBadge}>
-            <Ionicons name="shield-checkmark" size={20} color="#16a34a" />
+            <Ionicons name="shield-checkmark" size={20} color={theme.colors.success} />
             <View style={{ flex: 1 }}>
               <Text style={S.secureTitle}>Paystack & Biometrics Secured</Text>
               <Text style={S.secureDesc}>Supports Paystack SSL Card Payment and 1-Tap Fingerprint / Face ID Authorization.</Text>
@@ -559,7 +554,7 @@ export default function PaymentScreen() {
               onPress={() => setStep('payment')}
               disabled={loadingBooking || money.balanceDue <= 0}
             >
-              <Ionicons name="card-outline" size={18} color="#fff" style={{ marginRight: 6 }} />
+              <Ionicons name="card-outline" size={18} color={theme.colors.textInverse} style={{ marginRight: 6 }} />
               <Text style={S.payBtnText}>
                 {alreadyPaid ? `Pay Balance R ${money.balanceDue.toLocaleString()}` : `Pay R ${amountToPay.toLocaleString()}`}
               </Text>
@@ -568,17 +563,17 @@ export default function PaymentScreen() {
         </ScrollView>
 
         <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-      </View>
+      </Screen>
     );
   }
 
   // PAYMENT STEP (Method Toggle: Paystack Card vs Biometric Fingerprint)
   if (step === 'payment') {
     return (
-      <View style={[S.container, { backgroundColor: PS_DARK }]}>
+      <Screen scroll={false} padded={false} style={{ backgroundColor: theme.colors.cameraBackdrop }}>
         <View style={S.psHeader}>
           <TouchableOpacity onPress={() => setStep('disclaimer')} style={S.psBack}>
-            <Ionicons name="chevron-back" size={24} color="#fff" />
+            <Ionicons name="chevron-back" size={24} color={theme.colors.textInverse} />
           </TouchableOpacity>
           <View style={S.psHeaderCenter}>
             <View style={S.psLogo}>
@@ -619,7 +614,7 @@ export default function PaymentScreen() {
           {paymentMethod === 'biometric' ? (
             <View style={S.biometricForm}>
               <View style={S.biometricIconBadge}>
-                <Ionicons name="finger-print-sharp" size={48} color="#c9a227" />
+                <Ionicons name="finger-print-sharp" size={48} color={theme.colors.gold} />
               </View>
               <Text style={S.biometricTitle}>1-Tap Biometric Payment</Text>
               <Text style={S.biometricSub}>
@@ -634,10 +629,10 @@ export default function PaymentScreen() {
                 disabled={isProcessing}
               >
                 {isProcessing ? (
-                  <ActivityIndicator color="#0f172a" />
+                  <ActivityIndicator color={theme.colors.text} />
                 ) : (
                   <>
-                    <Ionicons name="finger-print" size={22} color="#0f172a" />
+                    <Ionicons name="finger-print" size={22} color={theme.colors.text} />
                     <Text style={S.payNowText}>Authenticate & Pay R {amountToPay.toLocaleString()}</Text>
                   </>
                 )}
@@ -647,7 +642,7 @@ export default function PaymentScreen() {
             /* Card Form */
             <View style={S.cardForm}>
               <View style={S.cardFormHeader}>
-                <Ionicons name="card" size={20} color={PS_BLUE} />
+                <Ionicons name="card" size={20} color={theme.colors.info} />
                 <Text style={S.cardFormTitle}>Card Payment</Text>
                 <View style={S.cardBrands}>
                   <Text style={S.cardBrand}>VISA</Text>
@@ -659,7 +654,7 @@ export default function PaymentScreen() {
               <TextInput
                 style={S.cardInput}
                 placeholder="0000 0000 0000 0000"
-                placeholderTextColor="#aaa"
+                placeholderTextColor={theme.colors.textMuted}
                 keyboardType="numeric"
                 value={cardNumber}
                 onChangeText={t => setCardNumber(formatCardNumber(t))}
@@ -670,7 +665,7 @@ export default function PaymentScreen() {
               <TextInput
                 style={S.cardInput}
                 placeholder="Name on card"
-                placeholderTextColor="#aaa"
+                placeholderTextColor={theme.colors.textMuted}
                 value={cardName}
                 onChangeText={setCardName}
                 autoCapitalize="words"
@@ -682,7 +677,7 @@ export default function PaymentScreen() {
                   <TextInput
                     style={S.cardInput}
                     placeholder="MM/YY"
-                    placeholderTextColor="#aaa"
+                    placeholderTextColor={theme.colors.textMuted}
                     keyboardType="numeric"
                     value={expiry}
                     onChangeText={t => setExpiry(formatExpiry(t))}
@@ -694,7 +689,7 @@ export default function PaymentScreen() {
                   <TextInput
                     style={S.cardInput}
                     placeholder="•••"
-                    placeholderTextColor="#aaa"
+                    placeholderTextColor={theme.colors.textMuted}
                     keyboardType="numeric"
                     secureTextEntry
                     value={cvv}
@@ -705,8 +700,8 @@ export default function PaymentScreen() {
               </View>
 
               <TouchableOpacity style={S.testCardBtn} onPress={() => setShowTestCard(!showTestCard)}>
-                <Ionicons name="information-circle-outline" size={16} color={PS_BLUE} />
-                <Text style={[S.testCardText, { color: PS_BLUE }]}>Use Paystack test card</Text>
+                <Ionicons name="information-circle-outline" size={16} color={theme.colors.info} />
+                <Text style={[S.testCardText, { color: theme.colors.info }]}>Use Paystack test card</Text>
               </TouchableOpacity>
               {showTestCard && (
                 <View style={S.testCardPanel}>
@@ -722,7 +717,7 @@ export default function PaymentScreen() {
                       setShowTestCard(false);
                     }}
                   >
-                    <Text style={{ color: PS_BLUE, fontWeight: '700', fontSize: 13 }}>→ Autofill test card</Text>
+                    <Text style={{ color: theme.colors.info, fontWeight: '700', fontSize: 13 }}>→ Autofill test card</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -733,10 +728,10 @@ export default function PaymentScreen() {
                 disabled={isProcessing}
               >
                 {isProcessing ? (
-                  <ActivityIndicator color="#0f172a" />
+                  <ActivityIndicator color={theme.colors.text} />
                 ) : (
                   <>
-                    <Ionicons name="lock-closed" size={18} color="#0f172a" />
+                    <Ionicons name="lock-closed" size={18} color={theme.colors.text} />
                     <Text style={S.payNowText}>Pay R {amountToPay.toLocaleString()} Now</Text>
                   </>
                 )}
@@ -745,19 +740,19 @@ export default function PaymentScreen() {
           )}
 
           <View style={S.psFooter}>
-            <Ionicons name="shield-checkmark-outline" size={16} color="#666" />
+            <Ionicons name="shield-checkmark-outline" size={16} color={theme.colors.textMuted} />
             <Text style={S.psFooterText}>Secured by Paystack · PCI DSS Compliant</Text>
           </View>
         </ScrollView>
 
         <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-      </View>
+      </Screen>
     );
   }
 
   // CONFIRMATION STEP
   return (
-    <View style={S.container}>
+    <Screen scroll={false} padded={false}>
       <View style={S.header}>
         <View style={{ width: 28 }} />
         <View style={S.headerCenter}>
@@ -825,13 +820,13 @@ export default function PaymentScreen() {
             </TouchableOpacity>
             <TouchableOpacity style={S.payBtn} onPress={handleCompleteBooking}>
               <Text style={S.payBtnText}>Continue</Text>
-              <Ionicons name="arrow-forward" size={18} color="#fff" style={{ marginLeft: 6 }} />
+              <Ionicons name="arrow-forward" size={18} color={theme.colors.textInverse} style={{ marginLeft: 6 }} />
             </TouchableOpacity>
           </View>
       </ScrollView>
 
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </View>
+    </Screen>
   );
 }
 
@@ -854,7 +849,7 @@ const createStyles = (theme: any) =>
     policyHeaderTitle: { fontSize: 15, fontWeight: 'bold', color: theme.colors.warning },
     policyText: { fontSize: 12, color: theme.colors.warning, lineHeight: 18, marginBottom: 6 },
 
-    breakdownCard: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 20, marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+    breakdownCard: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 20, marginBottom: 20, shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
     breakdownTitle: { fontSize: 16, fontWeight: 'bold', color: theme.colors.text, marginBottom: 16 },
     breakdownRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, alignItems: 'flex-start' },
     breakdownLabel: { fontSize: 14, color: theme.colors.textMuted, flex: 1 },
@@ -865,9 +860,9 @@ const createStyles = (theme: any) =>
     paymentSelectorTitle: { fontSize: 14, fontWeight: '600', color: theme.colors.textSecondary, marginBottom: 12, textAlign: 'center' },
     paymentToggleContainer: { flexDirection: 'row', backgroundColor: theme.colors.surfaceVariant, borderRadius: 12, padding: 4, marginBottom: 16 },
     toggleBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8 },
-    toggleBtnActive: { backgroundColor: theme.colors.secondary, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
+    toggleBtnActive: { backgroundColor: theme.colors.secondary, shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
     toggleBtnText: { fontSize: 13, fontWeight: '600', color: theme.colors.textMuted },
-    toggleBtnTextActive: { color: '#fff' },
+    toggleBtnTextActive: { color: theme.colors.textInverse },
     balanceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.colors.border },
     balanceLabel: { fontSize: 12, color: theme.colors.textMuted, fontWeight: '500' },
     balanceValue: { fontSize: 14, color: theme.colors.warning, fontWeight: 'bold' },
@@ -880,56 +875,56 @@ const createStyles = (theme: any) =>
     cancelBtn: { flex: 1, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.borderStrong, paddingVertical: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
     cancelBtnText: { color: theme.colors.text, fontWeight: 'bold', fontSize: 15 },
     payBtn: { flex: 1, backgroundColor: theme.colors.success, paddingVertical: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
-    payBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
+    payBtnText: { color: theme.colors.textInverse, fontWeight: 'bold', fontSize: 15 },
 
     // Paystack Screen
-    psHeader: { flexDirection: 'row', alignItems: 'center', paddingTop: 56, paddingBottom: 16, paddingHorizontal: 20, backgroundColor: PS_DARK },
+    psHeader: { flexDirection: 'row', alignItems: 'center', paddingTop: 56, paddingBottom: 16, paddingHorizontal: 20, backgroundColor: theme.colors.cameraBackdrop },
     psBack: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
     psHeaderCenter: { flex: 1, alignItems: 'center' },
-    psLogo: { backgroundColor: PS_BLUE, paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20 },
-    psLogoText: { color: '#fff', fontSize: 16, fontWeight: '900', letterSpacing: 0.5 },
+    psLogo: { backgroundColor: theme.colors.info, paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20 },
+    psLogoText: { color: theme.colors.textInverse, fontSize: 16, fontWeight: '900', letterSpacing: 0.5 },
     psContent: { padding: 20, paddingBottom: 40 },
 
     amountBadge: {
-      backgroundColor: PS_BLUE + '22', borderWidth: 1, borderColor: PS_BLUE,
+      backgroundColor: theme.colors.infoSoft, borderWidth: 1, borderColor: theme.colors.info,
       borderRadius: 16, padding: 18, alignItems: 'center', marginBottom: 16,
     },
-    amountLabel: { fontSize: 12, color: '#ccc', fontWeight: '500' },
-    amountValue: { fontSize: 32, fontWeight: '900', color: '#fff', marginTop: 2 },
-    amountSub: { fontSize: 12, color: '#aaa', marginTop: 2 },
+    amountLabel: { fontSize: 12, color: theme.colors.textMuted, fontWeight: '500' },
+    amountValue: { fontSize: 32, fontWeight: '900', color: theme.colors.textInverse, marginTop: 2 },
+    amountSub: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
 
     // Method Switcher
-    methodSwitcher: { flexDirection: 'row', backgroundColor: '#0f2744', padding: 4, borderRadius: 14, marginBottom: 16 },
+    methodSwitcher: { flexDirection: 'row', backgroundColor: theme.colors.cameraBackdrop, padding: 4, borderRadius: 14, marginBottom: 16 },
     methodTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: 10 },
     methodTabActive: { backgroundColor: theme.colors.primary },
     methodTabText: { fontSize: 12, fontWeight: '700', color: theme.colors.textMuted },
     methodTabTextActive: { color: theme.colors.text },
 
-    biometricForm: { backgroundColor: '#0f2744', borderRadius: 20, padding: 24, alignItems: 'center' },
-    biometricIconBadge: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(201,162,39,0.15)', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
-    biometricTitle: { fontSize: 18, fontWeight: '800', color: '#ffffff', textAlign: 'center' },
+    biometricForm: { backgroundColor: theme.colors.cameraBackdrop, borderRadius: 20, padding: 24, alignItems: 'center' },
+    biometricIconBadge: { width: 72, height: 72, borderRadius: 36, backgroundColor: theme.colors.warningSoft, justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
+    biometricTitle: { fontSize: 18, fontWeight: '800', color: theme.colors.textInverse, textAlign: 'center' },
     biometricSub: { fontSize: 13, color: theme.colors.textMuted, textAlign: 'center', marginTop: 6, marginBottom: 24, lineHeight: 18 },
 
-    cardForm: { backgroundColor: '#0f2744', borderRadius: 20, padding: 20 },
+    cardForm: { backgroundColor: theme.colors.cameraBackdrop, borderRadius: 20, padding: 20 },
     cardFormHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
-    cardFormTitle: { fontSize: 15, fontWeight: '700', color: '#fff', flex: 1 },
+    cardFormTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.textInverse, flex: 1 },
     cardBrands: { flexDirection: 'row', gap: 6 },
-    cardBrand: { fontSize: 10, fontWeight: '800', color: '#ccc', borderWidth: 1, borderColor: '#555', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 },
+    cardBrand: { fontSize: 10, fontWeight: '800', color: theme.colors.textMuted, borderWidth: 1, borderColor: theme.colors.borderStrong, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 },
 
-    fieldLabel: { fontSize: 11, fontWeight: '600', color: '#aaa', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+    fieldLabel: { fontSize: 11, fontWeight: '600', color: theme.colors.textMuted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
     cardInput: {
-      backgroundColor: '#1a3a5c', borderWidth: 1, borderColor: '#2a4a6c',
-      borderRadius: 10, padding: 12, fontSize: 15, color: '#fff',
+      backgroundColor: theme.colors.cameraBackdrop, borderWidth: 1, borderColor: theme.colors.borderStrong,
+      borderRadius: 10, padding: 12, fontSize: 15, color: theme.colors.textInverse,
       marginBottom: 12, letterSpacing: 1,
     },
 
     testCardBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
     testCardText: { fontSize: 12, fontWeight: '600' },
     testCardPanel: {
-      backgroundColor: '#0d2035', borderRadius: 10, padding: 12, marginBottom: 12,
-      borderWidth: 1, borderColor: PS_BLUE + '40',
+      backgroundColor: theme.colors.cameraBackdrop, borderRadius: 10, padding: 12, marginBottom: 12,
+      borderWidth: 1, borderColor: theme.colors.info,
     },
-    testCardHint: { fontSize: 12, color: '#aaa', marginBottom: 4 },
+    testCardHint: { fontSize: 12, color: theme.colors.textMuted, marginBottom: 4 },
 
     payNowBtn: {
       backgroundColor: theme.colors.primary, borderRadius: 14, paddingVertical: 16,

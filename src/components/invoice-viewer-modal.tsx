@@ -8,11 +8,10 @@ import {
   FlatList,
   ActivityIndicator,
   ScrollView,
-  Alert,
-  useColorScheme
+  Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { getTheme } from '../constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 import { db } from '../services/firebase-services';
 import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
@@ -33,8 +32,7 @@ export const InvoiceViewerModal: React.FC<InvoiceViewerModalProps> = ({
   recordIdFilter,
   title = '🧾 My Invoices & Receipts',
 }) => {
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const S = createStyles(theme);
 
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
@@ -170,7 +168,7 @@ export const InvoiceViewerModal: React.FC<InvoiceViewerModalProps> = ({
                   </View>
                   <View style={S.gridItem}>
                     <Text style={S.gridLabel}>Email Status</Text>
-                    <Text style={[S.gridVal, { color: '#16a34a', fontWeight: '700' }]}>
+                    <Text style={[S.gridVal, { color: theme.colors.success, fontWeight: '700' }]}>
                       {selectedInvoice.emailStatus === 'sent' ? '🟢 Emailed (Delivered)' : '🔴 Delivery Pending'}
                     </Text>
                   </View>
@@ -222,10 +220,10 @@ export const InvoiceViewerModal: React.FC<InvoiceViewerModalProps> = ({
                   disabled={resendingId === (selectedInvoice.id || selectedInvoice.invoiceNumber)}
                 >
                   {resendingId === (selectedInvoice.id || selectedInvoice.invoiceNumber) ? (
-                    <ActivityIndicator color="#fff" />
+                    <ActivityIndicator color={theme.colors.textInverse} />
                   ) : (
                     <>
-                      <Ionicons name="mail" size={18} color="#fff" style={{ marginRight: 8 }} />
+                      <Ionicons name="mail" size={18} color={theme.colors.textInverse} style={{ marginRight: 8 }} />
                       <Text style={S.resendBtnText}>Re-send Invoice Email</Text>
                     </>
                   )}
@@ -290,11 +288,11 @@ const createStyles = (theme: any) =>
   StyleSheet.create({
     modalOverlay: {
       flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.6)',
+      backgroundColor: theme.colors.overlay,
       justifyContent: 'flex-end',
     },
     modalSheet: {
-      backgroundColor: theme.colors.card,
+      backgroundColor: theme.colors.surface,
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
       maxHeight: '90%',
@@ -322,23 +320,23 @@ const createStyles = (theme: any) =>
     },
     invCardHeader: { alignItems: 'center', borderBottomWidth: 2, borderBottomColor: theme.colors.primary, paddingBottom: 16, marginBottom: 20 },
     invHeaderBrand: { fontSize: 22, fontWeight: '800', color: theme.colors.primary, letterSpacing: 1 },
-    invHeaderSub: { fontSize: 11, fontWeight: '700', color: '#c9a227', letterSpacing: 2, marginTop: 2 },
+    invHeaderSub: { fontSize: 11, fontWeight: '700', color: theme.colors.gold, letterSpacing: 2, marginTop: 2 },
     invNum: { fontSize: 16, fontWeight: '700', color: theme.colors.text, marginTop: 10 },
     invType: { fontSize: 13, fontWeight: '600', color: theme.colors.primary, marginTop: 4 },
 
-    gridSection: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: theme.colors.card, padding: 14, borderRadius: 10, marginBottom: 20, gap: 12 },
+    gridSection: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: theme.colors.surface, padding: 14, borderRadius: 10, marginBottom: 20, gap: 12 },
     gridItem: { width: '45%' },
     gridLabel: { fontSize: 11, color: theme.colors.textMuted, textTransform: 'uppercase', fontWeight: '700' },
     gridVal: { fontSize: 13, fontWeight: '600', color: theme.colors.text, marginTop: 2 },
 
     tableTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text, marginBottom: 10 },
-    tableContainer: { backgroundColor: theme.colors.card, borderRadius: 10, overflow: 'hidden', marginBottom: 20 },
+    tableContainer: { backgroundColor: theme.colors.surface, borderRadius: 10, overflow: 'hidden', marginBottom: 20 },
     tableHeader: { flexDirection: 'row', backgroundColor: theme.colors.primary, padding: 10 },
-    th: { color: '#fff', fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
+    th: { color: theme.colors.textInverse, fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
     tableRow: { flexDirection: 'row', padding: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
     td: { color: theme.colors.text, fontSize: 13 },
 
-    totalsBox: { backgroundColor: theme.colors.card, padding: 14, borderRadius: 10, marginBottom: 20 },
+    totalsBox: { backgroundColor: theme.colors.surface, padding: 14, borderRadius: 10, marginBottom: 20 },
     totalRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
     totalLabel: { color: theme.colors.textMuted, fontSize: 13 },
     totalVal: { color: theme.colors.text, fontSize: 13, fontWeight: '600' },
@@ -347,15 +345,15 @@ const createStyles = (theme: any) =>
     grandTotalVal: { fontSize: 17, fontWeight: '800', color: theme.colors.primary },
 
     resendBtn: { backgroundColor: theme.colors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 14, borderRadius: 12 },
-    resendBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+    resendBtnText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 14 },
 
     invoiceListItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.background, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border },
-    itemIconBg: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.primary + '18', alignItems: 'center', justifyContent: 'center' },
+    itemIconBg: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
     itemTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
     itemNum: { fontSize: 12, color: theme.colors.primary, fontWeight: '600', marginTop: 2 },
     itemMeta: { fontSize: 11, color: theme.colors.textMuted, marginTop: 2 },
     itemAmount: { fontSize: 16, fontWeight: '800', color: theme.colors.text },
-    sentBadge: { marginTop: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: '#dcfce7' },
-    sentBadgeText: { fontSize: 10, fontWeight: '700', color: '#15803d' },
+    sentBadge: { marginTop: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: theme.colors.successSoft },
+    sentBadgeText: { fontSize: 10, fontWeight: '700', color: theme.colors.successStrong },
     emptyText: { color: theme.colors.textMuted, fontSize: 14, marginTop: 8 },
   });

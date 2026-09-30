@@ -7,12 +7,12 @@ import { AuthProvider } from '@/context/AuthContext';
 import { PermissionsProvider } from '@/context/PermissionsContext';
 import { I18nProvider } from '@/i18n/hooks';
 import ErrorBoundary from '@/components/ErrorBoundary';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function RootContent() {
   const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const insets = useSafeAreaInsets();
 
   useEffect(() => {

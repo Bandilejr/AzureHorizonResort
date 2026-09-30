@@ -9,14 +9,14 @@ import {
   ImageBackground,
   Modal,
   Alert,
-  ActivityIndicator,
-  useColorScheme
+  ActivityIndicator
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../services/firebase-services';
 import { collection, addDoc } from 'firebase/firestore';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 import { useAuth } from '@/context/AuthContext';
 
@@ -31,8 +31,7 @@ const spaTreatments = [
 export default function SpaScreen() {
   const { profile } = useAuth();
   const user = auth.currentUser;
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
 
   const [selectedTreatment, setSelectedTreatment] = useState<any>(null);
@@ -111,10 +110,10 @@ export default function SpaScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <Screen scroll={false} padded={false}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={28} color="#1e3a5f" />
+          <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>Horizon Spa</Text>
@@ -132,7 +131,7 @@ export default function SpaScreen() {
           resizeMode="cover"
         >
           <View style={styles.heroOverlay}>
-            <Ionicons name="leaf" size={40} color="#c9a227" style={styles.heroIcon} />
+            <Ionicons name="leaf" size={40} color={theme.colors.gold} style={styles.heroIcon} />
             <Text style={styles.heroTitle}>Find Your Inner Peace</Text>
             <Text style={styles.heroText}>Award-winning wellness therapies tailored to your body&apos;s specific needs.</Text>
           </View>
@@ -145,7 +144,7 @@ export default function SpaScreen() {
           {spaTreatments.map((treatment) => (
             <View key={treatment.id} style={styles.treatmentCard}>
               <View style={styles.iconContainer}>
-                <Ionicons name={treatment.icon as any} size={28} color="#81b29a" />
+                <Ionicons name={treatment.icon as any} size={28} color={theme.colors.success} />
               </View>
               
               <View style={styles.treatmentInfo}>
@@ -177,7 +176,7 @@ export default function SpaScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Reserve {selectedTreatment?.name}</Text>
               <TouchableOpacity onPress={() => setShowBookingModal(false)}>
-                <Ionicons name="close" size={24} color="#64748b" />
+                <Ionicons name="close" size={24} color={theme.colors.textMuted} />
               </TouchableOpacity>
             </View>
 
@@ -189,7 +188,7 @@ export default function SpaScreen() {
               placeholder="e.g. Tomorrow, 14 Aug" 
               value={bookingDate} 
               onChangeText={setBookingDate} 
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={theme.colors.textMuted}
             />
 
             <Text style={styles.inputLabel}>Preferred Time</Text>
@@ -198,7 +197,7 @@ export default function SpaScreen() {
               placeholder="e.g. 14:30" 
               value={bookingTime} 
               onChangeText={setBookingTime} 
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={theme.colors.textMuted}
             />
 
             <Text style={styles.inputLabel}>Special Requests / Allergies</Text>
@@ -208,7 +207,7 @@ export default function SpaScreen() {
               value={specialRequests} 
               onChangeText={setSpecialRequests} 
               multiline
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={theme.colors.textMuted}
             />
 
             <TouchableOpacity 
@@ -217,7 +216,7 @@ export default function SpaScreen() {
               disabled={isSubmitting}
             >
               {isSubmitting ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={theme.colors.textInverse} />
               ) : (
                 <Text style={styles.confirmButtonText}>Confirm Spa Appointment</Text>
               )}
@@ -230,7 +229,7 @@ export default function SpaScreen() {
       <Modal visible={showSuccessModal} animationType="fade" transparent onRequestClose={() => setShowSuccessModal(false)}>
         <View style={styles.successOverlay}>
           <View style={styles.successCard}>
-            <Ionicons name="checkmark-circle" size={60} color="#10b981" />
+            <Ionicons name="checkmark-circle" size={60} color={theme.colors.success} />
             <Text style={styles.successTitle}>Spa Appointment Booked!</Text>
             <Text style={styles.successSub}>Our spa therapist has received your booking. Please arrive 15 minutes before your scheduled time.</Text>
 
@@ -246,14 +245,14 @@ export default function SpaScreen() {
 
       {/* Custom Themed Alert Modal */}
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </View>
+    </Screen>
   );
 }
 
 const createStyles = (theme: any) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.background },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 16, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
     backButton: { padding: 4 },
     headerCenter: { alignItems: 'center' },
     headerTitle: { fontSize: 18, fontWeight: '800', color: theme.colors.secondary },
@@ -261,38 +260,38 @@ const createStyles = (theme: any) =>
 
     scrollContent: { padding: 20, paddingBottom: 40 },
     heroBanner: { height: 180, borderRadius: 20, overflow: 'hidden', marginBottom: 24 },
-    heroOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.55)', padding: 20, justifyContent: 'center' },
+    heroOverlay: { flex: 1, backgroundColor: theme.colors.overlay, padding: 20, justifyContent: 'center' },
     heroIcon: { marginBottom: 6 },
-    heroTitle: { fontSize: 24, fontWeight: '900', color: '#ffffff' },
-    heroText: { fontSize: 13, color: '#cbd5e1', marginTop: 4, maxWidth: '85%' },
+    heroTitle: { fontSize: 24, fontWeight: '900', color: theme.colors.textInverse },
+    heroText: { fontSize: 13, color: theme.colors.textMuted, marginTop: 4, maxWidth: '85%' },
 
     sectionTitle: { fontSize: 18, fontWeight: '800', color: theme.colors.text, marginBottom: 14 },
     treatmentsContainer: { gap: 14 },
     treatmentCard: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 1, borderColor: theme.colors.border, elevation: 2 },
-    iconContainer: { width: 50, height: 50, borderRadius: 25, backgroundColor: 'rgba(129, 178, 154, 0.15)', justifyContent: 'center', alignItems: 'center' },
+    iconContainer: { width: 50, height: 50, borderRadius: 25, backgroundColor: theme.colors.successSoft, justifyContent: 'center', alignItems: 'center' },
     treatmentInfo: { flex: 1 },
     treatmentName: { fontSize: 15, fontWeight: '800', color: theme.colors.text },
     treatmentDesc: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2, lineHeight: 16 },
     treatmentMeta: { flexDirection: 'row', gap: 12, marginTop: 8 },
     treatmentDuration: { fontSize: 12, color: theme.colors.textMuted, fontWeight: '600' },
-    treatmentPrice: { fontSize: 13, color: '#81b29a', fontWeight: '800' },
+    treatmentPrice: { fontSize: 13, color: theme.colors.success, fontWeight: '800' },
 
     bookButton: { backgroundColor: theme.colors.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
     bookButtonText: { color: theme.colors.textInverse, fontSize: 13, fontWeight: '800' },
 
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+    modalOverlay: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
     bottomSheet: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
     modalTitle: { fontSize: 18, fontWeight: '800', color: theme.colors.text },
-    modalPriceText: { fontSize: 14, fontWeight: '700', color: '#81b29a', marginBottom: 16 },
+    modalPriceText: { fontSize: 14, fontWeight: '700', color: theme.colors.success, marginBottom: 16 },
 
     inputLabel: { fontSize: 12, fontWeight: '700', color: theme.colors.textMuted, marginBottom: 6 },
     input: { backgroundColor: theme.colors.background, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: theme.colors.text, marginBottom: 14, borderWidth: 1, borderColor: theme.colors.border },
 
-    confirmButton: { backgroundColor: '#81b29a', paddingVertical: 14, borderRadius: 14, alignItems: 'center', marginTop: 8 },
-    confirmButtonText: { color: '#ffffff', fontSize: 15, fontWeight: '800' },
+    confirmButton: { backgroundColor: theme.colors.success, paddingVertical: 14, borderRadius: 14, alignItems: 'center', marginTop: 8 },
+    confirmButtonText: { color: theme.colors.textInverse, fontSize: 15, fontWeight: '800' },
 
-    successOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+    successOverlay: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'center', alignItems: 'center', padding: 20 },
     successCard: { backgroundColor: theme.colors.surface, borderRadius: 24, padding: 28, alignItems: 'center', width: '90%' },
     successTitle: { fontSize: 20, fontWeight: '900', color: theme.colors.text, marginTop: 12 },
     successSub: { fontSize: 13, color: theme.colors.textMuted, textAlign: 'center', marginTop: 6, lineHeight: 18 },

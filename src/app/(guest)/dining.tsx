@@ -9,12 +9,13 @@ import {
   ActivityIndicator,
   Image,
   Modal,
-  Alert,
-  useColorScheme
+  Alert
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
+import { EmptyState, ListSkeleton } from '@/components/ui/states';
 
 // Firebase Imports
 import { auth, db, rtdb } from '../../services/firebase-services';
@@ -98,8 +99,7 @@ export default function DiningScreen() {
 
   const user = auth.currentUser;
 
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
   
   useEffect(() => {
@@ -240,15 +240,15 @@ export default function DiningScreen() {
 
   if (isLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+      <View style={[styles.loadingContainer, { paddingHorizontal: 20 }]}>
+        <ListSkeleton rows={3} style={{ width: '100%' }} />
         <Text style={styles.loadingText}>Loading Menu...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <Screen scroll={false} padded={false}>
       
       {/* HEADER */}
       <View style={styles.header}>
@@ -369,6 +369,9 @@ export default function DiningScreen() {
             </View>
           );
         })}
+        {Object.keys(menu).length === 0 && (
+          <EmptyState icon="restaurant-outline" title="Menu unavailable" message="The dining menu could not be loaded right now. Please try again later." />
+        )}
       </ScrollView>
 
       {/* CART MODAL (BOTTOM SHEET STYLE) */}
@@ -502,7 +505,7 @@ export default function DiningScreen() {
         </View>
       </Modal>
 
-    </View>
+    </Screen>
   );
 }
 
@@ -589,7 +592,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   typeButtonActive: {
     backgroundColor: theme.colors.secondary,
-    shadowColor: '#000',
+    shadowColor: theme.colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -672,7 +675,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     borderRadius: 16,
     marginBottom: 12,
     overflow: 'hidden',
-    shadowColor: '#000',
+    shadowColor: theme.colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
@@ -734,12 +737,12 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'flex-end',
   },
   modalOverlayCenter: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,

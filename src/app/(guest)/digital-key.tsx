@@ -7,7 +7,6 @@ import {
   ActivityIndicator,
   Platform,
   ScrollView,
-  useColorScheme,
   Animated,
   Easing,
 } from 'react-native';
@@ -20,7 +19,8 @@ import {
   readRoomKey,
   isRoomKeyActive,
 } from '@/services/room-key-nfc';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import { useAuth } from '@/context/AuthContext';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 
@@ -39,8 +39,7 @@ const getLocalAuth = async () => {
 export default function DigitalKeyScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
 
   const bookingId = (params.bookingId as string) || 'DEMO-ROOM-101';
@@ -316,7 +315,7 @@ export default function DigitalKeyScreen() {
   if (isVisitor) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-        <Ionicons name="lock-closed-outline" size={64} color="#c9a227" />
+        <Ionicons name="lock-closed-outline" size={64} color={theme.colors.gold} />
         <Text style={{ fontSize: 22, fontWeight: '900', color: theme.colors.text, marginTop: 16, textAlign: 'center' }}>
           Digital Key Locked
         </Text>
@@ -334,11 +333,11 @@ export default function DigitalKeyScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <Screen scroll={false} padded={false}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={26} color="#fff" />
+          <Ionicons name="chevron-back" size={26} color={theme.colors.textInverse} />
         </TouchableOpacity>
         <Text style={styles.title}>Digital Room Key</Text>
         <View style={{ width: 34 }} />
@@ -349,7 +348,7 @@ export default function DigitalKeyScreen() {
         <View style={styles.keyCard}>
           <View style={styles.keyHeader}>
             <View style={styles.resortPill}>
-              <Ionicons name="star" size={12} color="#c9a227" />
+              <Ionicons name="star" size={12} color={theme.colors.gold} />
               <Text style={styles.resortPillText}>AZURE HORIZON RESORT</Text>
             </View>
             <Text style={styles.roomName}>{roomName}</Text>
@@ -368,7 +367,7 @@ export default function DigitalKeyScreen() {
           </View>
 
           {loading ? (
-            <ActivityIndicator size="large" color="#c9a227" style={styles.loading} />
+            <ActivityIndicator size="large" color={theme.colors.gold} style={styles.loading} />
           ) : (
             <View style={styles.nfcSection}>
               {/* ANIMATED PULSING RADAR RINGS */}
@@ -379,7 +378,7 @@ export default function DigitalKeyScreen() {
                     {
                       transform: [{ scale: pulseAnim1 }],
                       opacity: pulseOpacity1,
-                      borderColor: unlocked ? theme.colors.success : readingTag ? theme.colors.primary : keyActive ? theme.colors.success : 'rgba(255,255,255,0.2)',
+                      borderColor: unlocked ? theme.colors.success : readingTag ? theme.colors.primary : keyActive ? theme.colors.success : theme.colors.border,
                     },
                   ]}
                 />
@@ -395,7 +394,7 @@ export default function DigitalKeyScreen() {
                   <Ionicons
                     name={unlocked ? 'key-sharp' : readingTag ? 'wifi-sharp' : keyActive ? 'key-sharp' : 'lock-closed-sharp'}
                     size={46}
-                    color={unlocked ? theme.colors.success : readingTag ? theme.colors.primary : keyActive ? theme.colors.success : '#ffffff'}
+                    color={unlocked ? theme.colors.success : readingTag ? theme.colors.primary : keyActive ? theme.colors.success : theme.colors.textInverse}
                   />
                 </TouchableOpacity>
               </View>
@@ -506,13 +505,13 @@ export default function DigitalKeyScreen() {
                   activeOpacity={0.8}
                 >
                   {loading ? (
-                    <ActivityIndicator color="#0f172a" />
+                    <ActivityIndicator color={theme.colors.text} />
                   ) : (
                     <>
                       <Ionicons
                         name={keyActive ? 'checkmark-circle' : 'finger-print'}
                         size={22}
-                        color="#0f172a"
+                        color={theme.colors.text}
                         style={{ marginRight: 8 }}
                       />
                       <Text style={styles.unlockBtnText}>
@@ -536,9 +535,9 @@ export default function DigitalKeyScreen() {
                     activeOpacity={0.8}
                   >
                     {readingTag ? (
-                      <ActivityIndicator color="#c9a227" style={{ marginRight: 8 }} />
+                      <ActivityIndicator color={theme.colors.gold} style={{ marginRight: 8 }} />
                     ) : (
-                      <Ionicons name="wifi-outline" size={20} color="#c9a227" style={{ marginRight: 8 }} />
+                      <Ionicons name="wifi-outline" size={20} color={theme.colors.gold} style={{ marginRight: 8 }} />
                     )}
                     <Text style={styles.nfcScanBtnText}>
                       {readingTag ? 'Listening — Tap Key Phone to this Phone...' : 'Hold Phone Near NFC Reader'}
@@ -547,7 +546,7 @@ export default function DigitalKeyScreen() {
                 )}
                 {!nfcUsable && (
                   <View style={styles.noNfcNote}>
-                    <Ionicons name="phone-portrait-outline" size={16} color="#94a3b8" style={{ marginRight: 8 }} />
+                    <Ionicons name="phone-portrait-outline" size={16} color={theme.colors.textMuted} style={{ marginRight: 8 }} />
                     <Text style={styles.noNfcNoteText}>
                       This device has no NFC — tap the ring to verify your key and open the door.
                     </Text>
@@ -559,7 +558,7 @@ export default function DigitalKeyScreen() {
 
           {/* Security details footer */}
           <View style={styles.securityInfo}>
-            <Ionicons name="shield-checkmark-sharp" size={18} color="#16a34a" style={{ marginRight: 8 }} />
+            <Ionicons name="shield-checkmark-sharp" size={18} color={theme.colors.success} style={{ marginRight: 8 }} />
             <Text style={styles.securityText}>
               Random 192-bit token · SHA-256 verified against Firestore · Auto-expires after 12 hours
             </Text>
@@ -573,7 +572,7 @@ export default function DigitalKeyScreen() {
 
       {/* Custom Themed Alert */}
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </View>
+    </Screen>
   );
 }
 
@@ -587,19 +586,19 @@ const createStyles = (theme: any) =>
       paddingTop: 56,
       paddingHorizontal: 20,
       paddingBottom: 16,
-      backgroundColor: '#1e293b',
+      backgroundColor: theme.colors.cameraBackdrop,
     },
     backButton: { padding: 4 },
-    title: { fontSize: 20, fontWeight: '800', color: '#fff' },
+    title: { fontSize: 20, fontWeight: '800', color: theme.colors.textInverse },
     content: { padding: 20, paddingBottom: 40 },
     
     keyCard: {
-      backgroundColor: '#1e293b',
+      backgroundColor: theme.colors.cameraBackdrop,
       borderRadius: 28,
       padding: 24,
       borderWidth: 1.5,
       borderColor: theme.colors.primary,
-      shadowColor: '#000',
+      shadowColor: theme.colors.shadow,
       shadowOffset: { width: 0, height: 10 },
       shadowOpacity: 0.4,
       shadowRadius: 20,
@@ -610,14 +609,14 @@ const createStyles = (theme: any) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
-      backgroundColor: 'rgba(201,162,39,0.15)',
+      backgroundColor: theme.colors.warningSoft,
       paddingHorizontal: 12,
       paddingVertical: 4,
       borderRadius: 20,
       marginBottom: 8,
     },
     resortPillText: { color: theme.colors.primary, fontWeight: '800', fontSize: 11, letterSpacing: 1 },
-    roomName: { color: '#ffffff', fontSize: 26, fontWeight: '900', textAlign: 'center' },
+    roomName: { color: theme.colors.textInverse, fontSize: 26, fontWeight: '900', textAlign: 'center' },
     
     keyDates: {
       flexDirection: 'row',
@@ -626,12 +625,12 @@ const createStyles = (theme: any) =>
       paddingVertical: 14,
       borderTopWidth: 1,
       borderBottomWidth: 1,
-      borderColor: 'rgba(255,255,255,0.1)',
+      borderColor: theme.colors.border,
     },
     dateItem: { flex: 1, alignItems: 'center' },
     dateLabel: { color: theme.colors.textMuted, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 },
-    dateValue: { color: '#ffffff', fontSize: 15, fontWeight: '700' },
-    dateDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.1)' },
+    dateValue: { color: theme.colors.textInverse, fontSize: 15, fontWeight: '700' },
+    dateDivider: { width: 1, backgroundColor: theme.colors.border },
     
     nfcSection: { alignItems: 'center' },
     pulseContainer: {
@@ -654,15 +653,15 @@ const createStyles = (theme: any) =>
       borderRadius: 50,
       backgroundColor: theme.colors.text,
       borderWidth: 2,
-      borderColor: 'rgba(255,255,255,0.3)',
+      borderColor: theme.colors.borderStrong,
       alignItems: 'center',
       justifyContent: 'center',
       elevation: 6,
     },
-    nfcRingActive: { borderColor: theme.colors.primary, backgroundColor: 'rgba(201,162,39,0.15)' },
-    nfcRingUnlocked: { borderColor: theme.colors.success, backgroundColor: 'rgba(22,163,74,0.15)' },
+    nfcRingActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.warningSoft },
+    nfcRingUnlocked: { borderColor: theme.colors.success, backgroundColor: theme.colors.successSoft },
     
-    nfcText: { color: '#ffffff', fontSize: 18, fontWeight: '800', marginBottom: 4, textAlign: 'center' },
+    nfcText: { color: theme.colors.textInverse, fontSize: 18, fontWeight: '800', marginBottom: 4, textAlign: 'center' },
     nfcSubtext: { color: theme.colors.textMuted, fontSize: 12, marginBottom: 20, textAlign: 'center' },
     
     hardwareRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
@@ -674,8 +673,8 @@ const createStyles = (theme: any) =>
       paddingVertical: 6,
       borderRadius: 20,
     },
-    chipSuccess: { backgroundColor: '#dcfce7' },
-    chipWarning: { backgroundColor: '#fef3c7' },
+    chipSuccess: { backgroundColor: theme.colors.successSoft },
+    chipWarning: { backgroundColor: theme.colors.warningSoft },
     chipText: { fontSize: 11, fontWeight: '700' },
     
     buttonStack: { width: '100%', gap: 12 },
@@ -698,7 +697,7 @@ const createStyles = (theme: any) =>
       justifyContent: 'center',
       paddingVertical: 14,
       borderRadius: 14,
-      backgroundColor: 'rgba(201,162,39,0.05)',
+      backgroundColor: theme.colors.warningSoft,
     },
     nfcScanBtnText: { color: theme.colors.primary, fontWeight: '700', fontSize: 14 },
     noNfcNote: {
@@ -708,7 +707,7 @@ const createStyles = (theme: any) =>
       paddingVertical: 10,
       paddingHorizontal: 14,
       borderRadius: 12,
-      backgroundColor: 'rgba(148,163,184,0.12)',
+      backgroundColor: theme.colors.surfaceVariant,
     },
     noNfcNoteText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600', flex: 1, lineHeight: 17 },
     
@@ -718,7 +717,7 @@ const createStyles = (theme: any) =>
       marginTop: 20,
       paddingTop: 16,
       borderTopWidth: 1,
-      borderColor: 'rgba(255,255,255,0.1)',
+      borderColor: theme.colors.border,
     },
     securityText: { color: theme.colors.textMuted, fontSize: 11, flex: 1, lineHeight: 16 },
     loading: { marginVertical: 40 },

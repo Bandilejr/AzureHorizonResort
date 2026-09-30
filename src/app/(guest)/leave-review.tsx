@@ -1,21 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, ActivityIndicator, TextInput, useColorScheme } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, ActivityIndicator, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { auth, db } from '@/services/firebase-services';
 import { collection, query, orderBy, limit, onSnapshot, addDoc, getDocs, where } from 'firebase/firestore';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
+import { EmptyState, ListSkeleton } from '@/components/ui/states';
+import { lightColors } from '@/design/tokens';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 
 // Mirrors the web Leave a Review page (app/src/components/guest/Feedback.tsx):
 // same categories, same eligibility rules, and the SAME 'reviews' collection —
 // a review written on mobile appears in the web community feed instantly, and vice versa.
 const CATEGORIES = [
-  { id: 'room', label: 'Room & Stay', icon: 'bed', color: '#3b82f6' },
-  { id: 'restaurant', label: 'Dining', icon: 'restaurant', color: '#f97316' },
-  { id: 'tour', label: 'Tours & Excursions', icon: 'boat', color: '#f59e0b' },
-  { id: 'spa', label: 'Spa Services', icon: 'leaf', color: '#a855f7' },
-  { id: 'event', label: 'Event Venue', icon: 'calendar', color: '#ef4444' },
+  { id: 'room', label: 'Room & Stay', icon: 'bed', color: lightColors.info },
+  { id: 'restaurant', label: 'Dining', icon: 'restaurant', color: lightColors.warning },
+  { id: 'tour', label: 'Tours & Excursions', icon: 'boat', color: lightColors.warning },
+  { id: 'spa', label: 'Spa Services', icon: 'leaf', color: lightColors.primary },
+  { id: 'event', label: 'Event Venue', icon: 'calendar', color: lightColors.error },
 ];
 
 const CATEGORY_MAP: Record<string, typeof CATEGORIES[0]> = {};
@@ -48,7 +51,7 @@ function getInitials(name: string): string {
   return name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2) || 'G';
 }
 
-const AVATAR_COLORS = ['#3b82f6', '#10b981', '#8b5cf6', '#f43f5e', '#f59e0b', '#06b6d4', '#6366f1', '#ec4899'];
+const AVATAR_COLORS = [lightColors.info, lightColors.success, lightColors.primary, lightColors.error, lightColors.warning, lightColors.accent, lightColors.primaryPressed, lightColors.errorStrong];
 function getAvatarColor(name: string): string {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
@@ -57,8 +60,7 @@ function getAvatarColor(name: string): string {
 
 export default function LeaveReviewScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
 
   const [activeTab, setActiveTab] = useState<'browse' | 'write'>('browse');
@@ -174,7 +176,7 @@ export default function LeaveReviewScreen() {
     : '0.0';
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <Screen scroll contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
@@ -222,12 +224,9 @@ export default function LeaveReviewScreen() {
       {activeTab === 'browse' && (
         <View>
           {loadingReviews ? (
-            <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 40 }} />
+            <ListSkeleton rows={3} />
           ) : reviews.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Ionicons name="chatbubbles-outline" size={44} color={theme.colors.textMuted} />
-              <Text style={styles.emptyText}>No reviews yet — be the first to share your experience!</Text>
-            </View>
+            <EmptyState icon="chatbubbles-outline" title="No reviews yet" message="Be the first to share your experience!" />
           ) : (
             reviews.map((review) => {
               const cat = CATEGORY_MAP[review.category];
@@ -255,7 +254,7 @@ export default function LeaveReviewScreen() {
                         key={s}
                         name={s <= Number(review.rating) ? 'star' : 'star-outline'}
                         size={16}
-                        color={s <= Number(review.rating) ? '#f59e0b' : theme.colors.borderStrong}
+                        color={s <= Number(review.rating) ? theme.colors.warning : theme.colors.borderStrong}
                       />
                     ))}
                     <Text style={styles.ratingLabelText}>{RATING_LABELS[Number(review.rating)] || ''}</Text>
@@ -288,7 +287,7 @@ export default function LeaveReviewScreen() {
             <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 24 }} />
           ) : eligibleCategories.size === 0 ? (
             <View style={styles.noServicesBox}>
-              <Ionicons name="lock-closed" size={32} color="#d97706" />
+              <Ionicons name="lock-closed" size={32} color={theme.colors.warning} />
               <Text style={styles.noServicesTitle}>No Services Used Yet</Text>
               <Text style={styles.noServicesText}>{`You can only review services you've actually booked — a room stay, dining order, tour, spa treatment, or event venue.`}</Text>
             </View>
@@ -331,7 +330,7 @@ export default function LeaveReviewScreen() {
                 <Ionicons
                   name={star <= rating ? 'star' : 'star-outline'}
                   size={40}
-                  color={star <= rating ? '#f59e0b' : theme.colors.borderStrong}
+                  color={star <= rating ? theme.colors.warning : theme.colors.borderStrong}
                 />
               </TouchableOpacity>
             ))}
@@ -359,7 +358,7 @@ export default function LeaveReviewScreen() {
       )}
 
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </ScrollView>
+    </Screen>
   );
 }
 
@@ -383,7 +382,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   reviewCard: { backgroundColor: theme.colors.surface, borderRadius: 14, padding: 16, marginBottom: 12 },
   reviewHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
   avatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
+  avatarText: { color: theme.colors.textInverse, fontWeight: 'bold', fontSize: 14 },
   reviewerName: { fontSize: 14, fontWeight: '600', color: theme.colors.text },
   reviewTime: { fontSize: 11, color: theme.colors.textMuted, marginTop: 1 },
   categoryPill: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },

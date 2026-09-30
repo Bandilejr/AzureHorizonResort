@@ -8,12 +8,12 @@ import {
   ActivityIndicator,
   Modal,
   Alert,
-  ImageBackground,
-  useColorScheme
+  ImageBackground
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 
 // Firebase Imports
@@ -68,8 +68,7 @@ const availableTours = [
 
 export default function ToursScreen() {
   // 1. Added State for Tours List to allow local capacity updates
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
   
   const [toursList, setToursList] = useState(availableTours);
@@ -226,7 +225,7 @@ export default function ToursScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <Screen scroll={false} padded={false}>
       
       {/* HEADER */}
       <View style={styles.header}>
@@ -418,7 +417,7 @@ export default function ToursScreen() {
 
       {/* Custom Themed Alert Modal */}
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </View>
+    </Screen>
   );
 }
 
@@ -477,7 +476,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     marginVertical: 10,
     borderRadius: 20,
     overflow: 'hidden',
-    shadowColor: '#000',
+    shadowColor: theme.colors.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 12,
@@ -557,7 +556,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'flex-end',
   },
   bottomSheet: {
@@ -758,7 +757,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   modalOverlayCenter: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,

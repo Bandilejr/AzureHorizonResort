@@ -53,10 +53,19 @@ for (const f of files) {
   if (c > 0) colors.push({ file: rel(f), count: c });
   if (SHIM.test(src)) shim.push(rel(f));
   const isApp = f.includes(path.join('src', 'app'));
-  // A thin wrapper that re-exports or delegates to a *Screen component is fine.
-  const delegates = /export\s*\{\s*default\s*\}|<[A-Z][A-Za-z]*Screen[\s/>]/.test(src);
-  if (isApp && !delegates && !/<Screen[\s>]|<AppShell[\s>]/.test(src)) noRoot.push(rel(f));
-  if (isApp && LISTY.test(src) && !(/ListSkeleton|<Skeleton|EmptyState|ErrorState/.test(src))) weakLists.push(rel(f));
+  const base = path.basename(f);
+  // Navigators, redirects, and delegating wrappers are not leaf screens.
+  const isNavigator = base === '_layout.tsx' || base === '+not-found.tsx';
+  const delegates = /export\s*\{\s*default\s*\}|<[A-Z][A-Za-z]*Screen[\s/>]|<NotificationsList[\s/>]|<Redirect[\s/>]/.test(src);
+  if (isApp && !isNavigator && !delegates && !/<Screen[\s>]|<AppShell[\s>]/.test(src)) noRoot.push(rel(f));
+  // A "list screen" fetches a collection AND renders items with a loading state.
+  // Form/checkout screens (submit handler + TextInput) are not list screens.
+  const isForm = /handleSubmit|onSubmit|handlePay|handleSend|handleRegister/.test(src) && /TextInput/.test(src);
+  const isList = !isForm
+    && LISTY.test(src)
+    && /onSnapshot|getDocs|getDoc|listen[A-Z]/.test(src)
+    && /ActivityIndicator|isLoading|\bloading\b/.test(src);
+  if (isApp && isList && !(/ListSkeleton|<Skeleton|EmptyState|ErrorState/.test(src))) weakLists.push(rel(f));
 }
 
 const totalColorFiles = colors.length;

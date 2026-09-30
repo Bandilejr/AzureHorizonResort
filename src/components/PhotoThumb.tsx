@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Image, View, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useAppTheme } from '@/design/use-app-theme';
 
 interface PhotoThumbProps {
   uri: string | null | undefined;
@@ -21,10 +22,12 @@ export default function PhotoThumb({
   uri,
   size = 72,
   borderRadius = 8,
-  borderColor = 'rgba(148,163,184,0.3)',
+  borderColor,
   label,
 }: PhotoThumbProps) {
+  const theme = useAppTheme();
   const [failed, setFailed] = useState(false);
+  const border = borderColor ?? theme.colors.border;
 
   const raw = typeof uri === 'string' ? uri : '';
   if (!raw) {
@@ -35,13 +38,13 @@ export default function PhotoThumb({
           height: size,
           borderRadius,
           borderWidth: 1,
-          borderColor,
-          backgroundColor: 'rgba(148,163,184,0.12)',
+          borderColor: border,
+          backgroundColor: theme.colors.surfaceVariant,
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        <Ionicons name="image-outline" size={Math.round(size * 0.35)} color="#94a3b8" />
+        <Ionicons name="image-outline" size={Math.round(size * 0.35)} color={theme.colors.textMuted} />
       </View>
     );
   }
@@ -58,18 +61,18 @@ export default function PhotoThumb({
           height: size,
           borderRadius,
           borderWidth: 1,
-          borderColor,
-          backgroundColor: 'rgba(148,163,184,0.12)',
+          borderColor: border,
+          backgroundColor: theme.colors.surfaceVariant,
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        <Ionicons name="image-outline" size={Math.round(size * 0.35)} color="#94a3b8" />
+        <Ionicons name="image-outline" size={Math.round(size * 0.35)} color={theme.colors.textMuted} />
         {label ? (
           <Text
             numberOfLines={1}
             style={{
-              color: '#94a3b8',
+              color: theme.colors.textMuted,
               fontSize: Math.max(9, Math.round(size * 0.14)),
               marginTop: 2,
               paddingHorizontal: 4,

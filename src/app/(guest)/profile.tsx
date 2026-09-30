@@ -8,7 +8,6 @@ import {
   Switch,
   ActivityIndicator,
   StyleSheet,
-  useColorScheme,
   Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -17,13 +16,13 @@ import { useAuth } from '@/context/AuthContext';
 import { useTranslation } from '@/i18n/hooks';
 import { db } from '@/services/firebase-services';
 import { doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
   const { user, profile, refreshProfile, signOut, isGuest } = useAuth();
   const { language, setLanguage } = useTranslation();
@@ -206,7 +205,7 @@ export default function ProfileScreen() {
     return (
       <View style={styles.lockedContainer}>
         <View style={styles.lockedIconBadge}>
-          <Ionicons name="lock-closed" size={48} color="#c9a227" />
+          <Ionicons name="lock-closed" size={48} color={theme.colors.gold} />
         </View>
         <Text style={styles.lockedTitle}>Profile & Account Settings Locked</Text>
         <Text style={styles.lockedSubtitle}>
@@ -214,7 +213,7 @@ export default function ProfileScreen() {
         </Text>
 
         <TouchableOpacity style={styles.lockedSignInBtn} onPress={() => router.push('/login')} activeOpacity={0.8}>
-          <Ionicons name="log-in-outline" size={20} color="#0f172a" />
+          <Ionicons name="log-in-outline" size={20} color={theme.colors.text} />
           <Text style={styles.lockedSignInBtnText}>Sign In to Your Stay</Text>
         </TouchableOpacity>
 
@@ -226,7 +225,7 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <Screen scroll contentContainerStyle={styles.content}>
       {/* Header Row */}
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
@@ -241,14 +240,14 @@ export default function ProfileScreen() {
       {/* User Banner */}
       <View style={styles.userCard}>
         <View style={styles.avatarContainer}>
-          <Ionicons name="person" size={44} color="#c9a227" />
+          <Ionicons name="person" size={44} color={theme.colors.gold} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.userName}>{profile?.displayName || user?.displayName || 'Resort Guest'}</Text>
           <Text style={styles.userEmail}>{user?.email || profile?.email || 'Registered Guest'}</Text>
 
           <View style={styles.statusPill}>
-            <Ionicons name="shield-checkmark-sharp" size={12} color="#16a34a" />
+            <Ionicons name="shield-checkmark-sharp" size={12} color={theme.colors.success} />
             <Text style={styles.statusPillText}>
               Verified Resident (Room {roomNumber || profile?.roomNumber || '101'})
             </Text>
@@ -336,7 +335,7 @@ export default function ProfileScreen() {
           </View>
 
           <TouchableOpacity style={styles.saveBtn} onPress={handleSaveDetails} disabled={isSaving} activeOpacity={0.8}>
-            {isSaving ? <ActivityIndicator color="#0f172a" /> : <Text style={styles.saveBtnText}>Save Profile Changes</Text>}
+            {isSaving ? <ActivityIndicator color={theme.colors.text} /> : <Text style={styles.saveBtnText}>Save Profile Changes</Text>}
           </TouchableOpacity>
         </View>
       )}
@@ -354,7 +353,7 @@ export default function ProfileScreen() {
             <Switch
               value={notificationsEnabled}
               onValueChange={setNotificationsEnabled}
-              trackColor={{ false: '#334155', true: theme.colors.primary }}
+              trackColor={{ false: theme.colors.cameraBackdrop, true: theme.colors.primary }}
               thumbColor={notificationsEnabled ? theme.colors.text : theme.colors.textMuted}
             />
           </View>
@@ -367,7 +366,7 @@ export default function ProfileScreen() {
             <Switch
               value={biometricsEnabled}
               onValueChange={setBiometricsEnabled}
-              trackColor={{ false: '#334155', true: theme.colors.primary }}
+              trackColor={{ false: theme.colors.cameraBackdrop, true: theme.colors.primary }}
               thumbColor={biometricsEnabled ? theme.colors.text : theme.colors.textMuted}
             />
           </View>
@@ -378,7 +377,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut} activeOpacity={0.8}>
-            <Ionicons name="log-out-outline" size={18} color="#ef4444" />
+            <Ionicons name="log-out-outline" size={18} color={theme.colors.error} />
             <Text style={styles.signOutBtnText}>Sign Out of Account</Text>
           </TouchableOpacity>
         </View>
@@ -393,7 +392,7 @@ export default function ProfileScreen() {
           {savedCard ? (
             <View style={styles.cardItem}>
               <View style={styles.cardHeader}>
-                <Ionicons name="card" size={28} color="#c9a227" />
+                <Ionicons name="card" size={28} color={theme.colors.gold} />
                 <Text style={styles.cardBrand}>{savedCard.brand}</Text>
               </View>
               <Text style={styles.cardNumber}>•••• •••• •••• {savedCard.last4}</Text>
@@ -407,7 +406,7 @@ export default function ProfileScreen() {
           )}
 
           <TouchableOpacity style={styles.addCardBtn} onPress={() => setShowAddCardModal(true)} activeOpacity={0.8}>
-            <Ionicons name="add-circle-outline" size={20} color="#0f172a" />
+            <Ionicons name="add-circle-outline" size={20} color={theme.colors.text} />
             <Text style={styles.addCardBtnText}>Add / Update Card</Text>
           </TouchableOpacity>
         </View>
@@ -422,7 +421,7 @@ export default function ProfileScreen() {
             <TextInput
               style={styles.fieldInput}
               placeholder="4000 0000 0000 0000"
-              placeholderTextColor="#64748b"
+              placeholderTextColor={theme.colors.textMuted}
               keyboardType="number-pad"
               maxLength={19}
               value={newCardNumber}
@@ -432,7 +431,7 @@ export default function ProfileScreen() {
             <TextInput
               style={styles.fieldInput}
               placeholder="e.g. John Doe"
-              placeholderTextColor="#64748b"
+              placeholderTextColor={theme.colors.textMuted}
               value={newCardHolder}
               onChangeText={setNewCardHolder}
             />
@@ -440,7 +439,7 @@ export default function ProfileScreen() {
             <TextInput
               style={styles.fieldInput}
               placeholder="12/28"
-              placeholderTextColor="#64748b"
+              placeholderTextColor={theme.colors.textMuted}
               maxLength={5}
               value={newCardExpiry}
               onChangeText={setNewCardExpiry}
@@ -466,7 +465,7 @@ export default function ProfileScreen() {
             <TextInput
               style={styles.fieldInput}
               placeholder="Current Password"
-              placeholderTextColor="#64748b"
+              placeholderTextColor={theme.colors.textMuted}
               secureTextEntry
               value={currentPass}
               onChangeText={setCurrentPass}
@@ -474,7 +473,7 @@ export default function ProfileScreen() {
             <TextInput
               style={styles.fieldInput}
               placeholder="New Password"
-              placeholderTextColor="#64748b"
+              placeholderTextColor={theme.colors.textMuted}
               secureTextEntry
               value={newPass}
               onChangeText={setNewPass}
@@ -482,7 +481,7 @@ export default function ProfileScreen() {
             <TextInput
               style={styles.fieldInput}
               placeholder="Confirm New Password"
-              placeholderTextColor="#64748b"
+              placeholderTextColor={theme.colors.textMuted}
               secureTextEntry
               value={confirmPass}
               onChangeText={setConfirmPass}
@@ -501,7 +500,7 @@ export default function ProfileScreen() {
 
       {/* Custom Alert */}
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((prev) => ({ ...prev, visible: false }))} />
-    </ScrollView>
+    </Screen>
   );
 }
 
@@ -515,7 +514,7 @@ const createStyles = (theme: any) =>
     subtitle: { fontSize: 13, color: theme.colors.textSecondary, marginTop: 2 },
 
     lockedContainer: { flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 },
-    lockedIconBadge: { width: 88, height: 88, borderRadius: 44, backgroundColor: 'rgba(201, 162, 39, 0.15)', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+    lockedIconBadge: { width: 88, height: 88, borderRadius: 44, backgroundColor: theme.colors.warningSoft, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
     lockedTitle: { fontSize: 22, fontWeight: '800', color: theme.colors.text, textAlign: 'center' },
     lockedSubtitle: { fontSize: 14, color: theme.colors.textSecondary, textAlign: 'center', marginTop: 8, marginBottom: 28, lineHeight: 20 },
     lockedSignInBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, width: '100%', justifyContent: 'center' },
@@ -524,10 +523,10 @@ const createStyles = (theme: any) =>
     lockedBackBtnText: { color: theme.colors.textMuted, fontSize: 14, fontWeight: '600' },
 
     userCard: { backgroundColor: theme.colors.surface, borderRadius: 24, padding: 20, flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 16, borderWidth: 1, borderColor: theme.colors.primary },
-    avatarContainer: { width: 68, height: 68, borderRadius: 34, backgroundColor: 'rgba(201, 162, 39, 0.15)', justifyContent: 'center', alignItems: 'center' },
+    avatarContainer: { width: 68, height: 68, borderRadius: 34, backgroundColor: theme.colors.warningSoft, justifyContent: 'center', alignItems: 'center' },
     userName: { fontSize: 20, fontWeight: '800', color: theme.colors.text },
     userEmail: { fontSize: 13, color: theme.colors.textMuted, marginTop: 2 },
-    statusPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(22, 163, 74, 0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, alignSelf: 'flex-start', marginTop: 8 },
+    statusPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.colors.successSoft, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, alignSelf: 'flex-start', marginTop: 8 },
     statusPillText: { color: theme.colors.success, fontSize: 12, fontWeight: '700' },
 
     tabSwitcher: { flexDirection: 'row', backgroundColor: theme.colors.surfaceVariant, borderRadius: 16, padding: 4, marginBottom: 20 },
@@ -558,27 +557,27 @@ const createStyles = (theme: any) =>
 
     outlineBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: theme.colors.primary, borderRadius: 14, paddingVertical: 14, marginTop: 20 },
     outlineBtnText: { color: theme.colors.primary, fontWeight: '700', fontSize: 14 },
-    signOutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 14, paddingVertical: 14, marginTop: 12 },
-    signOutBtnText: { color: '#ef4444', fontWeight: '800', fontSize: 14 },
+    signOutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: theme.colors.errorSoft, borderRadius: 14, paddingVertical: 14, marginTop: 12 },
+    signOutBtnText: { color: theme.colors.error, fontWeight: '800', fontSize: 14 },
 
     cardItem: { backgroundColor: theme.colors.text, borderRadius: 20, padding: 20, borderWidth: 1.5, borderColor: theme.colors.primary, marginBottom: 16 },
     cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    cardBrand: { color: '#ffffff', fontWeight: '800', fontSize: 16 },
-    cardNumber: { color: '#ffffff', fontSize: 20, fontWeight: '900', letterSpacing: 3, marginVertical: 20 },
+    cardBrand: { color: theme.colors.textInverse, fontWeight: '800', fontSize: 16 },
+    cardNumber: { color: theme.colors.textInverse, fontSize: 20, fontWeight: '900', letterSpacing: 3, marginVertical: 20 },
     cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    cardHolder: { color: '#cbd5e1', fontSize: 13, fontWeight: '600' },
+    cardHolder: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '600' },
     cardExpiry: { color: theme.colors.primary, fontSize: 13, fontWeight: '700' },
     emptyText: { color: theme.colors.textMuted, fontStyle: 'italic', marginVertical: 12 },
 
     addCardBtn: { backgroundColor: theme.colors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, paddingVertical: 14, marginTop: 12 },
     addCardBtnText: { color: theme.colors.text, fontWeight: '800', fontSize: 14 },
 
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+    modalOverlay: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'center', alignItems: 'center', padding: 20 },
     modalContent: { width: '100%', maxWidth: 360, backgroundColor: theme.colors.text, borderRadius: 24, padding: 24, borderWidth: 1.5, borderColor: theme.colors.primary },
-    modalTitle: { fontSize: 20, fontWeight: '800', color: '#fff', marginBottom: 16, textAlign: 'center' },
+    modalTitle: { fontSize: 20, fontWeight: '800', color: theme.colors.textInverse, marginBottom: 16, textAlign: 'center' },
     modalBtnRow: { flexDirection: 'row', gap: 10, marginTop: 20 },
     modalSaveBtn: { flex: 1, backgroundColor: theme.colors.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
     modalSaveBtnText: { color: theme.colors.text, fontWeight: '800', fontSize: 14 },
-    modalCancelBtn: { flex: 1, backgroundColor: '#334155', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-    modalCancelBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+    modalCancelBtn: { flex: 1, backgroundColor: theme.colors.cameraBackdrop, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+    modalCancelBtnText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 14 },
   });

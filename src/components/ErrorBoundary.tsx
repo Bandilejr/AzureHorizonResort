@@ -1,6 +1,7 @@
 import React, { Component, ReactNode, ErrorInfo } from 'react';
 import { View, Text, StyleSheet, Button } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { lightTheme } from '@/design/tokens';
 
 interface Props {
   children: ReactNode;
@@ -33,7 +34,7 @@ export class ErrorBoundary extends Component<Props, State> {
       }
       return (
         <View style={styles.container}>
-          <Ionicons name="alert-circle" size={64} color="#dc2626" style={styles.icon} />
+          <Ionicons name="alert-circle" size={64} color={lightTheme.colors.error} style={styles.icon} />
           <Text style={styles.title}>Something went wrong</Text>
           <Text style={styles.message}>{this.state.error?.message}</Text>
           <View style={styles.stack}>
@@ -54,7 +55,7 @@ const styles = StyleSheet.create({
     padding: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fef2f2',
+    backgroundColor: lightTheme.colors.errorSoft,
   },
   icon: {
     marginBottom: 16,
@@ -62,18 +63,18 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#dc2626',
+    color: lightTheme.colors.error,
     marginBottom: 8,
     textAlign: 'center',
   },
   message: {
     fontSize: 14,
-    color: '#991b1b',
+    color: lightTheme.colors.errorStrong,
     marginBottom: 16,
     textAlign: 'center',
   },
   stack: {
-    backgroundColor: '#fee2e2',
+    backgroundColor: lightTheme.colors.errorSoft,
     padding: 12,
     borderRadius: 8,
     marginBottom: 16,
@@ -81,7 +82,7 @@ const styles = StyleSheet.create({
   },
   stackText: {
     fontSize: 11,
-    color: '#7f1d1d',
+    color: lightTheme.colors.errorStrong,
     fontFamily: 'monospace',
   },
 });

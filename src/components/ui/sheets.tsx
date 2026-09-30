@@ -48,7 +48,7 @@ export function PickerSheet({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <TouchableWithoutFeedback onPress={onClose}>
-        <View style={styles.backdrop} />
+        <View style={[styles.backdrop, { backgroundColor: theme.colors.overlay }]} />
       </TouchableWithoutFeedback>
       <View
         style={[
@@ -151,7 +151,7 @@ export function ConfirmationSheet({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <TouchableWithoutFeedback onPress={onClose}>
-        <View style={styles.backdrop} />
+        <View style={[styles.backdrop, { backgroundColor: theme.colors.overlay }]} />
       </TouchableWithoutFeedback>
       <View
         style={[
@@ -211,7 +211,7 @@ export function ConfirmationSheet({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(16,24,40,0.5)' },
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   sheet: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   grabber: { width: 44, height: 5, borderRadius: 3, alignSelf: 'center', marginBottom: 12 },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },

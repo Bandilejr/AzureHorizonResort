@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView, SafeAreaView , useColorScheme } from 'react-native';
+import { StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { loginMobileUser } from '@/services/firebase-services';
 import { homeRouteFor } from '@/utils/role-home';
 import { Ionicons } from '@expo/vector-icons';
-
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 
 export default function StaffLoginScreen() {
   const [email, setEmail] = useState('');
@@ -13,8 +13,8 @@ export default function StaffLoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
 
   const handleStaffLogin = async () => {
     if (!email || !password) {
@@ -38,11 +38,7 @@ export default function StaffLoginScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
+    <Screen scroll contentContainerStyle={styles.scrollContent}>
         <Text style={[styles.title, { color: theme.colors.text }]}>Staff & Admin Access</Text>
         <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Sign in to manage resort operations</Text>
 
@@ -81,7 +77,7 @@ export default function StaffLoginScreen() {
 
         <TouchableOpacity style={[styles.button, { backgroundColor: theme.colors.primary }]} onPress={handleStaffLogin} disabled={loading}>
           {loading ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={theme.colors.textInverse} />
           ) : (
             <Text style={styles.buttonText}>Sign In</Text>
           )}
@@ -90,12 +86,11 @@ export default function StaffLoginScreen() {
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <Text style={[styles.backButtonText, { color: theme.colors.textSecondary }]}>Back to Welcome</Text>
         </TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
   container: {
     flex: 1,
   },
@@ -133,7 +128,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   buttonText: {
-    color: '#fff',
+    color: theme.colors.textInverse,
     fontSize: 16,
     fontWeight: 'bold',
   },

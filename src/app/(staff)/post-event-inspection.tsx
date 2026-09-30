@@ -8,6 +8,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/design/use-app-theme';
 import { Screen } from '@/components/ui/screen';
+import { EmptyState } from '@/components/ui/states';
 import * as ImagePicker from 'expo-image-picker';
 import {
   db, createEventInspection, createDamageRecord, uploadImage
@@ -344,11 +345,7 @@ export default function PostEventInspectionScreen() {
         </View>
 
         {damages.length === 0 ? (
-          <View style={S.emptyCard}>
-            <Ionicons name="checkmark-circle-outline" size={40} color={theme.colors.success} />
-            <Text style={S.emptyText}>No damages recorded yet</Text>
-            <Text style={{ fontSize: 13, color: theme.colors.textMuted }}>Tap &quot;Add&quot; to record damage items</Text>
-          </View>
+          <EmptyState icon="checkmark-circle-outline" title="No damages recorded yet" message='Tap "Add" to record damage items' />
         ) : (
           damages.map((damage, i) => {
             const sc = sevColor(theme, damage.severity);

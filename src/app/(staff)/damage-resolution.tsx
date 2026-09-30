@@ -8,6 +8,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/design/use-app-theme';
 import { Screen } from '@/components/ui/screen';
+import { EmptyState, ListSkeleton } from '@/components/ui/states';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 import PhotoThumb from '@/components/PhotoThumb';
 import {
@@ -192,19 +193,13 @@ export default function DamageResolutionScreen() {
 
         {/* ── RECORDS ── */}
         {loading ? (
-          <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 32 }} />
+          <ListSkeleton rows={3} />
         ) : filtered.length === 0 ? (
-          <View style={S.emptyCard}>
-            <View style={S.emptyIconWrap}>
-              <Ionicons name="hammer-outline" size={36} color={theme.colors.textMuted} />
-            </View>
-            <Text style={S.emptyText}>
-              {records.length === 0 ? 'No damage records yet' : 'Nothing matches this filter'}
-            </Text>
-            <Text style={S.emptySub}>
-              {records.length === 0 ? 'Damages are created automatically after a post-event inspection finds problems.' : 'Try a different status above.'}
-            </Text>
-          </View>
+          <EmptyState
+            icon="hammer-outline"
+            title={records.length === 0 ? 'No damage records yet' : 'Nothing matches this filter'}
+            message={records.length === 0 ? 'Damages are created automatically after a post-event inspection finds problems.' : 'Try a different status above.'}
+          />
         ) : (
           filtered.map((record) => {
             const sc = statusConfig(theme, record.status || 'recorded');

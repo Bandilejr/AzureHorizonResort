@@ -1,12 +1,14 @@
 import React, { useState, useEffect, Fragment } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  ActivityIndicator, SafeAreaView, Modal, RefreshControl, useColorScheme, Image
+  ActivityIndicator, Modal, RefreshControl, Image
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
+import { EmptyState, ListSkeleton } from '@/components/ui/states';
 import { CustomAlertModal } from '@/components/CustomAlertModal';
 import {
   db, processRefund
@@ -35,7 +37,7 @@ let statusConfig = (theme: any, status: string) => {
       default:
         return {
           color: theme.colors.primary,
-          bg: '#fef3c7',
+          bg: theme.colors.warningSoft,
           label: 'Pending',
           icon: 'time'
         };
@@ -155,8 +157,7 @@ async function fetchRefundRequests() {
     let {
       profile
     } = useAuth();
-    let colorScheme = useColorScheme();
-    let theme = getTheme(colorScheme as any);
+    let theme = useAppTheme();
     let S = createStyles(theme);
     let [requests, setRequests] = useState<any[]>([]);
     let [loading, setLoading] = useState(true);
@@ -254,7 +255,7 @@ async function fetchRefundRequests() {
         justifyContent: 'center',
         alignItems: 'center',
         padding: 24
-      }}>{/*#__PURE__*/<Ionicons name={"shield-checkmark-outline"} size={64} color={"#dc2626"} />}{/*#__PURE__*/<Text style={{
+      }}>{/*#__PURE__*/<Ionicons name={"shield-checkmark-outline"} size={64} color={theme.colors.errorStrong} />}{/*#__PURE__*/<Text style={{
           fontSize: 22,
           fontWeight: '900',
           color: theme.colors.text,
@@ -273,7 +274,7 @@ async function fetchRefundRequests() {
           borderRadius: 16,
           marginTop: 24
         }} onPress={() => router.back()}>{/*#__PURE__*/<Text style={{
-            color: '#ffffff',
+            color: theme.colors.textInverse,
             fontWeight: '800',
             fontSize: 16
           }}>Back</Text>}</TouchableOpacity>}</View>;
@@ -328,7 +329,7 @@ async function fetchRefundRequests() {
         router.replace('/(staff)/staff-dashboard');
       }
     };
-    return /*#__PURE__*/<SafeAreaView style={S.container}>{/*#__PURE__*/<ScrollView contentContainerStyle={S.content} showsVerticalScrollIndicator={false} refreshControl={/*#__PURE__*/<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />}>{/*#__PURE__*/<View style={S.headerRow}>{/*#__PURE__*/<TouchableOpacity onPress={handleGoBack} style={S.backBtn}>{/*#__PURE__*/<Ionicons name={"chevron-back"} size={26} color={theme.colors.secondary} />}</TouchableOpacity>}{/*#__PURE__*/<View style={{
+    return /*#__PURE__*/<Screen scroll refreshControl={/*#__PURE__*/<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />}>{/*#__PURE__*/<View style={S.headerRow}>{/*#__PURE__*/<TouchableOpacity onPress={handleGoBack} style={S.backBtn}>{/*#__PURE__*/<Ionicons name={"chevron-back"} size={26} color={theme.colors.secondary} />}</TouchableOpacity>}{/*#__PURE__*/<View style={{
             flex: 1
           }}>{/*#__PURE__*/<Text style={S.title}>Refund Management</Text>}{/*#__PURE__*/<Text style={S.subtitle}>UC33 · Admin review of all refund requests</Text>}</View>}{/*#__PURE__*/<View style={{
             flexDirection: 'row',
@@ -336,14 +337,14 @@ async function fetchRefundRequests() {
           }}>{/*#__PURE__*/<TouchableOpacity style={{
               flexDirection: 'row',
               alignItems: 'center',
-              backgroundColor: '#f59e0b',
+              backgroundColor: theme.colors.warning,
               paddingHorizontal: 10,
               paddingVertical: 6,
               borderRadius: 8
-            }} onPress={() => setShowRiskInfoModal(true)}>{/*#__PURE__*/<Ionicons name={"information-circle"} size={16} color={"#fff"} style={{
+            }} onPress={() => setShowRiskInfoModal(true)}>{/*#__PURE__*/<Ionicons name={"information-circle"} size={16} color={theme.colors.textInverse} style={{
                 marginRight: 4
               }} />}{/*#__PURE__*/<Text style={{
-                color: '#fff',
+                color: theme.colors.textInverse,
                 fontWeight: '700',
                 fontSize: 11
               }}>Risk Info ℹ️</Text>}</TouchableOpacity>}{/*#__PURE__*/<TouchableOpacity style={{
@@ -353,14 +354,14 @@ async function fetchRefundRequests() {
               paddingHorizontal: 10,
               paddingVertical: 6,
               borderRadius: 8
-            }} onPress={() => setShowInvoiceModal(true)}>{/*#__PURE__*/<Ionicons name={"receipt"} size={16} color={"#fff"} style={{
+            }} onPress={() => setShowInvoiceModal(true)}>{/*#__PURE__*/<Ionicons name={"receipt"} size={16} color={theme.colors.textInverse} style={{
                 marginRight: 4
               }} />}{/*#__PURE__*/<Text style={{
-                color: '#fff',
+                color: theme.colors.textInverse,
                 fontWeight: '700',
                 fontSize: 11
               }}>Invoices 🧾</Text>}</TouchableOpacity>}</View>}</View>}{!loading && /*#__PURE__*/<Fragment>{/*#__PURE__*/<View style={S.statsRow}>{/*#__PURE__*/<View style={[S.statBox, {
-              backgroundColor: '#fef3c7'
+              backgroundColor: theme.colors.warningSoft
             }]}>{/*#__PURE__*/<Text style={[S.statNum, {
                 color: theme.colors.primary
               }]}>{pending}</Text>}{/*#__PURE__*/<Text style={[S.statLbl, {
@@ -377,18 +378,16 @@ async function fetchRefundRequests() {
                 color: theme.colors.error
               }]}>{rejected}</Text>}{/*#__PURE__*/<Text style={[S.statLbl, {
                 color: theme.colors.error
-              }]}>Rejected</Text>}</View>}</View>}{pending > 0 && /*#__PURE__*/<View style={S.pendingBanner}>{/*#__PURE__*/<Ionicons name={"alert-circle"} size={18} color={"#c9a227"} />}{/*#__PURE__*/<Text style={S.pendingBannerText}>R{pendingValue.toLocaleString()} pending approval across {pending} request{pending !== 1 ? 's' : ''}</Text>}</View>}</Fragment>}{/*#__PURE__*/<ScrollView horizontal={true} showsHorizontalScrollIndicator={false} style={{
+              }]}>Rejected</Text>}</View>}</View>}{pending > 0 && /*#__PURE__*/<View style={S.pendingBanner}>{/*#__PURE__*/<Ionicons name={"alert-circle"} size={18} color={theme.colors.gold} />}{/*#__PURE__*/<Text style={S.pendingBannerText}>R{pendingValue.toLocaleString()} pending approval across {pending} request{pending !== 1 ? 's' : ''}</Text>}</View>}</Fragment>}{/*#__PURE__*/<ScrollView horizontal={true} showsHorizontalScrollIndicator={false} style={{
           marginBottom: 16
         }}>{['all', 'pending', 'approved', 'rejected'].map(f => {
             let isActive = filterStatus === f;
             return /*#__PURE__*/<TouchableOpacity key={f} style={[S.filterChip, isActive && {
               backgroundColor: theme.colors.secondary
             }]} onPress={() => setFilterStatus(f)}>{/*#__PURE__*/<Text style={[S.filterText, isActive && {
-                color: '#fff'
+                color: theme.colors.textInverse
               }]}>{f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}{f === 'pending' && pending > 0 ? ` (${pending})` : ''}</Text>}</TouchableOpacity>;
-          })}</ScrollView>}{loading ? /*#__PURE__*/<ActivityIndicator color={theme.colors.primary} style={{
-          marginTop: 32
-        }} /> : filtered.length === 0 ? /*#__PURE__*/<View style={S.emptyCard}>{/*#__PURE__*/<Ionicons name={"receipt-outline"} size={40} color={theme.colors.textMuted} />}{/*#__PURE__*/<Text style={S.emptyText}>{requests.length === 0 ? 'No refund requests yet' : 'No requests match this filter'}</Text>}</View> : filtered.map(req_2 => {
+          })}</ScrollView>}{loading ? /*#__PURE__*/<ListSkeleton rows={3} /> : filtered.length === 0 ? /*#__PURE__*/<EmptyState icon="receipt-outline" title={requests.length === 0 ? 'No refund requests yet' : 'No requests match this filter'} /> : filtered.map(req_2 => {
           let sc = statusConfig(theme, req_2.status || 'pending');
           return /*#__PURE__*/<View key={req_2.id} style={S.requestCard}>{/*#__PURE__*/<View style={S.cardTop}>{/*#__PURE__*/<View style={{
                 flex: 1
@@ -402,7 +401,7 @@ async function fetchRefundRequests() {
                   }]}>{sc.label}</Text>}</View>}{req_2.riskLevel && /*#__PURE__*/<View style={{
                   flexDirection: 'row',
                   alignItems: 'center',
-                  backgroundColor: req_2.riskLevel === 'high' ? '#fef2f2' : req_2.riskLevel === 'medium' ? '#fffbeb' : '#f0fdf4',
+                  backgroundColor: req_2.riskLevel === 'high' ? theme.colors.errorSoft : req_2.riskLevel === 'medium' ? theme.colors.warningSoft : theme.colors.successSoft,
                   borderRadius: 6,
                   paddingHorizontal: 6,
                   paddingVertical: 2,
@@ -452,10 +451,10 @@ async function fetchRefundRequests() {
                       borderColor: theme.colors.border
                     }} />}</TouchableOpacity>)}</View>}</ScrollView>}</View>}{req_2.status === 'pending' && /*#__PURE__*/<View style={S.actions}>{/*#__PURE__*/<TouchableOpacity style={[S.actionBtn, {
                 backgroundColor: theme.colors.success
-              }]} onPress={() => handleApprove(req_2)} disabled={isProcessing}>{/*#__PURE__*/<Ionicons name={"checkmark"} size={16} color={"#fff"} />}{/*#__PURE__*/<Text style={S.actionBtnText}>Approve</Text>}</TouchableOpacity>}{/*#__PURE__*/<TouchableOpacity style={[S.actionBtn, {
+              }]} onPress={() => handleApprove(req_2)} disabled={isProcessing}>{/*#__PURE__*/<Ionicons name={"checkmark"} size={16} color={theme.colors.textInverse} />}{/*#__PURE__*/<Text style={S.actionBtnText}>Approve</Text>}</TouchableOpacity>}{/*#__PURE__*/<TouchableOpacity style={[S.actionBtn, {
                 backgroundColor: theme.colors.error
-              }]} onPress={() => openRejectModal(req_2)} disabled={isProcessing}>{/*#__PURE__*/<Ionicons name={"close"} size={16} color={"#fff"} />}{/*#__PURE__*/<Text style={S.actionBtnText}>Reject</Text>}</TouchableOpacity>}</View>}</View>;
-        })}</ScrollView>}{/*#__PURE__*/<Modal visible={!!rejectTarget} transparent={true} animationType={"slide"}>{/*#__PURE__*/<View style={S.modalOverlay}>{/*#__PURE__*/<View style={[S.modalSheet, {
+              }]} onPress={() => openRejectModal(req_2)} disabled={isProcessing}>{/*#__PURE__*/<Ionicons name={"close"} size={16} color={theme.colors.textInverse} />}{/*#__PURE__*/<Text style={S.actionBtnText}>Reject</Text>}</TouchableOpacity>}</View>}</View>;
+        })}{/*#__PURE__*/<Modal visible={!!rejectTarget} transparent={true} animationType={"slide"}>{/*#__PURE__*/<View style={S.modalOverlay}>{/*#__PURE__*/<View style={[S.modalSheet, {
             paddingBottom: 32
           }]}>{/*#__PURE__*/<View style={S.rejectIcon}>{/*#__PURE__*/<Ionicons name={"close-circle"} size={36} color={theme.colors.error} />}</View>}{/*#__PURE__*/<Text style={S.modalTitle}>Reject Refund</Text>}{/*#__PURE__*/<Text style={S.modalSub}>Reject R{(rejectTarget?.requestedAmount || 0).toLocaleString()} request for {rejectTarget?.guestName}?</Text>}{/*#__PURE__*/<Text style={[S.fieldLabel, {
               marginTop: 16
@@ -471,12 +470,12 @@ async function fetchRefundRequests() {
                 }}>Cancel</Text>}</TouchableOpacity>}{/*#__PURE__*/<TouchableOpacity style={[S.confirmBtn, {
                 backgroundColor: theme.colors.error,
                 flex: 2
-              }]} onPress={handleReject} disabled={isProcessing}>{isProcessing ? /*#__PURE__*/<ActivityIndicator color={"#fff"} /> : /*#__PURE__*/<Text style={{
-                  color: '#fff',
+              }]} onPress={handleReject} disabled={isProcessing}>{isProcessing ? /*#__PURE__*/<ActivityIndicator color={theme.colors.textInverse} /> : /*#__PURE__*/<Text style={{
+                  color: theme.colors.textInverse,
                   fontWeight: '700'
                 }}>Confirm Reject</Text>}</TouchableOpacity>}</View>}</View>}</View>}</Modal>}{/*#__PURE__*/<InvoiceViewerModal visible={showInvoiceModal} onClose={() => setShowInvoiceModal(false)} title={"🧾 Dispatched Refund Invoices"} />}{/*#__PURE__*/<Modal visible={showRiskInfoModal} transparent={true} animationType={"slide"} onRequestClose={() => setShowRiskInfoModal(false)}>{/*#__PURE__*/<View style={{
           flex: 1,
-          backgroundColor: 'rgba(0,0,0,0.6)',
+          backgroundColor: theme.colors.overlay,
           justifyContent: 'center',
           alignItems: 'center',
           padding: 20
@@ -496,7 +495,7 @@ async function fetchRefundRequests() {
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 8
-              }}>{/*#__PURE__*/<Ionicons name={"shield-checkmark"} size={24} color={"#f59e0b"} />}{/*#__PURE__*/<Text style={{
+              }}>{/*#__PURE__*/<Ionicons name={"shield-checkmark"} size={24} color={theme.colors.warning} />}{/*#__PURE__*/<Text style={{
                   fontSize: 18,
                   fontWeight: '800',
                   color: theme.colors.text
@@ -607,53 +606,53 @@ async function fetchRefundRequests() {
                 color: theme.colors.text,
                 marginBottom: 8
               }}>Risk Classification Tiers:</Text>}{/*#__PURE__*/<View style={{
-                backgroundColor: '#fef3c7',
+                backgroundColor: theme.colors.warningSoft,
                 borderRadius: 12,
                 padding: 12,
                 marginBottom: 10,
                 borderLeftWidth: 4,
-                borderLeftColor: '#f59e0b'
+                borderLeftColor: theme.colors.warning
               }}>{/*#__PURE__*/<Text style={{
                   fontSize: 13,
                   fontWeight: '800',
-                  color: '#b45309'
+                  color: theme.colors.warningStrong
                 }}>🟡 Medium Risk (40 – 69 Points)</Text>}{/*#__PURE__*/<Text style={{
                   fontSize: 12,
-                  color: '#92400e',
+                  color: theme.colors.warningStrong,
                   marginTop: 4,
                   lineHeight: 17
                 }}>{/*#__PURE__*/<Text style={{
                     fontWeight: '700'
                   }}>Example: 50 / 100 Points</Text>} (e.g. Amount above 150% of avg [+30 pts] + Guest has 2 prior requests [+20 pts]). Moderately elevated risk requiring standard manager review before approval.</Text>}</View>}{/*#__PURE__*/<View style={{
-                backgroundColor: '#fef2f2',
+                backgroundColor: theme.colors.errorSoft,
                 borderRadius: 12,
                 padding: 12,
                 marginBottom: 10,
                 borderLeftWidth: 4,
-                borderLeftColor: '#ef4444'
+                borderLeftColor: theme.colors.error
               }}>{/*#__PURE__*/<Text style={{
                   fontSize: 13,
                   fontWeight: '800',
-                  color: '#991b1b'
+                  color: theme.colors.errorStrong
                 }}>🔴 High Risk (70 – 100 Points)</Text>}{/*#__PURE__*/<Text style={{
                   fontSize: 12,
-                  color: '#7f1d1d',
+                  color: theme.colors.errorStrong,
                   marginTop: 4,
                   lineHeight: 17
                 }}>High fraud or damage conflict probability. Requires mandatory Admin override and conflict review.</Text>}</View>}{/*#__PURE__*/<View style={{
-                backgroundColor: '#f0fdf4',
+                backgroundColor: theme.colors.successSoft,
                 borderRadius: 12,
                 padding: 12,
                 marginBottom: 16,
                 borderLeftWidth: 4,
-                borderLeftColor: '#22c55e'
+                borderLeftColor: theme.colors.success
               }}>{/*#__PURE__*/<Text style={{
                   fontSize: 13,
                   fontWeight: '800',
-                  color: '#166534'
+                  color: theme.colors.successStrong
                 }}>🟢 Low Risk (0 – 39 Points)</Text>}{/*#__PURE__*/<Text style={{
                   fontSize: 12,
-                  color: '#14532d',
+                  color: theme.colors.successStrong,
                   marginTop: 4,
                   lineHeight: 17
                 }}>Standard refund claim with minimal risk factors. High confidence for processing.</Text>}</View>}{/*#__PURE__*/<TouchableOpacity style={{
@@ -662,12 +661,12 @@ async function fetchRefundRequests() {
                 borderRadius: 12,
                 alignItems: 'center'
               }} onPress={() => setShowRiskInfoModal(false)}>{/*#__PURE__*/<Text style={{
-                  color: '#fff',
+                  color: theme.colors.textInverse,
                   fontWeight: '800',
                   fontSize: 14
                 }}>Got It!</Text>}</TouchableOpacity>}</ScrollView>}</View>}</View>}</Modal>}{/*#__PURE__*/<Modal visible={!!selectedProofImage} transparent={true} animationType={"fade"} onRequestClose={() => setSelectedProofImage(null)}>{/*#__PURE__*/<View style={{
           flex: 1,
-          backgroundColor: 'rgba(0,0,0,0.9)',
+          backgroundColor: theme.colors.overlay,
           justifyContent: 'center',
           alignItems: 'center',
           padding: 20
@@ -677,7 +676,7 @@ async function fetchRefundRequests() {
             right: 20,
             zIndex: 10,
             padding: 8
-          }} onPress={() => setSelectedProofImage(null)}>{/*#__PURE__*/<Ionicons name={"close-circle"} size={36} color={"#fff"} />}</TouchableOpacity>}{selectedProofImage && /*#__PURE__*/<Image source={{
+          }} onPress={() => setSelectedProofImage(null)}>{/*#__PURE__*/<Ionicons name={"close-circle"} size={36} color={theme.colors.textInverse} />}</TouchableOpacity>}{selectedProofImage && /*#__PURE__*/<Image source={{
             uri: selectedProofImage
           }} style={{
             width: '100%',
@@ -687,7 +686,7 @@ async function fetchRefundRequests() {
           }} />}</View>}</Modal>}{/*#__PURE__*/<CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({
         ...prev,
         visible: false
-      }))} />}</SafeAreaView>;
+      }))} />}</Screen>;
   }
 
 export default RefundManagementAdminScreen;
@@ -749,7 +748,7 @@ export default RefundManagementAdminScreen;
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
-      backgroundColor: '#fef3c7',
+      backgroundColor: theme.colors.warningSoft,
       padding: 12,
       borderRadius: 12,
       marginBottom: 16
@@ -757,7 +756,7 @@ export default RefundManagementAdminScreen;
     pendingBannerText: {
       fontSize: 13,
       fontWeight: '600',
-      color: '#92400e',
+      color: theme.colors.warningStrong,
       flex: 1
     },
     filterChip: {
@@ -789,7 +788,7 @@ export default RefundManagementAdminScreen;
       borderRadius: 16,
       padding: 16,
       marginBottom: 12,
-      shadowColor: '#000',
+      shadowColor: theme.colors.shadow,
       shadowOffset: {
         width: 0,
         height: 2
@@ -863,13 +862,13 @@ export default RefundManagementAdminScreen;
       borderRadius: 10
     },
     actionBtnText: {
-      color: '#fff',
+      color: theme.colors.textInverse,
       fontWeight: '700',
       fontSize: 14
     },
     modalOverlay: {
       flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.5)',
+      backgroundColor: theme.colors.overlay,
       justifyContent: 'flex-end'
     },
     modalSheet: {

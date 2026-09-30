@@ -8,12 +8,13 @@ import {
   ActivityIndicator,
   TextInput,
   Modal,
-  Alert,
-  useColorScheme
+  Alert
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
+import { EmptyState, ListSkeleton } from '@/components/ui/states';
 import { useTranslation } from '@/i18n/hooks';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 import { todayISO } from '@/utils/dates';
@@ -28,12 +29,12 @@ const STATUS_COLORS: Record<string, string> = {
   confirmed: lightColors.success,
   pending_payment: lightColors.warning,
   pending: lightColors.warning,
-  completed: '#2563eb',
+  completed: lightColors.info,
   cancelled: lightColors.error,
   checked_in: lightColors.success,
   delivered: lightColors.success,
   preparing: lightColors.warning,
-  ready: '#2563eb',
+  ready: lightColors.info,
   deposit_paid: lightColors.warning,
   'Deposit Paid': lightColors.warning,
   paid_in_full: lightColors.success,
@@ -59,8 +60,7 @@ export default function ReservationsScreen() {
 
   const user = auth.currentUser;
 
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const { t } = useTranslation();
   const styles = createStyles(theme);
 
@@ -279,13 +279,13 @@ export default function ReservationsScreen() {
   const iconFor = (kind: string) =>
     kind === 'spa' ? 'leaf' : kind === 'tour' ? 'compass' : 'restaurant';
   const colorFor = (kind: string) =>
-    kind === 'spa' ? '#81b29a' : kind === 'tour' ? theme.colors.primary : '#e07a5f';
+    kind === 'spa' ? theme.colors.accent : kind === 'tour' ? theme.colors.primary : theme.colors.warning;
 
   const titleFor = (item: any) =>
     item.kind === 'spa' ? item.treatmentName : item.kind === 'tour' ? item.tourName : `Table for ${item.partySize}`;
 
   return (
-    <View style={styles.container}>
+    <Screen scroll={false} padded={false}>
       {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
@@ -331,7 +331,7 @@ export default function ReservationsScreen() {
 
       {!user ? (
         <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-          <Ionicons name="lock-closed-outline" size={64} color="#c9a227" />
+          <Ionicons name="lock-closed-outline" size={64} color={theme.colors.gold} />
           <Text style={{ fontSize: 22, fontWeight: '900', color: theme.colors.text, marginTop: 16, textAlign: 'center' }}>
             {t('myActivityLocked')}
           </Text>
@@ -346,9 +346,7 @@ export default function ReservationsScreen() {
           </TouchableOpacity>
         </View>
       ) : isLoading ? (
-        <View style={styles.centerContent}>
-          <ActivityIndicator size="large" color={theme.colors.secondary} />
-        </View>
+        <ListSkeleton rows={3} />
       ) : (
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {/* CURRENT STAY — single source: users.roomNumber */}
@@ -356,7 +354,7 @@ export default function ReservationsScreen() {
             <View style={styles.stayCard}>
               <View style={styles.stayHeader}>
                 <Text style={styles.stayLabel}>{t('yourCurrentStay')}</Text>
-                <Ionicons name="key" size={20} color="#c9a227" />
+                <Ionicons name="key" size={20} color={theme.colors.gold} />
               </View>
               <Text style={styles.stayRoom}>{t('suite')} {profile.roomNumber}</Text>
               <Text style={styles.stayName}>{profile.name || 'Guest'}</Text>
@@ -381,8 +379,8 @@ export default function ReservationsScreen() {
                         {booking.expectedAttendance ? ` • ${booking.expectedAttendance} guests` : ''}
                       </Text>
                     </View>
-                    <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[booking.status] || '#6b7280') + '22' }]}>
-                      <Text style={[styles.statusText, { color: STATUS_COLORS[booking.status] || '#6b7280' }]}>
+                    <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[booking.status] || theme.colors.textMuted) + '22' }]}>
+                      <Text style={[styles.statusText, { color: STATUS_COLORS[booking.status] || theme.colors.textMuted }]}>
                         {formatStatus(booking.status)}
                       </Text>
                     </View>
@@ -407,15 +405,15 @@ export default function ReservationsScreen() {
                           </View>
                           {money.balanceDue > 0 && !isPastEvent(booking) ? (
                             <TouchableOpacity style={[styles.payNowBtn, nothingPaid && { backgroundColor: theme.colors.success }]} onPress={() => handlePayNow(booking)}>
-                              <Ionicons name="card-outline" size={15} color="#fff" />
+                              <Ionicons name="card-outline" size={15} color={theme.colors.textInverse} />
                               <Text style={styles.payNowBtnText}>{nothingPaid ? 'Pay Deposit' : 'Pay Balance'}</Text>
                             </TouchableOpacity>
                           ) : money.balanceDue > 0 ? (
-                            <View style={[styles.statusBadge, { backgroundColor: '#6b728022' }]}>
-                              <Text style={[styles.statusText, { color: '#6b7280' }]}>Event Concluded</Text>
+                            <View style={[styles.statusBadge, { backgroundColor: theme.colors.surfaceVariant }]}>
+                              <Text style={[styles.statusText, { color: theme.colors.textMuted }]}>Event Concluded</Text>
                             </View>
                           ) : (
-                            <View style={[styles.statusBadge, { backgroundColor: '#16a34a22' }]}>
+                            <View style={[styles.statusBadge, { backgroundColor: theme.colors.successSoft }]}>
                               <Text style={[styles.statusText, { color: theme.colors.success }]}>Paid In Full</Text>
                             </View>
                           )}
@@ -443,12 +441,12 @@ export default function ReservationsScreen() {
                       <Text style={styles.eventActionText}>{t('complaint')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.eventActionBtn} onPress={() => openRefundModal(booking)}>
-                      <Ionicons name="cash-outline" size={16} color="#dc2626" />
+                      <Ionicons name="cash-outline" size={16} color={theme.colors.error} />
                       <Text style={[styles.eventActionText, { color: theme.colors.error }]}>{t('refund')}</Text>
                     </TouchableOpacity>
                     {booking.status !== 'cancelled' && !isPastEvent(booking) && (
                       <TouchableOpacity style={styles.eventActionBtn} onPress={() => handleCancelBooking(booking)}>
-                        <Ionicons name="close-circle-outline" size={16} color="#64748b" />
+                        <Ionicons name="close-circle-outline" size={16} color={theme.colors.textMuted} />
                         <Text style={[styles.eventActionText, { color: theme.colors.textSecondary }]}>{t('cancel')}</Text>
                       </TouchableOpacity>
                     )}
@@ -477,8 +475,8 @@ export default function ReservationsScreen() {
                         {item.totalAmount || item.price ? ` • ${formatMoney(item.totalAmount || item.price)}` : ''}
                       </Text>
                     </View>
-                    <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[item.status] || '#6b7280') + '22' }]}>
-                      <Text style={[styles.statusText, { color: STATUS_COLORS[item.status] || '#6b7280' }]}>
+                    <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[item.status] || theme.colors.textMuted) + '22' }]}>
+                      <Text style={[styles.statusText, { color: STATUS_COLORS[item.status] || theme.colors.textMuted }]}>
                         {formatStatus(item.status)}
                       </Text>
                     </View>
@@ -506,8 +504,8 @@ export default function ReservationsScreen() {
               <Text style={styles.sectionTitle}>{t('foodOrdersSection')}</Text>
               {foodOrders.slice(0, 10).map((order: any) => (
                 <View key={order.id} style={styles.amenityCard}>
-                  <View style={[styles.iconBox, { backgroundColor: '#e07a5f20' }]}>
-                    <Ionicons name="fast-food" size={20} color="#e07a5f" />
+                  <View style={[styles.iconBox, { backgroundColor: theme.colors.warningSoft }]}>
+                    <Ionicons name="fast-food" size={20} color={theme.colors.warning} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.amenityTitle}>
@@ -523,8 +521,8 @@ export default function ReservationsScreen() {
                   </View>
                   <View>
                     <Text style={styles.orderAmount}>{formatMoney(order.totalAmount)}</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[order.status] || '#6b7280') + '22' }]}>
-                      <Text style={[styles.statusText, { color: STATUS_COLORS[order.status] || '#6b7280' }]}>
+                    <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[order.status] || theme.colors.textMuted) + '22' }]}>
+                      <Text style={[styles.statusText, { color: STATUS_COLORS[order.status] || theme.colors.textMuted }]}>
                         {formatStatus(order.status)}
                       </Text>
                     </View>
@@ -540,8 +538,8 @@ export default function ReservationsScreen() {
               <Text style={styles.sectionTitle}>Catering Bookings</Text>
               {catering.map((cat: any) => (
                 <View key={cat.id} style={styles.amenityCard}>
-                  <View style={[styles.iconBox, { backgroundColor: '#e07a5f20' }]}>
-                    <Ionicons name="restaurant" size={20} color="#e07a5f" />
+                  <View style={[styles.iconBox, { backgroundColor: theme.colors.warningSoft }]}>
+                    <Ionicons name="restaurant" size={20} color={theme.colors.warning} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.amenityTitle}>
@@ -556,8 +554,8 @@ export default function ReservationsScreen() {
                   </View>
                   <View>
                     <Text style={styles.orderAmount}>{formatMoney(cat.totalAmount)}</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[cat.status] || '#6b7280') + '22' }]}>
-                      <Text style={[styles.statusText, { color: STATUS_COLORS[cat.status] || '#6b7280' }]}>
+                    <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[cat.status] || theme.colors.textMuted) + '22' }]}>
+                      <Text style={[styles.statusText, { color: STATUS_COLORS[cat.status] || theme.colors.textMuted }]}>
                         {formatStatus(cat.status)}
                       </Text>
                     </View>
@@ -580,8 +578,8 @@ export default function ReservationsScreen() {
                     <Text style={styles.amenityTitle}>{inv.inviteeName}</Text>
                     <Text style={styles.amenityMeta}>{inv.inviteeEmail}</Text>
                   </View>
-                  <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[inv.status] || '#6b7280') + '22' }]}>
-                    <Text style={[styles.statusText, { color: STATUS_COLORS[inv.status] || '#6b7280' }]}>
+                  <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[inv.status] || theme.colors.textMuted) + '22' }]}>
+                    <Text style={[styles.statusText, { color: STATUS_COLORS[inv.status] || theme.colors.textMuted }]}>
                       {formatStatus(inv.status)}
                     </Text>
                   </View>
@@ -596,46 +594,44 @@ export default function ReservationsScreen() {
             foodOrders.length === 0 &&
             invitations.length === 0 &&
             catering.length === 0 && (
-              <View style={styles.emptyState}>
-                <Ionicons name="calendar-outline" size={64} color={theme.colors.textMuted} />
-                <Text style={styles.emptyTitle}>Nothing booked yet</Text>
-                <Text style={styles.emptyText}>
-                  Book an event venue, a spa treatment, a tour, or a table — everything will show up here live.
-                </Text>
-              </View>
+              <EmptyState
+                icon="calendar-outline"
+                title="Nothing booked yet"
+                message="Book an event venue, a spa treatment, a tour, or a table — everything will show up here live."
+              />
             )}
         </ScrollView>
       )}
 
       {/* REFUND REQUEST MODAL (UC32) */}
       <Modal visible={showRefundModal} transparent animationType="slide">
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+        <View style={{ flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <Text style={{ fontSize: 18, fontWeight: '900', color: '#1e293b' }}>Request Event Refund (UC32)</Text>
+              <Text style={{ fontSize: 18, fontWeight: '900', color: theme.colors.text }}>Request Event Refund (UC32)</Text>
               <TouchableOpacity onPress={() => setShowRefundModal(false)}>
-                <Ionicons name="close" size={24} color="#64748b" />
+                <Ionicons name="close" size={24} color={theme.colors.textMuted} />
               </TouchableOpacity>
             </View>
 
             <Text style={{ fontSize: 13, color: theme.colors.textSecondary, marginBottom: 12 }}>
-              Original Paid Amount: <Text style={{ fontWeight: '800', color: '#1e293b' }}>R {selectedBookingForRefund?.paidAmount}</Text>
+              Original Paid Amount: <Text style={{ fontWeight: '800', color: theme.colors.text }}>R {selectedBookingForRefund?.paidAmount}</Text>
             </Text>
 
-            <Text style={{ fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 6 }}>Refund Reason</Text>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.text, marginBottom: 6 }}>Refund Reason</Text>
             <TextInput
-              style={{ backgroundColor: '#f1f5f9', borderRadius: 12, padding: 12, fontSize: 14, color: theme.colors.text, marginBottom: 14, borderWidth: 1, borderColor: '#cbd5e1' }}
+              style={{ backgroundColor: theme.colors.surfaceVariant, borderRadius: 12, padding: 12, fontSize: 14, color: theme.colors.text, marginBottom: 14, borderWidth: 1, borderColor: theme.colors.border }}
               placeholder="State reason for refund request..."
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={theme.colors.textMuted}
               value={refundReason}
               onChangeText={setRefundReason}
             />
 
-            <Text style={{ fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 6 }}>Requested Refund Amount (R)</Text>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.text, marginBottom: 6 }}>Requested Refund Amount (R)</Text>
             <TextInput
-              style={{ backgroundColor: '#f1f5f9', borderRadius: 12, padding: 12, fontSize: 14, color: theme.colors.text, marginBottom: 16, borderWidth: 1, borderColor: '#cbd5e1' }}
+              style={{ backgroundColor: theme.colors.surfaceVariant, borderRadius: 12, padding: 12, fontSize: 14, color: theme.colors.text, marginBottom: 16, borderWidth: 1, borderColor: theme.colors.border }}
               placeholder="Amount in ZAR"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={theme.colors.textMuted}
               keyboardType="numeric"
               value={refundAmountInput}
               onChangeText={setRefundAmountInput}
@@ -647,9 +643,9 @@ export default function ReservationsScreen() {
               disabled={submittingRefund}
             >
               {submittingRefund ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={theme.colors.textInverse} />
               ) : (
-                <Text style={{ color: '#ffffff', fontSize: 15, fontWeight: '800' }}>Submit Refund Request</Text>
+                <Text style={{ color: theme.colors.textInverse, fontSize: 15, fontWeight: '800' }}>Submit Refund Request</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -658,7 +654,7 @@ export default function ReservationsScreen() {
 
       {/* Custom Themed Alert Modal */}
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </View>
+    </Screen>
   );
 }
 
@@ -682,17 +678,17 @@ const createStyles = (theme: any) => StyleSheet.create({
   stayCard: { backgroundColor: theme.colors.secondary, borderRadius: 20, padding: 20, marginBottom: 24 },
   stayHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   stayLabel: { color: theme.colors.primary, fontSize: 12, fontWeight: 'bold', letterSpacing: 1 },
-  stayRoom: { color: '#fff', fontSize: 26, fontWeight: 'bold' },
-  stayName: { color: 'rgba(255,255,255,0.8)', fontSize: 14, marginTop: 2, marginBottom: 12 },
+  stayRoom: { color: theme.colors.textInverse, fontSize: 26, fontWeight: 'bold' },
+  stayName: { color: theme.colors.textInverse, fontSize: 14, marginTop: 2, marginBottom: 12 },
   stayRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  stayDetail: { color: 'rgba(255,255,255,0.7)', fontSize: 13 },
+  stayDetail: { color: theme.colors.textInverse, fontSize: 13 },
 
   section: { marginTop: 8, marginBottom: 16 },
   sectionTitle: { fontSize: 16, fontWeight: 'bold', color: theme.colors.text, marginBottom: 12 },
 
   eventCard: {
     backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16, marginBottom: 12,
-    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+    shadowColor: theme.colors.shadow, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
   },
   eventCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
   eventVenue: { fontSize: 16, fontWeight: 'bold', color: theme.colors.text, marginBottom: 4 },
@@ -709,7 +705,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: theme.colors.warning, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
   },
-  payNowBtnText: { color: '#fff', fontSize: 12, fontWeight: '800' },
+  payNowBtnText: { color: theme.colors.textInverse, fontSize: 12, fontWeight: '800' },
   eventActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   eventActionBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
@@ -720,7 +716,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   amenityCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     backgroundColor: theme.colors.surface, borderRadius: 14, padding: 14, marginBottom: 10,
-    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
+    shadowColor: theme.colors.shadow, shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
   },
   iconBox: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   amenityTitle: { fontSize: 14, fontWeight: '600', color: theme.colors.text, marginBottom: 3 },

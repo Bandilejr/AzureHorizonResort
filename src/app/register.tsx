@@ -8,9 +8,7 @@ import {
   KeyboardAvoidingView, 
   Platform,
   ScrollView,
-  ActivityIndicator,
-  SafeAreaView,
-  useColorScheme
+  ActivityIndicator
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,13 +16,13 @@ import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '@/services/firebase-services';
 import { useAuth } from '@/context/AuthContext';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 
 export default function RegistrationPage() {
   const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
   const { refreshProfile } = useAuth();
 
@@ -116,7 +114,7 @@ export default function RegistrationPage() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <Screen scroll={false} padded={false}>
       <KeyboardAvoidingView 
         style={styles.keyboardContent} 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -133,7 +131,7 @@ export default function RegistrationPage() {
 
           {/* Header */}
           <View style={styles.header}>
-            <Ionicons name="star" size={36} color="#c9a227" style={styles.icon} />
+            <Ionicons name="star" size={36} color={theme.colors.gold} style={styles.icon} />
             <Text style={styles.title}>Join Azure Horizon</Text>
             <Text style={styles.subtitle}>Create a resident account for room key & resort access</Text>
           </View>
@@ -209,10 +207,10 @@ export default function RegistrationPage() {
               activeOpacity={0.8}
             >
               {isLoading ? (
-                <ActivityIndicator color="#0f172a" />
+                <ActivityIndicator color={theme.colors.textInverse} />
               ) : (
                 <>
-                  <Ionicons name="person-add-outline" size={20} color="#0f172a" />
+                  <Ionicons name="person-add-outline" size={20} color={theme.colors.textInverse} />
                   <Text style={styles.registerButtonText}>Create Account & Sign In</Text>
                 </>
               )}
@@ -229,7 +227,7 @@ export default function RegistrationPage() {
       </KeyboardAvoidingView>
 
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </SafeAreaView>
+    </Screen>
   );
 }
 
@@ -248,7 +246,7 @@ const createStyles = (theme: any) =>
     title: { fontSize: 26, fontWeight: '900', color: theme.colors.text },
     subtitle: { fontSize: 13, color: theme.colors.textSecondary, marginTop: 4, textAlign: 'center' },
 
-    card: { backgroundColor: theme.colors.surface, borderRadius: 24, padding: 20, borderWidth: 1, borderColor: '#c9a227', elevation: 6 },
+    card: { backgroundColor: theme.colors.surface, borderRadius: 24, padding: 20, borderWidth: 1, borderColor: theme.colors.gold, elevation: 6 },
     cardTitle: { fontSize: 18, fontWeight: '800', color: theme.colors.text, marginBottom: 4 },
     cardDescription: { fontSize: 12, color: theme.colors.textMuted, marginBottom: 16 },
 
@@ -258,8 +256,8 @@ const createStyles = (theme: any) =>
     passwordWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surfaceVariant, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border },
     eyeBtn: { paddingHorizontal: 14 },
 
-    registerButton: { backgroundColor: '#c9a227', borderRadius: 14, paddingVertical: 14, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 8 },
-    registerButtonText: { color: '#0f172a', fontSize: 15, fontWeight: '800' },
+    registerButton: { backgroundColor: theme.colors.gold, borderRadius: 14, paddingVertical: 14, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 8 },
+    registerButtonText: { color: theme.colors.textInverse, fontSize: 15, fontWeight: '800' },
 
     loginLink: { alignItems: 'center', paddingVertical: 12, marginTop: 4 },
     loginLinkText: { color: theme.colors.primary, fontSize: 13, fontWeight: '700' },

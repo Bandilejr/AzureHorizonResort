@@ -9,13 +9,14 @@ import {
   ActivityIndicator,
   Image,
   Modal,
-  Alert,
-  useColorScheme
+  Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
+import { EmptyState, ListSkeleton } from '@/components/ui/states';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 
 // UPDATED IMPORTS: Consolidated and added Firestore query tools
@@ -27,8 +28,7 @@ interface RoomServiceProps {
 }
 
 export default function RoomService({ onBack }: RoomServiceProps) {
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
   const [requests, setRequests] = useState<any[]>([]);
@@ -190,7 +190,7 @@ export default function RoomService({ onBack }: RoomServiceProps) {
   if (!user || userData?.status === 'visitor') {
     return (
       <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-        <Ionicons name="lock-closed-outline" size={64} color="#c9a227" />
+        <Ionicons name="lock-closed-outline" size={64} color={theme.colors.gold} />
         <Text style={{ fontSize: 22, fontWeight: '900', color: theme.colors.text, marginTop: 16, textAlign: 'center' }}>
           Room Service Locked
         </Text>
@@ -208,7 +208,7 @@ export default function RoomService({ onBack }: RoomServiceProps) {
   }
 
   return (
-    <View style={styles.container}>
+    <Screen scroll={false} padded={false}>
       {/* Success Modal */}
       <Modal visible={showSuccessModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
@@ -318,7 +318,7 @@ export default function RoomService({ onBack }: RoomServiceProps) {
                 <View style={styles.uploadedContainer}>
                   <Image source={{ uri: imageUri }} style={styles.uploadedImage} />
                   <View style={styles.uploadOverlay}>
-                    <Ionicons name="swap-horizontal" size={24} color="#fff" />
+                    <Ionicons name="swap-horizontal" size={24} color={theme.colors.textInverse} />
                     <Text style={styles.uploadOverlayText}>Change Photo</Text>
                   </View>
                 </View>
@@ -348,12 +348,9 @@ export default function RoomService({ onBack }: RoomServiceProps) {
           
           <View style={styles.historyContainer}>
             {isLoading ? (
-              <ActivityIndicator size="large" color={theme.colors.secondary} style={{ marginTop: 40 }} />
+              <ListSkeleton rows={3} />
             ) : requests.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="notifications-off-outline" size={60} color={theme.colors.textMuted} />
-                <Text style={styles.emptyStateText}>No service requests yet.</Text>
-              </View>
+              <EmptyState icon="notifications-off-outline" title="No service requests yet." />
             ) : (
               <View>
                 {requests.map((req) => (
@@ -396,7 +393,7 @@ export default function RoomService({ onBack }: RoomServiceProps) {
 
       {/* Custom Themed Alert Modal */}
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </View>
+    </Screen>
   );
 }
 
@@ -565,12 +562,12 @@ const createStyles = (theme: any) => StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: theme.colors.overlay,
     alignItems: 'center',
     justifyContent: 'center',
   },
   uploadOverlayText: {
-    color: '#fff',
+    color: theme.colors.textInverse,
     fontWeight: '600',
     marginTop: 4,
   },
@@ -606,7 +603,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     marginBottom: 16,
-    shadowColor: '#000',
+    shadowColor: theme.colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
@@ -659,7 +656,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,

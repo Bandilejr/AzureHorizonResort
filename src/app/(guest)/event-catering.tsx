@@ -8,15 +8,15 @@ import {
   Image,
   Modal,
   Dimensions,
-  SafeAreaView,
   Alert,
-  ActivityIndicator,
-  useColorScheme
+  ActivityIndicator
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
+import { ErrorState, ListSkeleton } from '@/components/ui/states';
 import { auth, db, saveEventCatering, getCateringForBooking, updateEventBookingCateringTotals, deriveBookingPaymentState } from '@/services/firebase-services';
 import { doc, getDoc } from 'firebase/firestore';
 
@@ -189,8 +189,7 @@ export default function EventCateringScreen() {
   const params = useLocalSearchParams();
   const bookingId = params.bookingId as string;
 
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
 
   const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
@@ -390,7 +389,7 @@ export default function EventCateringScreen() {
   if (loadingBooking) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#c9a227" />
+        <ListSkeleton rows={3} style={{ width: '100%' }} />
         <Text style={{ marginTop: 12, color: theme.colors.textMuted }}>Validating linked venue booking...</Text>
       </View>
     );
@@ -399,22 +398,13 @@ export default function EventCateringScreen() {
   if (bookingError) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-        <Ionicons name="lock-closed-outline" size={64} color="#c9a227" />
-        <Text style={{ fontSize: 20, fontWeight: '900', color: theme.colors.text, marginTop: 16, textAlign: 'center' }}>
-          {bookingError}
-        </Text>
-        <TouchableOpacity
-          style={{ backgroundColor: theme.colors.secondary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 14, marginTop: 24 }}
-          onPress={() => router.back()}
-        >
-          <Text style={{ color: '#ffffff', fontWeight: '800' }}>Back to Venue Booking</Text>
-        </TouchableOpacity>
+        <ErrorState message={bookingError} onRetry={() => router.back()} />
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <Screen scroll={false} padded={false}>
       {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
@@ -427,7 +417,7 @@ export default function EventCateringScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {isEditingExisting && (
           <View style={styles.editBanner}>
-            <Ionicons name="create-outline" size={16} color="#c9a227" />
+            <Ionicons name="create-outline" size={16} color={theme.colors.gold} />
             <Text style={styles.editBannerText}>
               You had {`${linkedBooking?.venueName || ''}`.trim() ? `a confirmed selection on ${linkedBooking.venueName}` : 'a confirmed catering selection'}. Adjust it freely — your combined total and balance are recalculated automatically.
             </Text>
@@ -465,7 +455,7 @@ export default function EventCateringScreen() {
               >
                 <Image source={resolveCateringImageSource(item.images[0])} style={styles.cardImage} />
                 <View style={styles.galleryBadge}>
-                  <Ionicons name="images" size={14} color="#fff" />
+                  <Ionicons name="images" size={14} color={theme.colors.textInverse} />
                   <Text style={styles.galleryBadgeText}>1/{item.images.length}</Text>
                 </View>
               </TouchableOpacity>
@@ -544,7 +534,7 @@ export default function EventCateringScreen() {
             style={styles.closeGalleryBtn} 
             onPress={() => setActiveGalleryImages(null)}
           >
-            <Ionicons name="close-circle" size={40} color="#fff" />
+            <Ionicons name="close-circle" size={40} color={theme.colors.textInverse} />
           </TouchableOpacity>
           
           <ScrollView 
@@ -594,7 +584,7 @@ export default function EventCateringScreen() {
         </View>
       </Modal>
 
-    </SafeAreaView>
+    </Screen>
   );
 }
 
@@ -611,15 +601,15 @@ const createStyles = (theme: any) => StyleSheet.create({
   stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   stepperBtn: { width: 30, height: 30, borderRadius: 8, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.warning, alignItems: 'center', justifyContent: 'center' },
   stepperValue: { fontSize: 15, fontWeight: '800', color: theme.colors.warning, minWidth: 34, textAlign: 'center' },
-  editBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(201,162,39,0.08)', borderWidth: 1, borderColor: theme.colors.primary, borderRadius: 12, padding: 10, marginBottom: 14 },
+  editBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.warningSoft, borderWidth: 1, borderColor: theme.colors.primary, borderRadius: 12, padding: 10, marginBottom: 14 },
   editBannerText: { flex: 1, color: theme.colors.textSecondary, fontSize: 11, lineHeight: 15 },
   bottomTotalSub: { fontSize: 10, color: theme.colors.textMuted, marginTop: 2, maxWidth: 190 },
   
-  card: { backgroundColor: theme.colors.surface, borderRadius: 20, overflow: 'hidden', marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3, borderWidth: 2, borderColor: 'transparent' },
+  card: { backgroundColor: theme.colors.surface, borderRadius: 20, overflow: 'hidden', marginBottom: 20, shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3, borderWidth: 2, borderColor: 'transparent' },
   cardSelected: { borderColor: theme.colors.primary },
   cardImage: { width: '100%', height: 180 },
-  galleryBadge: { position: 'absolute', bottom: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.6)', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, gap: 4 },
-  galleryBadgeText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
+  galleryBadge: { position: 'absolute', bottom: 12, right: 12, backgroundColor: theme.colors.overlay, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, gap: 4 },
+  galleryBadgeText: { color: theme.colors.textInverse, fontSize: 12, fontWeight: 'bold' },
   
   cardBody: { padding: 16 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
@@ -639,18 +629,18 @@ const createStyles = (theme: any) => StyleSheet.create({
   selectedFooterText: { color: theme.colors.textMuted, fontWeight: '500' },
   selectedFooterPrice: { color: theme.colors.text, fontWeight: 'bold', fontSize: 16 },
   
-  bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: theme.colors.surface, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 16, paddingBottom: 30, borderTopWidth: 1, borderTopColor: theme.colors.border, shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 10 },
+  bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: theme.colors.surface, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 16, paddingBottom: 30, borderTopWidth: 1, borderTopColor: theme.colors.border, shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 10 },
   bottomTotalLabel: { fontSize: 12, color: theme.colors.textMuted, textTransform: 'uppercase', letterSpacing: 1 },
   bottomTotalValue: { fontSize: 22, fontWeight: 'bold', color: theme.colors.text },
   checkoutBtn: { backgroundColor: theme.colors.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12 },
   checkoutBtnText: { color: theme.colors.textInverse, fontWeight: 'bold', fontSize: 16 },
 
   /* Modal Styles */
-  modalDarkOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center' },
+  modalDarkOverlay: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'center' },
   closeGalleryBtn: { position: 'absolute', top: 50, right: 20, zIndex: 10 },
   fullScreenImage: { width: width, height: width * 1.2 },
   
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.6)', justifyContent: 'flex-end' },
+  modalOverlay: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
   infoModalCard: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' },
   infoModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
   infoModalTitle: { fontSize: 20, fontWeight: 'bold', color: theme.colors.text, flex: 1 },

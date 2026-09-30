@@ -10,15 +10,16 @@ import {
   Alert,
   ActivityIndicator,
   Switch,
-  Platform,
-  useColorScheme
+  Platform
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { auth, db } from '../../services/firebase-services';
 import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
+import { EmptyState, ListSkeleton } from '@/components/ui/states';
 
 // Define the Venue structure
 interface Venue {
@@ -138,8 +139,7 @@ const generateDateArray = () => {
 export default function EventBookingScreen() {
   const user = auth.currentUser;
 
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
   
   // Search & Filter States
@@ -319,7 +319,7 @@ export default function EventBookingScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <Screen scroll={false} padded={false}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={28} color={theme.colors.secondary} />
@@ -406,16 +406,13 @@ export default function EventBookingScreen() {
       {/* AVAILABLE VENUES LIST */}
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {isCheckingAvailability ? (
-          <View style={styles.emptyState}>
-            <ActivityIndicator size="large" color={theme.colors.secondary} />
-            <Text style={styles.emptyStateTitle}>Checking Resort Availability...</Text>
-          </View>
+          <ListSkeleton rows={3} />
         ) : filteredVenues.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="calendar-clear-outline" size={48} color={theme.colors.textMuted} />
-            <Text style={styles.emptyStateTitle}>Fully Booked</Text>
-            <Text style={styles.emptyStateSub}>There are no venues matching your criteria for this date. They may already be reserved. Try adjusting your date or headcount.</Text>
-          </View>
+          <EmptyState
+            icon="calendar-clear-outline"
+            title="Fully Booked"
+            message="There are no venues matching your criteria for this date. They may already be reserved. Try adjusting your date or headcount."
+          />
         ) : (
           filteredVenues.map((venue) => (
             <View key={venue.id} style={styles.card}>
@@ -426,12 +423,12 @@ export default function EventBookingScreen() {
               >
                 <Image source={LOCAL_VENUE_IMAGES[venue.id][0]} style={styles.cardImage} />
                 <View style={styles.capacityBadge}>
-                  <Ionicons name="people" size={12} color="#fff" style={{ marginRight: 4 }} />
+                  <Ionicons name="people" size={12} color={theme.colors.textInverse} style={{ marginRight: 4 }} />
                   <Text style={styles.capacityBadgeText}>Max {venue.maxCapacity}</Text>
                 </View>
                 {LOCAL_VENUE_IMAGES[venue.id].length > 1 && (
                   <View style={styles.photoCountBadge}>
-                    <Ionicons name="images-outline" size={14} color="#fff" />
+                    <Ionicons name="images-outline" size={14} color={theme.colors.textInverse} />
                     <Text style={styles.photoCountText}>{LOCAL_VENUE_IMAGES[venue.id].length} Photos</Text>
                   </View>
                 )}
@@ -484,7 +481,7 @@ export default function EventBookingScreen() {
                   <Text style={styles.gallerySubtitle}>Max {selectedVenue.maxCapacity} Guests</Text>
                 </View>
                 <TouchableOpacity onPress={() => setShowGalleryModal(false)}>
-                  <Ionicons name="close-circle" size={32} color="#fff" />
+                  <Ionicons name="close-circle" size={32} color={theme.colors.textInverse} />
                 </TouchableOpacity>
               </View>
 
@@ -514,7 +511,7 @@ export default function EventBookingScreen() {
                 <View style={styles.galleryAmenitiesRow}>
                   {selectedVenue.amenities.map((amenity, idx) => (
                     <View key={idx} style={styles.galleryAmenityChip}>
-                      <Ionicons name="checkmark-circle" size={14} color="#e8aa42" style={{ marginRight: 6 }} />
+                      <Ionicons name="checkmark-circle" size={14} color={theme.colors.gold} style={{ marginRight: 6 }} />
                       <Text style={styles.galleryAmenityText}>{amenity}</Text>
                     </View>
                   ))}
@@ -598,7 +595,7 @@ export default function EventBookingScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </Screen>
   );
 }
 
@@ -609,7 +606,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   headerCenter: { alignItems: 'center' },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: theme.colors.text },
   headerSubtitle: { fontSize: 12, color: theme.colors.textMuted },
-  filterEngine: { backgroundColor: theme.colors.surface, paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 3, zIndex: 5 },
+  filterEngine: { backgroundColor: theme.colors.surface, paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 3, zIndex: 5 },
   filterRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingBottom: 12 },
   filterIcon: { marginRight: 12, marginTop: 2 },
   calendarTriggerBtn: { backgroundColor: theme.colors.surfaceVariant, padding: 8, borderRadius: 8, marginRight: 8, borderWidth: 1, borderColor: theme.colors.border },
@@ -623,19 +620,19 @@ const createStyles = (theme: any) => StyleSheet.create({
   typeChipText: { fontSize: 12, fontWeight: '600', color: theme.colors.textSecondary },
   stepperLabel: { flex: 1, fontSize: 14, color: theme.colors.textSecondary, fontWeight: '500' },
   stepperContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surfaceVariant, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border, padding: 4 },
-  stepperBtn: { padding: 4, backgroundColor: theme.colors.surface, borderRadius: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
+  stepperBtn: { padding: 4, backgroundColor: theme.colors.surface, borderRadius: 6, shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
   stepperValue: { fontSize: 14, fontWeight: 'bold', color: theme.colors.text, width: 40, textAlign: 'center' },
   scrollContent: { padding: 16, paddingBottom: 40 },
   emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, paddingHorizontal: 20 },
   emptyStateTitle: { fontSize: 18, fontWeight: 'bold', color: theme.colors.textMuted, marginTop: 16, marginBottom: 8 },
   emptyStateSub: { fontSize: 14, color: theme.colors.textMuted, textAlign: 'center', lineHeight: 20 },
-  card: { backgroundColor: theme.colors.surface, borderRadius: 16, overflow: 'hidden', marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 4 },
+  card: { backgroundColor: theme.colors.surface, borderRadius: 16, overflow: 'hidden', marginBottom: 20, shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 4 },
   imageContainer: { height: 180, position: 'relative' },
   cardImage: { width: '100%', height: '100%', resizeMode: 'cover' },
-  capacityBadge: { position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.7)', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
-  capacityBadgeText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
-  photoCountBadge: { position: 'absolute', bottom: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.6)', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, gap: 4 },
-  photoCountText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
+  capacityBadge: { position: 'absolute', top: 12, right: 12, backgroundColor: theme.colors.overlay, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
+  capacityBadgeText: { color: theme.colors.textInverse, fontSize: 12, fontWeight: 'bold' },
+  photoCountBadge: { position: 'absolute', bottom: 12, right: 12, backgroundColor: theme.colors.overlay, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, gap: 4 },
+  photoCountText: { color: theme.colors.textInverse, fontSize: 11, fontWeight: 'bold' },
   cardBody: { padding: 16 },
   cardHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
   venueName: { flex: 1, fontSize: 18, fontWeight: 'bold', color: theme.colors.text, marginRight: 8 },
@@ -648,23 +645,23 @@ const createStyles = (theme: any) => StyleSheet.create({
   amenityPlus: { fontSize: 10, color: theme.colors.textMuted, fontWeight: 'bold', marginLeft: 4 },
   bookBtn: { backgroundColor: theme.colors.secondary, paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
   bookBtnText: { color: theme.colors.textInverse, fontWeight: 'bold', fontSize: 14 },
-  galleryOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center' },
+  galleryOverlay: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'center' },
   galleryContainer: { flex: 1, justifyContent: 'flex-start', paddingTop: 60, paddingBottom: 40 },
   galleryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: 20, marginBottom: 20 },
-  galleryTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold', marginBottom: 4 },
-  gallerySubtitle: { color: '#e8aa42', fontSize: 13, fontWeight: '600' },
+  galleryTitle: { color: theme.colors.textInverse, fontSize: 20, fontWeight: 'bold', marginBottom: 4 },
+  gallerySubtitle: { color: theme.colors.gold, fontSize: 13, fontWeight: '600' },
   galleryMainImageWrapper: { height: '40%', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
   galleryMainImage: { width: '100%', height: '100%' },
   thumbnailScroll: { paddingHorizontal: 20, gap: 10, maxHeight: 70 },
   thumbnailButton: { width: 70, height: 70, borderRadius: 8, overflow: 'hidden', borderWidth: 2, borderColor: 'transparent' },
-  thumbnailActive: { borderColor: '#e8aa42' },
+  thumbnailActive: { borderColor: theme.colors.gold },
   thumbnailImage: { width: '100%', height: '100%', resizeMode: 'cover' },
-  galleryAmenitiesBox: { backgroundColor: 'rgba(255,255,255,0.05)', marginHorizontal: 20, marginTop: 24, borderRadius: 16, padding: 16 },
-  galleryAmenitiesTitle: { color: '#fff', fontSize: 14, fontWeight: 'bold', marginBottom: 12, letterSpacing: 0.5 },
+  galleryAmenitiesBox: { backgroundColor: theme.colors.surfaceVariant, marginHorizontal: 20, marginTop: 24, borderRadius: 16, padding: 16 },
+  galleryAmenitiesTitle: { color: theme.colors.textInverse, fontSize: 14, fontWeight: 'bold', marginBottom: 12, letterSpacing: 0.5 },
   galleryAmenitiesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  galleryAmenityChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
-  galleryAmenityText: { color: '#fff', fontSize: 12, fontWeight: '500' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  galleryAmenityChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surfaceVariant, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+  galleryAmenityText: { color: theme.colors.textInverse, fontSize: 12, fontWeight: '500' },
+  modalOverlay: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
   bottomSheet: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '90%' },
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   sheetTitle: { fontSize: 18, fontWeight: 'bold', color: theme.colors.textMuted },

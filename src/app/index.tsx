@@ -3,7 +3,8 @@ import { StyleSheet, Text, View, TouchableOpacity, Image, StatusBar, Platform, S
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getTheme, useColorScheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import { useAuth } from '@/context/AuthContext';
 import { loginMobileUser } from '@/services/firebase-services';
 import { homeRouteFor } from '@/utils/role-home';
@@ -36,8 +37,8 @@ const DEMO_ACCOUNTS: DemoAccount[] = (() => {
 })();
 
 export default function WelcomePage() {
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
   const { user, signOut } = useAuth();
   const insets = useSafeAreaInsets();
   const [quickLogging, setQuickLogging] = useState<string | null>(null);
@@ -64,7 +65,7 @@ export default function WelcomePage() {
   };
 
   return (
-    <View style={[styles.root, { marginTop: Platform.OS === 'android' ? -insets.top : 0 }]}>
+    <Screen padded={false} style={[styles.root, { marginTop: Platform.OS === 'android' ? -insets.top : 0 }]}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       
       {/* Background Image Layer */}
@@ -75,13 +76,13 @@ export default function WelcomePage() {
       />
 
       {/* Dark Overlay Layer for Text Readability */}
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(15, 23, 42, 0.55)' }]} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.overlay }]} />
 
       {/* Foreground Content */}
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.headerContainer}>
           <Ionicons name="star" size={32} color={theme.colors.primary} style={styles.icon} />
-          <Text style={[styles.title, { color: '#ffffff', fontFamily: theme.typography.fontFamilies.sans }]}>Azure Horizon</Text>
+          <Text style={[styles.title, { color: theme.colors.textInverse }]}>Azure Horizon</Text>
           <Text style={styles.subtitle}>Your Digital Resort Companion</Text>
         </View>
 
@@ -92,7 +93,7 @@ export default function WelcomePage() {
             style={[styles.primaryButton, { backgroundColor: theme.colors.primary }]} 
             onPress={() => router.push('/login' as any)}
           >
-            <Ionicons name="log-in-outline" size={20} color="#1e3a5f" />
+            <Ionicons name="log-in-outline" size={20} color={theme.colors.textInverse} />
             <Text style={styles.primaryButtonText}>Sign In to Your Stay</Text>
           </TouchableOpacity>
 
@@ -117,7 +118,7 @@ export default function WelcomePage() {
             style={styles.staffLinkTouchable}
             onPress={() => router.push('/staff-login' as any)}
           >
-            <Ionicons name="lock-closed" size={12} color="rgba(255,255,255,0.7)" />
+            <Ionicons name="lock-closed" size={12} color={theme.colors.textMuted} />
             <Text style={styles.staffLinkText}>Staff & Admin Access</Text>
           </TouchableOpacity>
         </View>
@@ -129,14 +130,14 @@ export default function WelcomePage() {
             {DEMO_ACCOUNTS.map((a) => (
               <TouchableOpacity
                 key={a.label}
-                style={[styles.quickChip, { backgroundColor: quickLogging === a.label ? theme.colors.surfaceVariant : 'rgba(255,255,255,0.14)' }]}
+                style={[styles.quickChip, { backgroundColor: theme.colors.surfaceVariant }]}
                 onPress={() => handleQuickLogin(a)}
                 disabled={quickLogging !== null}
               >
                 {quickLogging === a.label ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={theme.colors.textInverse} />
                 ) : (
-                  <Ionicons name={a.icon} size={14} color="#fff" style={styles.quickChipIcon} />
+                  <Ionicons name={a.icon} size={14} color={theme.colors.textInverse} style={styles.quickChipIcon} />
                 )}
                 <Text style={styles.quickChipText}>{a.label}</Text>
               </TouchableOpacity>
@@ -145,14 +146,14 @@ export default function WelcomePage() {
         </View>
         ) : null}
       </SafeAreaView>
-    </View>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: theme.colors.cameraBackdrop,
   },
   safeArea: {
     flex: 1,
@@ -174,7 +175,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.85)',
+    color: theme.colors.textInverse,
     marginTop: 8,
   },
   actionCard: {
@@ -183,7 +184,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     gap: 16,
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: theme.colors.shadow,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.25,
     shadowRadius: 16,
@@ -204,7 +205,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   primaryButtonText: {
-    color: '#1e3a5f',
+    color: theme.colors.textInverse,
     fontSize: 16,
     fontWeight: 'bold',
   },
@@ -240,7 +241,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   staffLinkText: {
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: theme.colors.textMuted,
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 1,
@@ -250,7 +251,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   quickAccessLabel: {
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: theme.colors.textMuted,
     fontSize: 11,
     fontWeight: '600',
     letterSpacing: 1,
@@ -269,7 +270,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
+    borderColor: theme.colors.borderStrong,
     minWidth: 74,
     justifyContent: 'center',
   },
@@ -277,7 +278,7 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   quickChipText: {
-    color: '#fff',
+    color: theme.colors.textInverse,
     fontSize: 13,
     fontWeight: '600',
   },

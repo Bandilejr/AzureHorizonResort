@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, ActivityIndicator, TextInput, useColorScheme } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { auth, db , submitEventFeedback } from '@/services/firebase-services';
 
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 import { todayISO } from '@/utils/dates';
 
@@ -29,8 +30,7 @@ export default function EventFeedbackScreen() {
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [comments, setComments] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
 
   const setRating = (category: string, stars: number) => {
@@ -135,7 +135,7 @@ export default function EventFeedbackScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <Screen scroll contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
@@ -185,7 +185,7 @@ export default function EventFeedbackScreen() {
       </View>
 
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </ScrollView>
+    </Screen>
   );
 }
 
@@ -195,7 +195,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 24 },
   backButton: { padding: 8, marginLeft: -8 },
   title: { flex: 1, fontSize: 28, fontWeight: 'bold', color: theme.colors.text, textAlign: 'center' },
-  card: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+  card: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 20, shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
   cardTitle: { fontSize: 20, fontWeight: 'bold', color: theme.colors.text, marginBottom: 8 },
   cardSubtitle: { fontSize: 14, color: theme.colors.textMuted, marginBottom: 24 },
   ratingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: theme.colors.border },

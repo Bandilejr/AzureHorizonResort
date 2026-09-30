@@ -8,6 +8,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/design/use-app-theme';
 import { Screen } from '@/components/ui/screen';
+import { EmptyState, ListSkeleton } from '@/components/ui/states';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 import PhotoThumb from '@/components/PhotoThumb';
 import {
@@ -225,18 +226,13 @@ export default function LiveComplaintsScreen() {
       </ScrollView>
 
       {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-          <Text style={styles.loadingText}>Loading complaints…</Text>
-        </View>
+        <ListSkeleton rows={3} />
       ) : filtered.length === 0 ? (
-        <View style={styles.centered}>
-          <Ionicons name="checkmark-done-circle-outline" size={56} color={theme.colors.success} />
-          <Text style={styles.emptyTitle}>
-            {activeFilter === 'all' ? 'No Complaints' : `No ${activeFilter.replace('_', ' ')} complaints`}
-          </Text>
-          <Text style={styles.emptyText}>All clear on this filter.</Text>
-        </View>
+        <EmptyState
+          icon="checkmark-done-circle-outline"
+          title={activeFilter === 'all' ? 'No Complaints' : `No ${activeFilter.replace('_', ' ')} complaints`}
+          message="All clear on this filter."
+        />
       ) : (
         <ScrollView
           contentContainerStyle={styles.list}

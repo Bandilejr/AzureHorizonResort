@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, ActivityIndicator, TextInput, useColorScheme, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, ActivityIndicator, TextInput, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { auth, db, uploadImage , createLiveComplaint } from '@/services/firebase-services';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -27,8 +28,7 @@ export default function LiveComplaintScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const eventId = params.eventId as string;
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
   
   const [category, setCategory] = useState('');
@@ -114,7 +114,7 @@ export default function LiveComplaintScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <Screen scroll contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
@@ -207,7 +207,7 @@ export default function LiveComplaintScreen() {
                     style={{ position: 'absolute', top: -4, right: -4, backgroundColor: theme.colors.error, borderRadius: 10, padding: 2 }}
                     onPress={() => setPhotoUris(photoUris.filter((_, i) => i !== idx))}
                   >
-                    <Ionicons name="close" size={14} color="#ffffff" />
+                    <Ionicons name="close" size={14} color={theme.colors.textInverse} />
                   </TouchableOpacity>
                 </View>
               ))}
@@ -221,7 +221,7 @@ export default function LiveComplaintScreen() {
       </View>
 
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </ScrollView>
+    </Screen>
   );
 }
 
@@ -231,7 +231,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 24 },
   backButton: { padding: 8, marginLeft: -8 },
   title: { flex: 1, fontSize: 28, fontWeight: 'bold', color: theme.colors.text, textAlign: 'center' },
-  card: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+  card: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 20, shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
   warningBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.warningLight, padding: 12, borderRadius: 8, marginBottom: 20, borderWidth: 1, borderColor: theme.colors.warning },
   warningText: { flex: 1, color: theme.colors.warning, fontSize: 13 },
   field: { marginBottom: 20 },

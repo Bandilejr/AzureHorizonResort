@@ -4,10 +4,8 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   StyleSheet,
   Modal,
-  useColorScheme,
   Share,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -15,15 +13,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { auth, db, listenForLoyaltyLog, redeemLoyaltyReward, checkAndRefundExpiredVouchers, LoyaltyLogEntry } from '../../services/firebase-services';
 import { doc, onSnapshot, getDoc } from 'firebase/firestore';
 import QRCode from 'react-native-qrcode-svg';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
+import { EmptyState, ListSkeleton } from '@/components/ui/states';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { lightColors } from '@/design/tokens';
 
 const TIERS = [
-  { name: 'Bronze', min: 0, color: '#b45309' },
-  { name: 'Silver', min: 500, color: '#475569' },
+  { name: 'Bronze', min: 0, color: lightColors.warningStrong },
+  { name: 'Silver', min: 500, color: lightColors.textMuted },
   { name: 'Gold', min: 1500, color: lightColors.warning },
   { name: 'Platinum', min: 5000, color: lightColors.text },
 ];
@@ -40,8 +40,7 @@ const formatTier = (tierName: string) => tierName.charAt(0).toUpperCase() + tier
 
 export default function LoyaltyScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
 
   const [profile, setProfile] = useState<any>(null);
@@ -127,8 +126,8 @@ export default function LoyaltyScreen() {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+      <View style={[styles.centered, { paddingHorizontal: 20 }]}>
+        <ListSkeleton rows={3} style={{ width: '100%' }} />
       </View>
     );
   }
@@ -245,7 +244,7 @@ export default function LoyaltyScreen() {
   };
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <Screen scroll contentContainerStyle={styles.content}>
       {/* Header */}
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
@@ -270,7 +269,7 @@ export default function LoyaltyScreen() {
         <Text style={styles.cardPoints}>{availablePoints.toLocaleString()}</Text>
         <Text style={styles.cardSubTitle}>Available Loyalty Points</Text>
         {heldPoints > 0 && (
-          <Text style={{ color: '#fef08a', fontSize: 12, fontWeight: '800', marginTop: 4 }}>
+          <Text style={{ color: theme.colors.warningSoft, fontSize: 12, fontWeight: '800', marginTop: 4 }}>
             🔒 {heldPoints} pts held in pending vouchers (Total Balance: {totalPoints})
           </Text>
         )}
@@ -280,7 +279,7 @@ export default function LoyaltyScreen() {
             <Text style={styles.tierLabel}>Current Tier</Text>
             <Text style={styles.tierValue}>{formatTier(currentTier.name)} Status</Text>
           </View>
-          <Ionicons name="diamond-sharp" size={28} color="#fef08a" />
+          <Ionicons name="diamond-sharp" size={28} color={theme.colors.warningSoft} />
         </View>
 
         {/* HIGH-CONTRAST BOLD PROGRESS BAR BOX */}
@@ -363,7 +362,7 @@ export default function LoyaltyScreen() {
           <Ionicons name="time-outline" size={18} color={theme.colors.textMuted} />
         </View>
         {logEntries.length === 0 ? (
-          <Text style={styles.emptyText}>No transactions yet. Ask staff to scan your member QR code to earn visit points.</Text>
+          <EmptyState icon="time-outline" title="No transactions yet" message="Ask staff to scan your member QR code to earn visit points." />
         ) : (
           logEntries.slice(0, 15).map((entry) => {
             const isRedemption = entry.points < 0;
@@ -388,7 +387,7 @@ export default function LoyaltyScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalIconBadge}>
-              <Ionicons name="qr-code" size={32} color="#c9a227" />
+              <Ionicons name="qr-code" size={32} color={theme.colors.gold} />
             </View>
 
             <Text style={styles.voucherTitle}>Reward Voucher Generated!</Text>
@@ -399,8 +398,8 @@ export default function LoyaltyScreen() {
                 <QRCode
                   value={voucher.qrPayload}
                   size={190}
-                  color="#0f172a"
-                  backgroundColor="#ffffff"
+                  color={theme.colors.text}
+                  backgroundColor={theme.colors.surface}
                   getRef={(c) => (qrSvgRef.current = c)}
                 />
               )}
@@ -417,7 +416,7 @@ export default function LoyaltyScreen() {
 
             <View style={styles.modalButtonRow}>
               <TouchableOpacity style={styles.downloadButton} onPress={handleShareOrDownloadQR} activeOpacity={0.8}>
-                <Ionicons name="download-outline" size={18} color="#ffffff" style={{ marginRight: 6 }} />
+                <Ionicons name="download-outline" size={18} color={theme.colors.textInverse} style={{ marginRight: 6 }} />
                 <Text style={styles.downloadButtonText}>Save / Share QR</Text>
               </TouchableOpacity>
 
@@ -431,7 +430,7 @@ export default function LoyaltyScreen() {
 
       {/* Custom Themed Alert Modal */}
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </ScrollView>
+    </Screen>
   );
 }
 
@@ -444,24 +443,24 @@ const createStyles = (theme: any) =>
     pageTitle: { fontSize: 24, fontWeight: '800', color: theme.colors.text },
     pageSubtitle: { fontSize: 13, color: theme.colors.textSecondary, marginTop: 2 },
 
-    card: { borderRadius: 24, padding: 22, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 6 },
+    card: { borderRadius: 24, padding: 22, shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 6 },
     cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
     cardLabel: { color: theme.colors.background, fontSize: 12, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '800' },
 
-    liveIndicator: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(22,163,74,0.3)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-    liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#4ade80' },
-    liveText: { color: '#ffffff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+    liveIndicator: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.colors.successSoft, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+    liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.success },
+    liveText: { color: theme.colors.textInverse, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
 
-    cardPoints: { color: '#ffffff', fontSize: 44, fontWeight: '900', letterSpacing: -1 },
+    cardPoints: { color: theme.colors.textInverse, fontSize: 44, fontWeight: '900', letterSpacing: -1 },
     cardSubTitle: { color: theme.colors.border, marginTop: 2, fontSize: 13, fontWeight: '600' },
 
     tierInfoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 14 },
     tierLabel: { color: theme.colors.border, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 },
-    tierValue: { color: '#ffffff', fontSize: 18, fontWeight: '800', marginTop: 2 },
+    tierValue: { color: theme.colors.textInverse, fontSize: 18, fontWeight: '800', marginTop: 2 },
 
     // HIGH CONTRAST BOLD PROGRESS BAR CONTAINER
     progressBarBox: {
-      backgroundColor: 'rgba(15, 23, 42, 0.75)',
+      backgroundColor: theme.colors.overlay,
       borderRadius: 16,
       padding: 16,
       borderWidth: 1.5,
@@ -470,17 +469,17 @@ const createStyles = (theme: any) =>
     },
     progressHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
     progressTitle: { color: theme.colors.primary, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
-    progressPctText: { color: '#ffffff', fontSize: 14, fontWeight: '900' },
+    progressPctText: { color: theme.colors.textInverse, fontSize: 14, fontWeight: '900' },
 
-    progressTrackContainer: { width: '100%', height: 14, backgroundColor: '#334155', borderRadius: 7, overflow: 'hidden', borderWidth: 1, borderColor: '#475569' },
+    progressTrackContainer: { width: '100%', height: 14, backgroundColor: theme.colors.cameraBackdrop, borderRadius: 7, overflow: 'hidden', borderWidth: 1, borderColor: theme.colors.borderStrong },
     progressTrackFill: { height: '100%', backgroundColor: theme.colors.primary, borderRadius: 7 },
 
     progressFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
-    progressSubLeft: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
-    progressSubRight: { color: '#fef08a', fontSize: 12, fontWeight: '700' },
-    topTierText: { color: '#fef08a', fontSize: 13, fontWeight: '800', textAlign: 'center' },
+    progressSubLeft: { color: theme.colors.textInverse, fontSize: 12, fontWeight: '700' },
+    progressSubRight: { color: theme.colors.warningSoft, fontSize: 12, fontWeight: '700' },
+    topTierText: { color: theme.colors.warningSoft, fontSize: 13, fontWeight: '800', textAlign: 'center' },
 
-    section: { marginTop: 24, backgroundColor: theme.colors.surface, borderRadius: 24, padding: 20, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, elevation: 3 },
+    section: { marginTop: 24, backgroundColor: theme.colors.surface, borderRadius: 24, padding: 20, shadowColor: theme.colors.shadow, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3 },
     sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     sectionTitle: { fontSize: 18, fontWeight: '800', color: theme.colors.text },
     sectionSubtitle: { fontSize: 13, color: theme.colors.textMuted, marginTop: 4, marginBottom: 16 },
@@ -506,19 +505,19 @@ const createStyles = (theme: any) =>
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.background },
 
     // Voucher QR Modal
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+    modalOverlay: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'center', alignItems: 'center', padding: 20 },
     modalContent: { width: '100%', maxWidth: 360, backgroundColor: theme.colors.text, borderRadius: 28, padding: 24, alignItems: 'center', borderWidth: 1.5, borderColor: theme.colors.primary },
-    modalIconBadge: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(201, 162, 39, 0.15)', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-    voucherTitle: { fontSize: 20, fontWeight: '800', color: '#ffffff', textAlign: 'center' },
+    modalIconBadge: { width: 60, height: 60, borderRadius: 30, backgroundColor: theme.colors.warningSoft, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+    voucherTitle: { fontSize: 20, fontWeight: '800', color: theme.colors.textInverse, textAlign: 'center' },
     voucherSubtitle: { color: theme.colors.textMuted, fontSize: 13, textAlign: 'center', marginTop: 4, marginBottom: 20 },
-    qrContainer: { padding: 16, backgroundColor: '#ffffff', borderRadius: 20, marginBottom: 16 },
-    voucherCard: { backgroundColor: '#1e293b', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 20, marginBottom: 14, alignItems: 'center', borderWidth: 1, borderColor: '#334155', width: '100%' },
+    qrContainer: { padding: 16, backgroundColor: theme.colors.surface, borderRadius: 20, marginBottom: 16 },
+    voucherCard: { backgroundColor: theme.colors.cameraBackdrop, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 20, marginBottom: 14, alignItems: 'center', borderWidth: 1, borderColor: theme.colors.borderStrong, width: '100%' },
     voucherCodeLabel: { fontSize: 10, color: theme.colors.textMuted, fontWeight: '800', letterSpacing: 1.5 },
     voucherCode: { fontSize: 20, fontWeight: '900', letterSpacing: 2, color: theme.colors.primary, marginTop: 2 },
-    voucherText: { textAlign: 'center', color: '#cbd5e1', fontSize: 13, marginBottom: 20 },
+    voucherText: { textAlign: 'center', color: theme.colors.textMuted, fontSize: 13, marginBottom: 20 },
     modalButtonRow: { flexDirection: 'row', gap: 10, width: '100%' },
     downloadButton: { flex: 1.2, backgroundColor: theme.colors.secondary, borderRadius: 14, paddingVertical: 14, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
-    downloadButtonText: { color: '#ffffff', fontWeight: '700', fontSize: 14 },
+    downloadButtonText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 14 },
     closeButton: { flex: 0.8, backgroundColor: theme.colors.primary, borderRadius: 14, paddingVertical: 14, alignItems: 'center', justifyContent: 'center' },
     closeButtonText: { color: theme.colors.text, fontWeight: '800', fontSize: 14 },
   });

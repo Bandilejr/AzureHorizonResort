@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView, SafeAreaView , useColorScheme } from 'react-native';
+import { StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import { Ionicons } from '@expo/vector-icons';
 import { loginMobileUser, logoutMobileUser } from '@/services/firebase-services';
 import { homeRouteFor } from '@/utils/role-home';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 
 const REMEMBERED_CREDENTIALS_KEY = 'azure_remembered_credentials';
 
@@ -29,8 +30,8 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [bioLoading, setBioLoading] = useState(false);
   const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
 
   useEffect(() => {
     (async () => {
@@ -124,11 +125,7 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <ScrollView 
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
+    <Screen scroll contentContainerStyle={styles.scrollContent}>
         <Text style={[styles.title, { color: theme.colors.text }]}>Azure Horizon</Text>
         <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Sign In to Your Stay</Text>
 
@@ -174,7 +171,7 @@ export default function LoginScreen() {
 
         <TouchableOpacity style={[styles.button, { backgroundColor: theme.colors.primary }]} onPress={handleLogin} disabled={loading}>
           {loading ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={theme.colors.textInverse} />
           ) : (
             <Text style={styles.buttonText}>Sign In</Text>
           )}
@@ -200,12 +197,11 @@ export default function LoginScreen() {
         <TouchableOpacity style={styles.backButton} onPress={() => router.replace('/')}>
           <Text style={[styles.backButtonText, { color: theme.colors.textSecondary }]}>Back to Welcome</Text>
         </TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
   container: {
     flex: 1,
   },
@@ -279,7 +275,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   buttonText: {
-    color: '#fff',
+    color: theme.colors.textInverse,
     fontSize: 16,
     fontWeight: 'bold',
   },

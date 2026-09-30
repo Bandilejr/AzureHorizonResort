@@ -5,14 +5,14 @@ import {
   View, 
   ScrollView, 
   TouchableOpacity, 
-  ActivityIndicator,
   Alert,
-  Modal,
-  useColorScheme
+  Modal
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
+import { EmptyState, ListSkeleton } from '@/components/ui/states';
 
 // Firebase Imports
 import { auth, db, rtdb, awardLoyaltyPoints } from '../../services/firebase-services';
@@ -50,8 +50,7 @@ export default function BillingScreen() {
   const [selectedInvoiceModal, setSelectedInvoiceModal] = useState<any>(null);
 
   const user = auth.currentUser;
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
 
   const nightlyRate = 3500;
@@ -238,7 +237,7 @@ export default function BillingScreen() {
   if (!user) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-        <Ionicons name="lock-closed-outline" size={64} color="#c9a227" />
+        <Ionicons name="lock-closed-outline" size={64} color={theme.colors.gold} />
         <Text style={{ fontSize: 22, fontWeight: '900', color: theme.colors.text, marginTop: 16, textAlign: 'center' }}>
           Folio & Billing Locked
         </Text>
@@ -257,15 +256,15 @@ export default function BillingScreen() {
 
   if (isLoading) {
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={theme.colors.secondary} />
+      <View style={[styles.centerContainer, { paddingHorizontal: 20 }]}>
+        <ListSkeleton rows={3} style={{ width: '100%' }} />
         <Text style={styles.loadingText}>Compiling your folio...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <Screen scroll={false} padded={false}>
       {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
@@ -463,15 +462,15 @@ export default function BillingScreen() {
                 {damageInvoices.map((inv) => (
                   <TouchableOpacity 
                     key={inv.id} 
-                    style={{ backgroundColor: theme.colors.surface, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: '#f59e0b', borderLeftWidth: 4, borderLeftColor: '#f59e0b' }}
+                    style={{ backgroundColor: theme.colors.surface, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: theme.colors.warning, borderLeftWidth: 4, borderLeftColor: theme.colors.warning }}
                     onPress={() => setSelectedInvoiceModal(inv)}
                   >
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                        <Ionicons name="receipt" size={20} color="#f59e0b" />
+                        <Ionicons name="receipt" size={20} color={theme.colors.warning} />
                         <Text style={{ fontSize: 15, fontWeight: '800', color: theme.colors.text }}>{inv.invoiceNumber}</Text>
                       </View>
-                      <Text style={{ fontSize: 16, fontWeight: '900', color: '#f59e0b' }}>R {(inv.amount || inv.subtotal || 0).toLocaleString()}</Text>
+                      <Text style={{ fontSize: 16, fontWeight: '900', color: theme.colors.warning }}>R {(inv.amount || inv.subtotal || 0).toLocaleString()}</Text>
                     </View>
 
                     <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginBottom: 8 }}>
@@ -480,8 +479,8 @@ export default function BillingScreen() {
 
                     <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
                       {Array.isArray(inv.lineItems) && inv.lineItems.map((item: { name?: string }, idx: number) => (
-                        <View key={idx} style={{ backgroundColor: '#f59e0b18', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
-                          <Text style={{ fontSize: 11, fontWeight: '700', color: '#f59e0b', textTransform: 'capitalize' }}>{item.name || 'Damaged Asset'}</Text>
+                        <View key={idx} style={{ backgroundColor: theme.colors.warningSoft, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                          <Text style={{ fontSize: 11, fontWeight: '700', color: theme.colors.warning, textTransform: 'capitalize' }}>{item.name || 'Damaged Asset'}</Text>
                         </View>
                       ))}
                     </View>
@@ -491,15 +490,7 @@ export default function BillingScreen() {
             )}
 
             {paidInvoices.length === 0 && damageInvoices.length === 0 ? (
-              <View style={{ alignItems: 'center', paddingVertical: 48, backgroundColor: theme.colors.surface, borderRadius: 20 }}>
-                <Ionicons name="receipt-outline" size={48} color={theme.colors.textMuted} />
-                <Text style={{ fontSize: 16, fontWeight: '700', color: theme.colors.text, marginTop: 12 }}>
-                  No Invoices Yet
-                </Text>
-                <Text style={{ fontSize: 13, color: theme.colors.textMuted, marginTop: 4, textAlign: 'center', paddingHorizontal: 20 }}>
-                  Official damage invoices and settled receipts will be stored here live.
-                </Text>
-              </View>
+              <EmptyState icon="receipt-outline" title="No Invoices Yet" message="Official damage invoices and settled receipts will be stored here live." />
             ) : (
               paidInvoices.map((inv) => (
                 <TouchableOpacity 
@@ -509,7 +500,7 @@ export default function BillingScreen() {
                 >
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Ionicons name="checkmark-circle" size={20} color="#16a34a" />
+                      <Ionicons name="checkmark-circle" size={20} color={theme.colors.success} />
                       <Text style={{ fontSize: 15, fontWeight: '800', color: theme.colors.text }}>{inv.invoiceNumber}</Text>
                     </View>
                     <Text style={{ fontSize: 16, fontWeight: '900', color: theme.colors.success }}>R {inv.amount?.toLocaleString()}</Text>
@@ -536,15 +527,15 @@ export default function BillingScreen() {
 
       {/* PAYMENT SUCCESS MODAL */}
       <Modal visible={paymentSuccessModal.visible} transparent animationType="fade">
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+        <View style={{ flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
           <View style={{ backgroundColor: theme.colors.surface, borderRadius: 24, padding: 28, alignItems: 'center', width: '90%' }}>
-            <Ionicons name="checkmark-circle" size={64} color="#16a34a" />
+            <Ionicons name="checkmark-circle" size={64} color={theme.colors.success} />
             <Text style={{ fontSize: 22, fontWeight: '900', color: theme.colors.text, marginTop: 12 }}>Payment Successful!</Text>
             <Text style={{ fontSize: 14, color: theme.colors.textMuted, textAlign: 'center', marginTop: 6, lineHeight: 20 }}>
               Invoice <Text style={{ fontWeight: '800', color: theme.colors.primary }}>{paymentSuccessModal.invoiceNo}</Text> has been issued.
             </Text>
 
-            <View style={{ backgroundColor: '#16a34a15', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 14, marginVertical: 16, alignItems: 'center' }}>
+            <View style={{ backgroundColor: theme.colors.successSoft, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 14, marginVertical: 16, alignItems: 'center' }}>
               <Text style={{ fontSize: 18, fontWeight: '900', color: theme.colors.success }}>+ {paymentSuccessModal.points} Loyalty Points Earned!</Text>
               <Text style={{ fontSize: 12, color: theme.colors.success, marginTop: 2 }}>Added directly to your reward balance</Text>
             </View>
@@ -561,10 +552,10 @@ export default function BillingScreen() {
 
       {selectedInvoiceModal && (
         <Modal visible transparent animationType="fade" onRequestClose={() => setSelectedInvoiceModal(null)}>
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)', padding: 24 }}>
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.overlay, padding: 24 }}>
             <View style={{ backgroundColor: theme.colors.surface, borderRadius: 20, padding: 24, width: '100%', maxWidth: 420 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                <Ionicons name="receipt" size={26} color="#16a34a" />
+                <Ionicons name="receipt" size={26} color={theme.colors.success} />
                 <Text style={{ fontSize: 20, fontWeight: '900', color: theme.colors.text, flex: 1 }}>
                   {selectedInvoiceModal.invoiceNumber}
                 </Text>
@@ -573,11 +564,11 @@ export default function BillingScreen() {
                 </TouchableOpacity>
               </View>
 
-              <View style={{ backgroundColor: selectedInvoiceModal.type === 'damage' ? '#f59e0b18' : '#16a34a10', borderRadius: 12, padding: 14, marginBottom: 14, alignItems: 'center' }}>
-                <Text style={{ fontSize: 12, color: selectedInvoiceModal.type === 'damage' ? '#f59e0b' : theme.colors.success, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>
+              <View style={{ backgroundColor: selectedInvoiceModal.type === 'damage' ? theme.colors.warningSoft : theme.colors.successSoft, borderRadius: 12, padding: 14, marginBottom: 14, alignItems: 'center' }}>
+                <Text style={{ fontSize: 12, color: selectedInvoiceModal.type === 'damage' ? theme.colors.warning : theme.colors.success, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>
                   {selectedInvoiceModal.type === 'damage' ? 'Invoice Outstanding' : 'Amount Paid'}
                 </Text>
-                <Text style={{ fontSize: 26, fontWeight: '900', color: selectedInvoiceModal.type === 'damage' ? '#f59e0b' : theme.colors.success, marginTop: 2 }}>
+                <Text style={{ fontSize: 26, fontWeight: '900', color: selectedInvoiceModal.type === 'damage' ? theme.colors.warning : theme.colors.success, marginTop: 2 }}>
                   R {(selectedInvoiceModal.amount || selectedInvoiceModal.subtotal || 0).toLocaleString()}
                 </Text>
               </View>
@@ -587,7 +578,7 @@ export default function BillingScreen() {
                   <Text style={{ fontSize: 13, fontWeight: '800', color: theme.colors.text, marginBottom: 6 }}>Charges Covered</Text>
                   {selectedInvoiceModal.items.map((item: string, idx: number) => (
                     <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 3 }}>
-                      <Ionicons name="checkmark-circle" size={14} color="#16a34a" />
+                      <Ionicons name="checkmark-circle" size={14} color={theme.colors.success} />
                       <Text style={{ fontSize: 13, color: theme.colors.textMuted, flex: 1 }}>{item}</Text>
                     </View>
                   ))}
@@ -624,7 +615,7 @@ export default function BillingScreen() {
           </View>
         </Modal>
       )}
-    </View>
+    </Screen>
   );
 }
 
@@ -698,7 +689,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     letterSpacing: 1,
   },
   balanceAmount: {
-    color: '#fff',
+    color: theme.colors.textInverse,
     fontSize: 36,
     fontWeight: 'bold',
     marginBottom: 16,
@@ -706,14 +697,14 @@ const createStyles = (theme: any) => StyleSheet.create({
   guestInfoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: theme.colors.surfaceVariant,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
     gap: 6,
   },
   guestInfoText: {
-    color: '#cbd5e1',
+    color: theme.colors.textMuted,
     fontSize: 13,
   },
   guestInfoDot: {
@@ -731,7 +722,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     backgroundColor: theme.colors.surface,
     borderRadius: 20,
     padding: 20,
-    shadowColor: '#000',
+    shadowColor: theme.colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,

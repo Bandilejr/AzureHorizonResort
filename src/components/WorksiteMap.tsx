@@ -4,8 +4,8 @@
 // position or claims accuracy the device did not report. Upgrade path for a
 // full live map: react-native-maps + Android Maps API key (native build).
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, useColorScheme } from 'react-native';
-import { getTheme } from '@/constants/theme';
+import { View, Text, StyleSheet } from 'react-native';
+import { useAppTheme } from '@/design/use-app-theme';
 import type { GeofenceResult, GeofenceFix } from '@/types/workforce';
 
 export type WorksiteMapState =
@@ -39,8 +39,7 @@ export function WorksiteMap({
   result: GeofenceResult | null;
   fixAgeMs?: number;
 }) {
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
 
   const state: WorksiteMapState = useMemo(() => {
@@ -51,11 +50,11 @@ export function WorksiteMap({
   }, [fix, result]);
 
   const stateMeta: Record<WorksiteMapState, { label: string; color: string }> = {
-    INSIDE: { label: '✓ Inside workplace', color: '#16a34a' },
-    OUTSIDE: { label: '✗ Outside workplace', color: '#dc2626' },
-    GPS_INACCURATE: { label: '⚠ GPS accuracy insufficient', color: '#d97706' },
-    LOCATION_STALE: { label: '⚠ Location outdated — try again', color: '#d97706' },
-    LOCATION_UNAVAILABLE: { label: '⚠ Location unavailable', color: '#d97706' },
+    INSIDE: { label: '✓ Inside workplace', color: theme.colors.success },
+    OUTSIDE: { label: '✗ Outside workplace', color: theme.colors.error },
+    GPS_INACCURATE: { label: '⚠ GPS accuracy insufficient', color: theme.colors.warning },
+    LOCATION_STALE: { label: '⚠ Location outdated — try again', color: theme.colors.warning },
+    LOCATION_UNAVAILABLE: { label: '⚠ Location unavailable', color: theme.colors.warning },
   };
 
   // Scale the schematic: the larger of (geofence radius, user distance +
@@ -87,7 +86,7 @@ export function WorksiteMap({
         <View
           style={[
             styles.geofence,
-            { width: geofenceR * 2, height: geofenceR * 2, left: viewHalf - geofenceR, top: viewHalf - geofenceR, borderColor: state === 'INSIDE' ? '#16a34a' : theme.colors.border },
+            { width: geofenceR * 2, height: geofenceR * 2, left: viewHalf - geofenceR, top: viewHalf - geofenceR, borderColor: state === 'INSIDE' ? theme.colors.success : theme.colors.border },
           ]}
         />
         {/* workplace pin */}
@@ -112,7 +111,7 @@ export function WorksiteMap({
         <Text style={styles.legendText}>Workplace ({worksite.name}) · fence {worksite.radiusM}m</Text>
       </View>
       <View style={styles.legendRow}>
-        <View style={[styles.legendDot, { backgroundColor: '#0ea5e9' }]} />
+        <View style={[styles.legendDot, { backgroundColor: theme.colors.info }]} />
         <Text style={styles.legendText}>
           {fix
             ? `You · ${Math.round(distance)}m away${accuracy ? ` · ±${Math.round(accuracy)}m GPS` : ' · no accuracy reading'}${fixAgeMs != null ? ` · fix ${Math.round(fixAgeMs / 1000)}s old` : ''}`
@@ -128,11 +127,11 @@ const createStyles = (theme: any) =>
   StyleSheet.create({
     wrap: { alignItems: 'center', paddingVertical: 8 },
     mapBox: { width: 224, height: 224, backgroundColor: theme.colors.surfaceVariant || theme.colors.surface, borderRadius: 16, overflow: 'hidden' },
-    geofence: { position: 'absolute', borderRadius: 999, borderWidth: 2, borderStyle: 'dashed', backgroundColor: 'rgba(22,163,74,0.06)' },
+    geofence: { position: 'absolute', borderRadius: 999, borderWidth: 2, borderStyle: 'dashed', backgroundColor: theme.colors.successSoft },
     pin: { position: 'absolute' },
-    pinDot: { width: 16, height: 16, borderRadius: 8, backgroundColor: theme.colors.primary, borderWidth: 2, borderColor: '#fff' },
-    accuracyCircle: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(14,165,233,0.18)', borderWidth: 1, borderColor: 'rgba(14,165,233,0.4)' },
-    userDot: { position: 'absolute', width: 14, height: 14, borderRadius: 7, backgroundColor: '#0ea5e9', borderWidth: 2, borderColor: '#fff' },
+    pinDot: { width: 16, height: 16, borderRadius: 8, backgroundColor: theme.colors.primary, borderWidth: 2, borderColor: theme.colors.textInverse },
+    accuracyCircle: { position: 'absolute', borderRadius: 999, backgroundColor: theme.colors.infoSoft, borderWidth: 1, borderColor: theme.colors.info },
+    userDot: { position: 'absolute', width: 14, height: 14, borderRadius: 7, backgroundColor: theme.colors.info, borderWidth: 2, borderColor: theme.colors.textInverse },
     legendRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
     legendDot: { width: 8, height: 8, borderRadius: 4 },
     legendText: { fontSize: 11, color: theme.colors.textMuted },

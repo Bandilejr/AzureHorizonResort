@@ -5,14 +5,14 @@ import {
   View, 
   ScrollView, 
   TouchableOpacity, 
-  ActivityIndicator,
   Modal,
-  Alert,
-  useColorScheme
+  Alert
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
+import { EmptyState, ListSkeleton } from '@/components/ui/states';
 
 // Firebase Imports
 import { auth, rtdb } from '../../services/firebase-services';
@@ -45,8 +45,7 @@ export default function MyOrdersScreen() {
 
   const user = auth.currentUser;
 
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
 
   useEffect(() => {
@@ -133,7 +132,7 @@ export default function MyOrdersScreen() {
   if (!user) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-        <Ionicons name="lock-closed-outline" size={64} color="#c9a227" />
+        <Ionicons name="lock-closed-outline" size={64} color={theme.colors.gold} />
         <Text style={{ fontSize: 22, fontWeight: '900', color: theme.colors.text, marginTop: 16, textAlign: 'center' }}>
           My Orders Locked
         </Text>
@@ -151,7 +150,7 @@ export default function MyOrdersScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <Screen scroll={false} padded={false}>
       {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
@@ -186,18 +185,11 @@ export default function MyOrdersScreen() {
 
       {/* ORDER LIST */}
       {isLoading ? (
-        <View style={styles.centerContent}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-        </View>
+        <ListSkeleton rows={3} />
       ) : (
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {displayOrders.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="receipt-outline" size={60} color={theme.colors.textMuted} />
-              <Text style={styles.emptyStateText}>
-                No {activeTab} orders found.
-              </Text>
-            </View>
+            <EmptyState icon="receipt-outline" title={`No ${activeTab} orders found.`} />
           ) : (
             displayOrders.map((order) => {
               const config = getStatusConfig(order.status);
@@ -315,7 +307,7 @@ export default function MyOrdersScreen() {
         </View>
       </Modal>
 
-    </View>
+    </Screen>
   );
 }
 
@@ -367,7 +359,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   activeTab: {
     backgroundColor: theme.colors.surface,
-    shadowColor: '#000',
+    shadowColor: theme.colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
@@ -405,7 +397,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
-    shadowColor: '#000',
+    shadowColor: theme.colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
@@ -495,7 +487,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'flex-end',
   },
   bottomSheet: {

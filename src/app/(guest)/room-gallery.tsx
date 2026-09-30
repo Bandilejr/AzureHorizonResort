@@ -8,13 +8,12 @@ import {
   Image,
   Modal,
   ActivityIndicator,
-  SafeAreaView,
-  ScrollView,
-  useColorScheme
+  ScrollView
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import { useAuth } from '@/context/AuthContext';
 import { auth } from '../../services/firebase-services';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
@@ -95,8 +94,7 @@ const SUITE_DATA: Room[] = [
 
 export default function RoomGalleryScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
 
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
@@ -162,7 +160,7 @@ export default function RoomGalleryScreen() {
           <Text style={styles.priceBadgeText}>R {room.price} / night</Text>
         </View>
         <View style={styles.photoCountBadge}>
-          <Ionicons name="images-outline" size={14} color="#ffffff" />
+          <Ionicons name="images-outline" size={14} color={theme.colors.textInverse} />
           <Text style={styles.photoCountText}>{room.galleryUrls.length} Photos</Text>
         </View>
       </TouchableOpacity>
@@ -188,7 +186,7 @@ export default function RoomGalleryScreen() {
             style={styles.galleryBtn} 
             onPress={() => openGallery(room)}
           >
-            <Ionicons name="eye-outline" size={16} color="#c9a227" />
+            <Ionicons name="eye-outline" size={16} color={theme.colors.gold} />
             <Text style={styles.galleryBtnText}>Photo Tour</Text>
           </TouchableOpacity>
 
@@ -204,7 +202,7 @@ export default function RoomGalleryScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <Screen scroll={false} padded={false}>
       {/* Header */}
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
@@ -233,7 +231,7 @@ export default function RoomGalleryScreen() {
               <Text style={styles.modalSubtitle}>Photo {currentImageIndex + 1} of {selectedRoom?.galleryUrls.length || 1}</Text>
             </View>
             <TouchableOpacity onPress={() => setShowGalleryModal(false)} style={styles.closeModalBtn}>
-              <Ionicons name="close" size={24} color="#ffffff" />
+              <Ionicons name="close" size={24} color={theme.colors.textInverse} />
             </TouchableOpacity>
           </View>
 
@@ -262,7 +260,7 @@ export default function RoomGalleryScreen() {
       </Modal>
 
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </SafeAreaView>
+    </Screen>
   );
 }
 
@@ -275,15 +273,15 @@ const createStyles = (theme: any) =>
     subtitle: { fontSize: 13, color: theme.colors.textSecondary, marginTop: 2 },
 
     listContent: { padding: 20, paddingTop: 10, paddingBottom: 40 },
-    card: { backgroundColor: theme.colors.surface, borderRadius: 24, marginBottom: 20, overflow: 'hidden', borderWidth: 1, borderColor: theme.colors.border, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 },
+    card: { backgroundColor: theme.colors.surface, borderRadius: 24, marginBottom: 20, overflow: 'hidden', borderWidth: 1, borderColor: theme.colors.border, shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 },
     imageContainer: { height: 220, width: '100%', position: 'relative' },
     cardImage: { width: '100%', height: '100%' },
 
     priceBadge: { position: 'absolute', top: 14, right: 14, backgroundColor: theme.colors.text, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.primary },
     priceBadgeText: { color: theme.colors.primary, fontWeight: '900', fontSize: 13 },
 
-    photoCountBadge: { position: 'absolute', bottom: 14, left: 14, backgroundColor: 'rgba(15, 23, 42, 0.75)', flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-    photoCountText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
+    photoCountBadge: { position: 'absolute', bottom: 14, left: 14, backgroundColor: theme.colors.overlay, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+    photoCountText: { color: theme.colors.textInverse, fontSize: 12, fontWeight: '700' },
 
     cardBody: { padding: 20 },
     typeBadge: { alignSelf: 'flex-start', backgroundColor: theme.colors.primaryLight, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginBottom: 8 },
@@ -303,11 +301,11 @@ const createStyles = (theme: any) =>
     bookBtn: { flex: 1, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center', borderRadius: 14, paddingVertical: 12 },
     bookBtnText: { color: theme.colors.text, fontWeight: '800', fontSize: 14 },
 
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.95)', padding: 20, paddingTop: 50, justifyContent: 'space-between' },
+    modalOverlay: { flex: 1, backgroundColor: theme.colors.overlay, padding: 20, paddingTop: 50, justifyContent: 'space-between' },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    modalTitle: { color: '#ffffff', fontSize: 20, fontWeight: '800' },
+    modalTitle: { color: theme.colors.textInverse, fontSize: 20, fontWeight: '800' },
     modalSubtitle: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
-    closeModalBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' },
+    closeModalBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center' },
 
     modalBody: { flex: 1, justifyContent: 'center', alignItems: 'center', marginVertical: 20 },
     modalImage: { width: '100%', height: 320, borderRadius: 20, marginBottom: 20 },

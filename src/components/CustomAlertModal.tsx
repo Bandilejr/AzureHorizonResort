@@ -58,7 +58,7 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({ config, onCl
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={handleCancel} statusBarTranslucent>
-      <Pressable style={styles.overlay} onPress={handleCancel}>
+      <Pressable style={[styles.overlay, { backgroundColor: theme.colors.overlay }]} onPress={handleCancel}>
         <Pressable style={styles.stop} onPress={() => { /* swallow */ }}>
           <View
             style={[
@@ -109,7 +109,6 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({ config, onCl
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(16, 24, 40, 0.55)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,

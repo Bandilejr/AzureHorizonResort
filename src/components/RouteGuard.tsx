@@ -1,11 +1,11 @@
 // src/components/RouteGuard.tsx — Phase 1 route guards: auth + role-area enforcement.
 
 import React, { useEffect } from 'react';
-import { View, ActivityIndicator, useColorScheme } from 'react-native';
+import { View, ActivityIndicator } from 'react-native';
 import { Redirect } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { roleAreaFor, type RoleArea } from '@/utils/role-home';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
 
 interface Props {
   allow: RoleArea | RoleArea[];
@@ -14,8 +14,7 @@ interface Props {
 
 export default function RouteGuard({ allow, children }: Props) {
   const { profile, loading, user } = useAuth();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
 
   if (loading || (!user && !profile && loading)) {
     return (

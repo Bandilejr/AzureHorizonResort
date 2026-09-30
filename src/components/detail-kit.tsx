@@ -120,7 +120,7 @@ export function DetailModal({ visible, title, onClose, children, actions }: {
       onRequestClose={() => { if (kbOpen) Keyboard.dismiss(); else close(); }}
     >
       <TouchableWithoutFeedback onPress={close}>
-        <View style={dmStyles.backdrop} />
+        <View style={[dmStyles.backdrop, { backgroundColor: theme.colors.overlay }]} />
       </TouchableWithoutFeedback>
       <Animated.View
         style={[dmStyles.sheet, { backgroundColor: theme.colors.surface, height: screenH, transform: [{ translateY }] }]}
@@ -151,7 +151,7 @@ export function DetailModal({ visible, title, onClose, children, actions }: {
   );
 }
 const dmStyles = StyleSheet.create({
-  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(16,24,40,0.5)' },
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   sheet: { position: 'absolute', left: 0, right: 0, top: 0, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 8 },
   grabZone: { paddingBottom: 4 },
   handle: { width: 44, height: 5, borderRadius: 3, alignSelf: 'center', marginBottom: 8 },

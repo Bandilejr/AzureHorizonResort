@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import {
   StyleSheet, Text, View, ScrollView, TouchableOpacity, TextInput,
-  ActivityIndicator, Alert, SafeAreaView, Image, useColorScheme, Platform
+  ActivityIndicator, Alert, Image, Platform
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '@/context/AuthContext';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
+import { EmptyState, ListSkeleton } from '@/components/ui/states';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 import { db, createRefundRequest } from '../../services/firebase-services';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
@@ -16,8 +18,7 @@ export default function GuestRefundRequestScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ eventId?: string }>();
   const { user, profile } = useAuth();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const S = createStyles(theme);
 
   const [loadingBookings, setLoadingBookings] = useState(true);
@@ -204,11 +205,11 @@ export default function GuestRefundRequestScreen() {
   };
 
   return (
-    <SafeAreaView style={S.container}>
+    <Screen scroll={false} padded={false}>
       {/* ── HEADER ── */}
       <View style={S.header}>
         <TouchableOpacity onPress={() => router.back()} style={S.backBtn}>
-          <Ionicons name="chevron-back" size={26} color="#fff" />
+          <Ionicons name="chevron-back" size={26} color={theme.colors.textInverse} />
         </TouchableOpacity>
         <View style={S.headerCenter}>
           <Text style={S.headerTitle}>File Refund Claim 💸</Text>
@@ -222,7 +223,7 @@ export default function GuestRefundRequestScreen() {
           /* ── SUCCESS STATE CARD ── */
           <View style={S.successCard}>
             <View style={S.successIconBox}>
-              <Ionicons name="checkmark-circle" size={56} color="#16a34a" />
+              <Ionicons name="checkmark-circle" size={56} color={theme.colors.success} />
             </View>
             <Text style={S.successTitle}>Refund Claim Logged!</Text>
             <Text style={S.successRef}>Claim Reference #: <Text style={{ fontWeight: '900', color: theme.colors.primary }}>REF-{submittedRefId}</Text></Text>
@@ -232,7 +233,7 @@ export default function GuestRefundRequestScreen() {
             </Text>
 
             <View style={S.slaBox}>
-              <Ionicons name="time-outline" size={20} color="#c9a227" />
+              <Ionicons name="time-outline" size={20} color={theme.colors.gold} />
               <Text style={S.slaText}>Review SLA: Admin review & resolution typically completes within 24 to 48 hours.</Text>
             </View>
 
@@ -266,7 +267,7 @@ export default function GuestRefundRequestScreen() {
                     }}
                     onPress={() => setBookingFilter(tab.key as any)}
                   >
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: bookingFilter === tab.key ? '#fff' : theme.colors.textMuted }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: bookingFilter === tab.key ? theme.colors.textInverse : theme.colors.textMuted }}>
                       {tab.label}
                     </Text>
                   </TouchableOpacity>
@@ -274,12 +275,9 @@ export default function GuestRefundRequestScreen() {
               </View>
 
               {loadingBookings ? (
-                <ActivityIndicator color={theme.colors.primary} style={{ marginVertical: 20 }} />
+                <ListSkeleton rows={3} />
               ) : bookings.length === 0 ? (
-                <View style={S.emptyBookingBox}>
-                  <Ionicons name="calendar-outline" size={32} color={theme.colors.textMuted} />
-                  <Text style={S.emptyBookingText}>No event bookings found for your account.</Text>
-                </View>
+                <EmptyState icon="calendar-outline" title="No event bookings found for your account." />
               ) : (
                 <>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -302,7 +300,7 @@ export default function GuestRefundRequestScreen() {
                               style={[
                                 S.bookingChip,
                                 isSelected && S.bookingChipSelected,
-                                isCancelled && { borderColor: '#ef4444' }
+                                isCancelled && { borderColor: theme.colors.error }
                               ]}
                               onPress={() => selectBookingForRefund(b)}
                             >
@@ -313,10 +311,10 @@ export default function GuestRefundRequestScreen() {
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginVertical: 4 }}>
                                 <View style={{
                                   paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
-                                  backgroundColor: isCancelled ? '#fef2f2' : '#f0fdf4',
-                                  borderWidth: 1, borderColor: isCancelled ? '#ef4444' : '#22c55e'
+                                  backgroundColor: isCancelled ? theme.colors.errorSoft : theme.colors.successSoft,
+                                  borderWidth: 1, borderColor: isCancelled ? theme.colors.error : theme.colors.success
                                 }}>
-                                  <Text style={{ fontSize: 9, fontWeight: '800', color: isCancelled ? '#ef4444' : '#166534' }}>
+                                  <Text style={{ fontSize: 9, fontWeight: '800', color: isCancelled ? theme.colors.error : theme.colors.success }}>
                                     {isCancelled ? '🔴 CANCELLED' : '🟢 ACTIVE'}
                                   </Text>
                                 </View>
@@ -324,8 +322,8 @@ export default function GuestRefundRequestScreen() {
                                 {existingRef && (
                                   <View style={{
                                     paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
-                                    backgroundColor: existingRef.status === 'approved' ? '#f0fdf4' : existingRef.status === 'rejected' ? '#fef2f2' : '#fef3c7',
-                                    borderWidth: 1, borderColor: existingRef.status === 'approved' ? theme.colors.success : existingRef.status === 'rejected' ? theme.colors.error : '#f59e0b'
+                                    backgroundColor: existingRef.status === 'approved' ? theme.colors.successSoft : existingRef.status === 'rejected' ? theme.colors.errorSoft : theme.colors.warningSoft,
+                                    borderWidth: 1, borderColor: existingRef.status === 'approved' ? theme.colors.success : existingRef.status === 'rejected' ? theme.colors.error : theme.colors.warning
                                   }}>
                                     <Text style={{ fontSize: 9, fontWeight: '800', color: existingRef.status === 'approved' ? theme.colors.success : existingRef.status === 'rejected' ? theme.colors.error : theme.colors.warning }}>
                                       {existingRef.status === 'approved' ? '✅ REFUNDED' : existingRef.status === 'rejected' ? '❌ DECLINED' : '⏳ PENDING'}
@@ -334,7 +332,7 @@ export default function GuestRefundRequestScreen() {
                                 )}
                               </View>
 
-                              <Text style={[S.bookingChipDate, isSelected && { color: 'rgba(255,255,255,0.8)' }]}>
+                              <Text style={[S.bookingChipDate, isSelected && { color: theme.colors.textInverse }]}>
                                 {b.eventDate || b.date || 'Upcoming'}
                               </Text>
                               <Text style={[S.bookingChipAmount, isSelected && { color: theme.colors.primary }]}>
@@ -348,9 +346,9 @@ export default function GuestRefundRequestScreen() {
 
                   {/* CANCELLED NOTIFICATION BANNER */}
                   {selectedBooking?.status === 'cancelled' && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fef2f2', padding: 10, borderRadius: 10, marginTop: 12, borderWidth: 1, borderColor: '#fca5a5' }}>
-                      <Ionicons name="alert-circle" size={18} color="#dc2626" />
-                      <Text style={{ fontSize: 12, color: '#991b1b', flex: 1, lineHeight: 16 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.errorSoft, padding: 10, borderRadius: 10, marginTop: 12, borderWidth: 1, borderColor: theme.colors.error }}>
+                      <Ionicons name="alert-circle" size={18} color={theme.colors.error} />
+                      <Text style={{ fontSize: 12, color: theme.colors.errorStrong, flex: 1, lineHeight: 16 }}>
                         <Text style={{ fontWeight: '800' }}>Cancelled Event Selected:</Text> This event was cancelled. You are eligible to claim a refund for paid fees.
                       </Text>
                     </View>
@@ -358,9 +356,9 @@ export default function GuestRefundRequestScreen() {
 
                   {/* EXISTING REFUND NOTICE BANNER */}
                   {selectedBooking?.id && existingRefunds[selectedBooking.id] && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fef3c7', padding: 10, borderRadius: 10, marginTop: 10, borderWidth: 1, borderColor: '#fcd34d' }}>
-                      <Ionicons name="information-circle" size={18} color="#b45309" />
-                      <Text style={{ fontSize: 12, color: '#92400e', flex: 1, lineHeight: 16 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.warningSoft, padding: 10, borderRadius: 10, marginTop: 10, borderWidth: 1, borderColor: theme.colors.warning }}>
+                      <Ionicons name="information-circle" size={18} color={theme.colors.warning} />
+                      <Text style={{ fontSize: 12, color: theme.colors.warningStrong, flex: 1, lineHeight: 16 }}>
                         <Text style={{ fontWeight: '800' }}>Existing Claim ({existingRefunds[selectedBooking.id].status.toUpperCase()}):</Text> A refund claim of R {Number(existingRefunds[selectedBooking.id].amount || 0).toLocaleString()} is recorded for this booking.
                       </Text>
                     </View>
@@ -444,7 +442,7 @@ export default function GuestRefundRequestScreen() {
                     <View key={idx} style={S.thumbnailBox}>
                       <Image source={{ uri }} style={S.thumbnailImg} />
                       <TouchableOpacity style={S.removeImgBtn} onPress={() => removeImage(idx)}>
-                        <Ionicons name="close" size={14} color="#fff" />
+                        <Ionicons name="close" size={14} color={theme.colors.textInverse} />
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -459,10 +457,10 @@ export default function GuestRefundRequestScreen() {
               disabled={submitting}
             >
               {submitting ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={theme.colors.textInverse} />
               ) : (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Ionicons name="paper-plane" size={18} color="#fff" />
+                  <Ionicons name="paper-plane" size={18} color={theme.colors.textInverse} />
                   <Text style={S.primaryBtnText}>Submit Refund Claim</Text>
                 </View>
               )}
@@ -473,7 +471,7 @@ export default function GuestRefundRequestScreen() {
 
       {/* Custom Themed Alert Modal */}
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </SafeAreaView>
+    </Screen>
   );
 }
 
@@ -482,22 +480,22 @@ const createStyles = (theme: any) => StyleSheet.create({
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingTop: Platform.OS === 'android' ? 44 : 12, paddingHorizontal: 16, paddingBottom: 16,
-    backgroundColor: theme.colors.secondary, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: theme.colors.secondary, borderBottomWidth: 1, borderBottomColor: theme.colors.border,
   },
   backBtn: { padding: 4 },
   headerCenter: { alignItems: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: '#ffffff' },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: theme.colors.textInverse },
   headerSubtitle: { fontSize: 11, color: theme.colors.primary, marginTop: 2 },
   content: { padding: 16, paddingBottom: 40 },
 
   card: {
     backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16, marginBottom: 14,
     borderWidth: 1, borderColor: theme.colors.border,
-    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
+    shadowColor: theme.colors.shadow, shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
   },
   stepHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
   stepBadge: { width: 24, height: 24, borderRadius: 12, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center' },
-  stepBadgeText: { color: '#fff', fontSize: 12, fontWeight: '800' },
+  stepBadgeText: { color: theme.colors.textInverse, fontSize: 12, fontWeight: '800' },
   cardTitle: { fontSize: 15, fontWeight: '800', color: theme.colors.text },
 
   emptyBookingBox: { alignItems: 'center', paddingVertical: 20 },
@@ -509,7 +507,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   bookingChipSelected: { backgroundColor: theme.colors.secondary, borderColor: theme.colors.primary },
   bookingChipVenue: { fontSize: 14, fontWeight: '700', color: theme.colors.text },
-  bookingChipVenueSelected: { color: '#ffffff' },
+  bookingChipVenueSelected: { color: theme.colors.textInverse },
   bookingChipDate: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
   bookingChipAmount: { fontSize: 12, fontWeight: '700', color: theme.colors.primary, marginTop: 4 },
 
@@ -538,16 +536,16 @@ const createStyles = (theme: any) => StyleSheet.create({
   thumbnailRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   thumbnailBox: { width: 70, height: 70, borderRadius: 10, overflow: 'hidden', position: 'relative' },
   thumbnailImg: { width: '100%', height: '100%' },
-  removeImgBtn: { position: 'absolute', top: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 10, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
+  removeImgBtn: { position: 'absolute', top: 4, right: 4, backgroundColor: theme.colors.overlay, borderRadius: 10, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
 
   primaryBtn: { backgroundColor: theme.colors.secondary, paddingVertical: 16, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
-  primaryBtnText: { color: '#ffffff', fontWeight: '900', fontSize: 16 },
+  primaryBtnText: { color: theme.colors.textInverse, fontWeight: '900', fontSize: 16 },
 
   successCard: { backgroundColor: theme.colors.surface, borderRadius: 20, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: theme.colors.border, marginVertical: 20 },
   successIconBox: { marginBottom: 12 },
   successTitle: { fontSize: 22, fontWeight: '900', color: theme.colors.text },
   successRef: { fontSize: 14, color: theme.colors.textMuted, marginTop: 4 },
   successMsg: { fontSize: 14, color: theme.colors.textSecondary, textAlign: 'center', marginTop: 12, lineHeight: 20 },
-  slaBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fef3c7', padding: 12, borderRadius: 12, marginTop: 16, marginBottom: 20 },
-  slaText: { fontSize: 12, color: '#92400e', flex: 1, lineHeight: 16 },
+  slaBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.warningSoft, padding: 12, borderRadius: 12, marginTop: 16, marginBottom: 20 },
+  slaText: { fontSize: 12, color: theme.colors.warningStrong, flex: 1, lineHeight: 16 },
 });

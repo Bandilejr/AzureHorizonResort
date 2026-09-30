@@ -355,7 +355,7 @@ export default function GuestPortal() {
 
       {/* Customize pinned tabs */}
       <Modal visible={showPinModal} animationType="slide" transparent onRequestClose={() => setShowPinModal(false)}>
-        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setShowPinModal(false)}>
+        <TouchableOpacity style={[styles.overlay, { backgroundColor: theme.colors.overlay }]} activeOpacity={1} onPress={() => setShowPinModal(false)}>
           <View style={[styles.sheet, { backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius['2xl'], borderTopRightRadius: theme.radius['2xl'], padding: theme.space['2xl'] }]}>
             <AppText variant="subtitle" style={{ marginBottom: theme.space.sm }}>Customize pinned navigation</AppText>
             <AppText variant="caption" tone="secondary" style={{ marginBottom: theme.space.lg }}>
@@ -384,7 +384,7 @@ export default function GuestPortal() {
 
       {/* Notifications */}
       <Modal visible={showNotifModal} animationType="slide" transparent onRequestClose={() => setShowNotifModal(false)}>
-        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setShowNotifModal(false)}>
+        <TouchableOpacity style={[styles.overlay, { backgroundColor: theme.colors.overlay }]} activeOpacity={1} onPress={() => setShowNotifModal(false)}>
           <View style={[styles.sheet, { backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.radius['2xl'], borderTopRightRadius: theme.radius['2xl'], padding: theme.space['2xl'], maxHeight: '85%' }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.space.md }}>
               <View>
@@ -447,7 +447,7 @@ const styles = StyleSheet.create({
   tile: { width: '48%', borderWidth: 1, position: 'relative', gap: 4 },
   tileIcon: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
   lockBadge: { position: 'absolute', top: 12, right: 12, width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1 },
-  overlay: { flex: 1, backgroundColor: 'rgba(16,24,40,0.55)', justifyContent: 'flex-end' },
+  overlay: { flex: 1, justifyContent: 'flex-end' },
   sheet: { width: '100%' },
   pinItem: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, marginBottom: 8, borderWidth: 1 },
   notifItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 14, marginBottom: 8, borderWidth: 1 },

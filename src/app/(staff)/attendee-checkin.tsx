@@ -8,6 +8,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/design/use-app-theme';
 import { Screen } from '@/components/ui/screen';
+import { EmptyState, ListSkeleton } from '@/components/ui/states';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import {
   db, validateAttendeeQR
@@ -321,14 +322,12 @@ export default function AttendeeCheckinScreen() {
             <Text style={S.emptyText}>Select an event to see attendees</Text>
           </View>
         ) : loadingAttendees ? (
-          <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 20 }} />
+          <ListSkeleton rows={3} />
         ) : filtered.length === 0 ? (
-          <View style={S.emptyCard}>
-            <Ionicons name="people-outline" size={40} color={theme.colors.textMuted} />
-            <Text style={S.emptyText}>
-              {searchText ? 'No attendees match your search' : 'No invitees have accepted this event yet'}
-            </Text>
-          </View>
+          <EmptyState
+            icon="people-outline"
+            title={searchText ? 'No attendees match your search' : 'No invitees have accepted this event yet'}
+          />
         ) : (
           filtered.map((attendee) => (
             <TouchableOpacity

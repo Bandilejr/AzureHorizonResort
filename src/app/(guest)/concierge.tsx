@@ -8,13 +8,13 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Keyboard,
-  useColorScheme
+  Keyboard
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { auth } from '../../services/firebase-services';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 
 interface Message {
   id: string;
@@ -25,8 +25,7 @@ interface Message {
 
 export default function ConciergeScreen() {
   const user = auth.currentUser;
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
   const scrollViewRef = useRef<ScrollView>(null);
   
@@ -83,6 +82,7 @@ export default function ConciergeScreen() {
   };
 
   return (
+    <Screen scroll={false} padded={false}>
     <KeyboardAvoidingView 
       style={styles.container} 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -169,6 +169,7 @@ export default function ConciergeScreen() {
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
+    </Screen>
   );
 }
 
@@ -189,7 +190,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   avatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: theme.colors.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 8, marginTop: 'auto' },
   messageBubble: { padding: 14, borderRadius: 20 },
   bubbleGuest: { backgroundColor: theme.colors.secondary, borderBottomRightRadius: 4 },
-  bubbleConcierge: { backgroundColor: theme.colors.surface, borderBottomLeftRadius: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
+  bubbleConcierge: { backgroundColor: theme.colors.surface, borderBottomLeftRadius: 4, shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
   messageText: { fontSize: 15, lineHeight: 22 },
   textGuest: { color: theme.colors.textInverse },
   textConcierge: { color: theme.colors.text },

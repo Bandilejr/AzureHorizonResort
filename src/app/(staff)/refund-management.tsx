@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAppTheme } from '@/design/use-app-theme';
 import { Screen } from '@/components/ui/screen';
+import { EmptyState, ListSkeleton } from '@/components/ui/states';
 import { usePermissions } from '@/context/PermissionsContext';
 import { listenForRefundRequests, updateRefundRequestStatus } from '@/services/firebase-services';
 
@@ -143,16 +144,9 @@ export default function RefundManagementScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-          <Text style={styles.loadingText}>Loading refund requests…</Text>
-        </View>
+        <ListSkeleton rows={3} />
       ) : requests.length === 0 ? (
-        <View style={styles.centered}>
-          <Ionicons name="checkmark-circle-outline" size={56} color={theme.colors.success} />
-          <Text style={styles.emptyTitle}>All Clear</Text>
-          <Text style={styles.emptyText}>No refund requests at the moment.</Text>
-        </View>
+        <EmptyState icon="checkmark-circle-outline" title="All Clear" message="No refund requests at the moment." />
       ) : (
         <ScrollView contentContainerStyle={styles.list}>
           {requests.map((request) => {
