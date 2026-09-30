@@ -54,3 +54,16 @@ what I think is actually going on..txt
 screen.xml
 screen_final.xml
 *.apk
+
+# office/pdf binaries — never commit (keep the repo small and clean)
+*.pdf
+*.docx
+*.pptx
+*.zip
+
+# local build + session artifacts
+.firebase/
+build-*.log
+build-pid.txt
+eas-build-log.txt
+

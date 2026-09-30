@@ -25,14 +25,23 @@ const DEMO_ACCOUNTS: DemoAccount[] = (() => {
   try {
     const raw = process.env.EXPO_PUBLIC_DEMO_ACCOUNTS;
     if (!raw) return [];
-    const parsed = JSON.parse(raw);
+    // Tolerate a double-encoded value (the whole JSON serialised once more) and
+    // an object wrapper, so a quoting slip in .env degrades gracefully.
+    let parsed: unknown = JSON.parse(raw);
+    if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+    if (!Array.isArray(parsed)) {
+      const bag = parsed as { accounts?: unknown; demoAccounts?: unknown };
+      parsed = bag?.accounts ?? bag?.demoAccounts ?? [];
+    }
     if (!Array.isArray(parsed)) return [];
-    return parsed.map((a: any) => ({
-      label: String(a.label || ''),
-      icon: (DEMO_ICONS[a.label] || 'person-outline') as React.ComponentProps<typeof Ionicons>['name'],
-      email: String(a.email || ''),
-      password: String(a.password || ''),
-    }));
+    return parsed
+      .map((a: any) => ({
+        label: String(a?.label || ''),
+        icon: (DEMO_ICONS[a?.label] || 'person-outline') as React.ComponentProps<typeof Ionicons>['name'],
+        email: String(a?.email || ''),
+        password: String(a?.password || ''),
+      }))
+      .filter((a) => a.email && a.password);
   } catch { return []; }
 })();
 

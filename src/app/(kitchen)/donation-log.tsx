@@ -12,6 +12,7 @@ import { logDonationFromMobile, listenDonationBatches, listenNpoPartners } from 
 import { analyzeFoodImage, GeminiFoodResult, isGeminiConfigured, GEMINI_UNAVAILABLE_MESSAGE } from '@/services/gemini-food';
 import { geminiToDonationForm, mergeSuggestionIntoForm } from '@/utils/gemini-fill';
 import type { DonationBatch, NpoPartner, SafetyChecklist } from '@/types/increment2';
+import { parseLocalDateTime, isValidDate, localDateTimeISO, pickerDate, formatLocalDateTime } from '@/utils/dates';
 import { usePermissions } from '@/context/PermissionsContext';
 import { useAppTheme } from '@/design/use-app-theme';
 import { formatStatus } from '@/utils/status-labels';
@@ -73,8 +74,10 @@ export default function DonationLogScreen() {
   // after leaving the screen.
   const requestSeq = useRef(0);
   const mounted = useRef(true);
-  const [showExpiryPicker, setShowExpiryPicker] = useState(false);
-  const [showPreparedPicker, setShowPreparedPicker] = useState(false);
+  // Android has no combined datetime dialog: mode="datetime" silently opens a
+  // date-only picker, and unmount cleanup then throws because the library maps
+  // only 'date' and 'time'. Run date first, then chain into time.
+  const [picker, setPicker] = useState<{ field: 'preparedAt' | 'expiryAt'; step: 'date' | 'time' } | null>(null);
   const [recent, setRecent] = useState<DonationBatch[]>([]);
   const [inspected, setInspected] = useState<DonationBatch | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -104,6 +107,40 @@ export default function DonationLogScreen() {
 
   const markTouched = (key: string) =>
     setTouched((prev) => { const n = new Set(prev); n.add(key); return n; });
+
+  // ---- PREPARED / USE-BY pickers (date, then time) ----
+  const stampOf = (field: 'preparedAt' | 'expiryAt') => (field === 'preparedAt' ? preparedAt : expiryAt);
+  const seedOf = (field: 'preparedAt' | 'expiryAt') =>
+    (field === 'preparedAt' ? isoLocal(new Date()) : isoLocal(new Date(Date.now() + 24 * 3600000)));
+  const writeStamp = (field: 'preparedAt' | 'expiryAt', stamp: string) => {
+    if (field === 'expiryAt') { markTouched('expiryAt'); setExpiryAt(stamp); }
+    else setPreparedAt(stamp);
+  };
+
+  const pickerValue = React.useMemo(() => {
+    const field = picker?.field;
+    const seed = parseLocalDateTime(field ? stampOf(field) : seedOf('expiryAt'));
+    return pickerDate(seed, new Date(field === 'preparedAt' ? Date.now() : Date.now() + 24 * 3600000));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picker?.field, preparedAt, expiryAt]);
+
+  const onPickerChange = (_: unknown, picked: Date | null | undefined) => {
+    if (!picker) return;
+    if (!picked) { setPicker(null); return; }
+    const { field, step } = picker;
+    const seed = parseLocalDateTime(stampOf(field));
+    const base = isValidDate(seed) ? seed : new Date(Date.now() + 24 * 3600000);
+    const next = new Date(base);
+    if (step === 'date') {
+      next.setFullYear(picked.getFullYear(), picked.getMonth(), picked.getDate());
+      writeStamp(field, localDateTimeISO(next));
+      setPicker({ field, step: 'time' });
+    } else {
+      next.setHours(picked.getHours(), picked.getMinutes(), 0, 0);
+      writeStamp(field, localDateTimeISO(next));
+      setPicker(null);
+    }
+  };
 
   const applyGeminiResult = (res: GeminiFoodResult) => {
     setGemini(res);
@@ -337,19 +374,19 @@ export default function DonationLogScreen() {
       {/* SAFETY */}
       <SectionHeader title="Safety & freshness" />
       <View style={{ flexDirection: 'row', gap: theme.space.sm, marginBottom: theme.space.sm }}>
-        <TouchableOpacity style={{ flex: 1 }} onPress={() => setShowPreparedPicker(true)}>
+        <TouchableOpacity style={{ flex: 1 }} onPress={() => setPicker({ field: 'preparedAt', step: 'date' })}>
           <Card padding="md" style={{ alignItems: 'center' }}>
             <AppText variant="micro" tone="muted">PREPARED</AppText>
-            <AppText variant="bodyStrong">{preparedAt ? new Date(preparedAt).toLocaleString('en-ZA', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Pick'}</AppText>
+            <AppText variant="bodyStrong">{preparedAt ? formatLocalDateTime(preparedAt) : 'Pick'}</AppText>
           </Card>
         </TouchableOpacity>
-        <TouchableOpacity style={{ flex: 1 }} onPress={() => setShowExpiryPicker(true)}>
+        <TouchableOpacity style={{ flex: 1 }} onPress={() => setPicker({ field: 'expiryAt', step: 'date' })}>
           <Card padding="md" style={{ alignItems: 'center' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <AppText variant="micro" tone="muted">USE BY</AppText>
               {aiFields.has('expiryAt') ? <AiTag /> : null}
             </View>
-            <AppText variant="bodyStrong">{expiryAt ? new Date(expiryAt).toLocaleString('en-ZA', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Pick'}</AppText>
+            <AppText variant="bodyStrong">{expiryAt ? formatLocalDateTime(expiryAt) : 'Pick'}</AppText>
           </Card>
         </TouchableOpacity>
       </View>
@@ -359,7 +396,7 @@ export default function DonationLogScreen() {
         {([['+4h', 4], ['+12h', 12], ['+24h', 24]] as const).map(([label, h]) => (
           <Chip key={label} label={label} onPress={() => { markTouched('expiryAt'); setExpiryAt(isoLocal(new Date(Date.now() + h * 3600000))); }} />
         ))}
-        <Chip label="Custom" icon="calendar-outline" onPress={() => setShowExpiryPicker(true)} />
+        <Chip label="Custom" icon="calendar-outline" onPress={() => setPicker({ field: 'expiryAt', step: 'date' })} />
       </View>
       {!expiryAt && aiEstimate ? (
         <AppText variant="caption" color={theme.colors.warningStrong} style={{ marginBottom: theme.space.sm }}>
@@ -369,8 +406,16 @@ export default function DonationLogScreen() {
       {!expiryAt ? (
         <AppText variant="caption" tone="error" style={{ marginBottom: theme.space.sm }}>Use-by is required.</AppText>
       ) : null}
-      {showPreparedPicker ? <DateTimePicker value={preparedAt ? new Date(preparedAt) : new Date()} mode="datetime" display="default" onChange={(_, d) => { setShowPreparedPicker(false); if (d) setPreparedAt(isoLocal(d)); }} /> : null}
-      {showExpiryPicker ? <DateTimePicker value={expiryAt ? new Date(expiryAt) : new Date(Date.now() + 24 * 3600000)} mode="datetime" display="default" onChange={(_, d) => { setShowExpiryPicker(false); if (d) { markTouched('expiryAt'); setExpiryAt(isoLocal(d)); } }} /> : null}
+      {picker ? (
+        <DateTimePicker
+          key={`${picker.field}-${picker.step}`}
+          value={pickerValue}
+          mode={picker.step === 'date' ? 'date' : 'time'}
+          display="default"
+          {...(picker.step === 'time' ? { is24Hour: true } : {})}
+          onChange={onPickerChange}
+        />
+      ) : null}
 
       <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
         {CHECKS.map((c, i) => (

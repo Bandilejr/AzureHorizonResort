@@ -23,7 +23,15 @@ const LANGUAGES: { code: 'en' | 'zu' | 'af'; label: string }[] = [
   { code: 'af', label: 'Afrikaans' },
 ];
 
-export function ProfileScreen() {
+export interface ProfileScreenProps {
+  /**
+   * Fully-qualified, group-scoped route to this area's sync queue.
+   * Groups without a sync queue omit it (and the Sync row is hidden).
+   */
+  syncRoute?: string;
+}
+
+export function ProfileScreen({ syncRoute }: ProfileScreenProps = {}) {
   const theme = useAppTheme();
   const router = useRouter();
   const { profile, signOut } = useAuth();
@@ -123,12 +131,14 @@ export function ProfileScreen() {
             {deviceModelLabel()} · {devicePlatformLabel()}
           </AppText>
         </View>
-        <View style={styles.row}>
-          <AppText variant="body" tone="secondary">
-            Sync
-          </AppText>
-          <SyncIndicator onPress={() => router.push('sync-queue' as any)} />
-        </View>
+        {syncRoute ? (
+          <View style={styles.row}>
+            <AppText variant="body" tone="secondary">
+              Sync
+            </AppText>
+            <SyncIndicator onPress={() => router.push(syncRoute as any)} />
+          </View>
+        ) : null}
       </Surface>
 
       <Pressable

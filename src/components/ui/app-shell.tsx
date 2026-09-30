@@ -13,6 +13,7 @@ import { IconButton } from './icon-button';
 import { Screen } from './screen';
 import { SyncIndicator } from './sync-indicator';
 import { FadeSlideIn } from './motion';
+import { useGroupHref } from '@/utils/route-group';
 
 export function greetingFor(d: Date = new Date()): string {
   const h = d.getHours();
@@ -100,6 +101,9 @@ export function AppShell({
   const router = useRouter();
   const { profile } = useAuth();
   const unread = useUnreadCount(showBell);
+  // Bare hrefs ("notifications") are invalid in Expo Router and resolve to an
+  // arbitrary route group, so default to the caller's own group.
+  const groupHref = useGroupHref();
 
   const name = (profile?.displayName || '').trim().split(/\s+/)[0] || 'there';
   const headerTitle = title ?? `${greetingFor()}, ${name}`;
@@ -137,12 +141,12 @@ export function AppShell({
               name="notifications-outline"
               accessibilityLabel={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
               badge={unread}
-              onPress={onNotifications ?? (() => router.push('notifications' as any))}
+              onPress={onNotifications ?? (() => router.push(groupHref('notifications') as any))}
             />
           ) : null}
           <Avatar
             label={profile?.displayName}
-            onPress={onProfile ?? (() => router.push('profile' as any))}
+            onPress={onProfile ?? (() => router.push(groupHref('profile') as any))}
           />
         </View>
       </View>

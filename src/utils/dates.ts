@@ -54,6 +54,33 @@ export function formatISODate(
   return d.toLocaleDateString('en-ZA', opts);
 }
 
+/** Parse a 'YYYY-MM-DDTHH:mm' local timestamp (never via Date.parse). */
+export function parseLocalDateTime(iso: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso || '');
+  if (!m) return new Date(NaN);
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]));
+}
+
+/** A Date is usable only when it is a real Date and not NaN. */
+export function isValidDate(d: Date | null | undefined): d is Date {
+  return d instanceof Date && !Number.isNaN(d.getTime());
+}
+
+/**
+ * A Date that is always safe to hand to a native date/time picker: native
+ * pickers throw when given an Invalid Date, so fall back to `fallback`.
+ */
+export function pickerDate(d: Date | null | undefined, fallback: Date = new Date()): Date {
+  return isValidDate(d) ? d : fallback;
+}
+
+/** Local 'YYYY-MM-DDTHH:mm' display; falls back instead of showing "Invalid Date". */
+export function formatLocalDateTime(iso: string, fallback = '—'): string {
+  const d = parseLocalDateTime(iso);
+  if (!isValidDate(d)) return fallback;
+  return d.toLocaleString('en-ZA', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
 /** Inclusive day count between two YYYY-MM-DD strings. */
 export function daysInclusive(startISO: string, endISO: string): number {
   const s = parseISOLocal(startISO);

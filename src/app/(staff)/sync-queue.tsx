@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/states';
 import { AppText } from '@/components/ui/text';
 import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
+import { useGroupHome } from '@/utils/route-group';
 
 function labelForType(t: string): string {
   switch (t) {
@@ -36,6 +37,7 @@ function timeLabel(ts: number): string {
 
 export default function SyncQueueScreen() {
   const theme = useAppTheme();
+  const homeFallback = useGroupHome();
   const { queue, failed, isOnline, retryFailed, discardFailed, removeItem } = useOfflineQueue();
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({ visible: false, title: '', message: '' });
 
@@ -52,7 +54,7 @@ export default function SyncQueueScreen() {
         title="Sync queue"
         subtitle={isOnline ? 'Online — items sync automatically' : 'Working offline — items will sync when connection returns'}
         showBack
-        fallback="/(staff)/staff-dashboard"
+        fallback={homeFallback}
         right={<StatusPill status={isOnline ? 'online' : 'offline'} size="sm" />}
       />
 
