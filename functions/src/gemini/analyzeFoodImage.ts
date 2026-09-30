@@ -7,7 +7,7 @@ import * as functions from "firebase-functions";
 // Model is configurable (functions/.env → GEMINI_MODEL, or Cloud Secret
 // Manager). Defaults to gemini-2.5-flash. Never hard-code a single model so a
 // future retirement only needs an env change, not a redeploy of logic.
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 // Server-side secret: functions/.env locally, Cloud Secret Manager in prod.
@@ -79,10 +79,11 @@ export const analyzeFoodImage = functions.https.onCall(async (data, context) => 
         ],
       },
     ],
+    // No thinkingConfig: it is rejected (HTTP 400) by some models (e.g.
+    // Flash-Lite). Keeping the request model-agnostic.
     generationConfig: {
       temperature: 0.2,
       responseMimeType: "application/json",
-      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 

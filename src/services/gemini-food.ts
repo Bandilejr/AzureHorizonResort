@@ -15,7 +15,10 @@
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Image } from 'react-native';
 
-const GEMINI_MODEL = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash';
+// Newer Gemini models are recommended for new development. Default to the
+// current Flash-Lite (fast, cheap, reliable); override with EXPO_PUBLIC_GEMINI_MODEL
+// (e.g. gemini-3.8-flash when capacity allows).
+const GEMINI_MODEL = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-3.5-flash-lite';
 const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
 const REQUEST_TIMEOUT_MS = 25_000;
 const MAX_WIDTH = 1024;
@@ -122,9 +125,12 @@ const RETRYABLE: GeminiErrorCode[] = ['NETWORK_ERROR', 'TIMEOUT', 'SERVICE_UNAVA
  */
 async function callGeminiRest(base64: string, mimeType: string): Promise<GeminiFoodResult> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  // NOTE: no `thinkingConfig` here — it is rejected (HTTP 400) by some models
+  // (e.g. Flash-Lite). Omitting it keeps this model-agnostic across the
+  // EXPO_PUBLIC_GEMINI_MODEL setting.
   const body = {
     contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
-    generationConfig: { temperature: 0.2, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } },
+    generationConfig: { temperature: 0.2, responseMimeType: 'application/json' },
   };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
