@@ -1,0 +1,13 @@
+{
+  "name": "fixedfunding-rules-tests",
+  "private": true,
+  "description": "Firestore rules unit tests. LOCAL EMULATOR ONLY — never production.",
+  "scripts": {
+    "test": "jest --runInBand"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "firebase": "^12.17.0",
+    "jest": "^29.7.0"
+  }
+}
