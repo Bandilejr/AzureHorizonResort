@@ -1,23 +1,23 @@
 // (npo) UC38 — Collection Schedule: read-only view of claimed batches with
 // scheduled pickup windows, loading bays and courier details.
+// Layer 6 presentation rebuild; queries unchanged.
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, useColorScheme, ScrollView, ActivityIndicator } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { View } from 'react-native';
 import { auth } from '@/services/firebase-services';
 import { useAuth } from '@/context/AuthContext';
 import { listenNpoPartners, listenMyAllocations } from '@/services/increment2-services';
 import type { DonationBatch, NpoPartner } from '@/types/increment2';
-import { getTheme } from '@/constants/theme';
-import { formatStatus } from '@/utils/status-labels';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen, PageHeader, SectionHeader } from '@/components/ui/screen';
+import { Card } from '@/components/ui/surface';
+import { ListRow } from '@/components/ui/list-row';
+import { StatusPill } from '@/components/ui/status-pill';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/states';
+import { AppText } from '@/components/ui/text';
 import { LiveErrorBanner } from '@/components/detail-kit';
-import { goBack } from '@/utils/navigation';
-import { useRouter } from 'expo-router';
 
 export default function NpoCollectionsScreen() {
-  const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const styles = createStyles(theme);
+  const theme = useAppTheme();
   const { profile } = useAuth();
   const email = (profile?.email || auth.currentUser?.email || '').toLowerCase();
 
@@ -29,7 +29,7 @@ export default function NpoCollectionsScreen() {
   useEffect(() => {
     if (!email) { setKnown(true); return; }
     setLoadError('');
-    const onErr = (e: Error) => setLoadError(e.message);
+    const onErr = (e: Error) => { setLoadError(e.message); setKnown(true); };
     return listenNpoPartners((list) => {
       setMyNpo(list.find((n) => n.verificationStatus === 'approved' && n.email.toLowerCase() === email) || null);
       setKnown(true);
@@ -41,56 +41,66 @@ export default function NpoCollectionsScreen() {
     return listenMyAllocations(myNpo.npoId, setItems, (e) => setLoadError(e.message));
   }, [myNpo]);
 
-  if (!known) return <ActivityIndicator size="large" color={theme.colors.primary} />;
-
   const scheduled = items.filter((b) => b.status === 'claimed_ready_for_scheduling' || b.status === 'collection_scheduled');
   const done = items.filter((b) => b.status === 'collected_completed');
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => goBack(router, '/(npo)/dashboard')}><Ionicons name="arrow-back" size={24} color={theme.colors.text} /></TouchableOpacity>
-        <Text style={styles.title}>Collection Schedule</Text>
-      </View>
+    <Screen scroll>
+      <PageHeader title="Collections" subtitle={myNpo?.organisationName || 'Pickup windows & loading bays'} showBack fallback="/(npo)/dashboard" />
       <LiveErrorBanner error={loadError} onRetry={() => setLoadError('')} />
-      {!myNpo && <Text style={styles.muted}>No approved NPO is linked to {email || 'this account'} yet.</Text>}
-      {myNpo && <Text style={styles.org}>{myNpo.organisationName}</Text>}
 
-      <Text style={styles.section}>Upcoming ({scheduled.length})</Text>
-      {scheduled.length === 0 && <Text style={styles.muted}>No collections scheduled yet.</Text>}
-      {scheduled.map((b) => (
-        <View key={b.id} style={styles.card}>
-          <Text style={styles.cardTitle}>{b.batchId} — {b.itemName}</Text>
-          <Text style={styles.muted}>{b.portionCount} portions · {b.estimatedWeightKg}kg · {formatStatus(b.status)}</Text>
-          <Text style={styles.muted}>
-            Pickup {b.pickupWindowStart ? new Date(b.pickupWindowStart).toLocaleString() : 'TBC'} → {b.pickupWindowEnd ? new Date(b.pickupWindowEnd).toLocaleString() : 'TBC'}
-          </Text>
-          {!!b.loadingBay && <Text style={styles.muted}>Loading bay: {b.loadingBay}</Text>}
-          {!!b.courierName && <Text style={styles.muted}>Courier: {b.courierName}</Text>}
-          {!!b.receivingFacility && <Text style={styles.muted}>Deliver to: {b.receivingFacility}</Text>}
-        </View>
-      ))}
+      {!known ? (
+        <ListSkeleton rows={3} />
+      ) : !myNpo ? (
+        loadError ? (
+          <ErrorState title="Couldn't load collections" message="Collection data is unavailable right now." details={loadError} onRetry={() => setLoadError('')} />
+        ) : (
+          <EmptyState icon="hourglass-outline" title="Verification pending" message="No approved NPO is linked to this account yet." />
+        )
+      ) : (
+        <>
+          <SectionHeader title={`Upcoming (${scheduled.length})`} />
+          {scheduled.length === 0 ? (
+            <AppText variant="body" tone="muted">No collections scheduled yet.</AppText>
+          ) : (
+            <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+              {scheduled.map((b, i) => (
+                <View key={b.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+                  <ListRow
+                    title={`${b.batchId} — ${b.itemName}`}
+                    subtitle={[
+                      `${b.portionCount} portions · ${b.estimatedWeightKg}kg`,
+                      `Pickup ${b.pickupWindowStart ? new Date(b.pickupWindowStart).toLocaleString() : 'TBC'} → ${b.pickupWindowEnd ? new Date(b.pickupWindowEnd).toLocaleString() : 'TBC'}`,
+                      b.loadingBay ? `Loading bay: ${b.loadingBay}` : null,
+                      b.courierName ? `Courier: ${b.courierName}` : null,
+                      b.receivingFacility ? `Deliver to: ${b.receivingFacility}` : null,
+                    ].filter(Boolean).join('\n')}
+                    status={<StatusPill status={b.status} size="sm" />}
+                  />
+                </View>
+              ))}
+            </Card>
+          )}
 
-      <Text style={styles.section}>Completed ({done.length})</Text>
-      {done.length === 0 && <Text style={styles.muted}>Nothing collected yet.</Text>}
-      {done.map((b) => (
-        <View key={b.id} style={styles.card}>
-          <Text style={styles.cardTitle}>{b.batchId} — {b.itemName}</Text>
-          <Text style={styles.muted}>{b.portionCount} portions · {formatStatus(b.status)}</Text>
-        </View>
-      ))}
-      <View style={{ height: 40 }} />
-    </ScrollView>
+          <SectionHeader title={`Completed (${done.length})`} />
+          {done.length === 0 ? (
+            <AppText variant="body" tone="muted">Nothing collected yet.</AppText>
+          ) : (
+            <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+              {done.map((b, i) => (
+                <View key={b.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+                  <ListRow
+                    title={`${b.batchId} — ${b.itemName}`}
+                    subtitle={`${b.portionCount} portions`}
+                    status={<StatusPill status={b.status} size="sm" />}
+                  />
+                </View>
+              ))}
+            </Card>
+          )}
+        </>
+      )}
+      <View style={{ height: theme.space['4xl'] }} />
+    </Screen>
   );
 }
-
-const createStyles = (theme: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, padding: 16 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  title: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
-  org: { fontSize: 14, fontWeight: '600', color: theme.colors.primary, marginBottom: 4 },
-  section: { fontSize: 16, fontWeight: '700', color: theme.colors.text, marginTop: 16, marginBottom: 8 },
-  card: { backgroundColor: theme.colors.surface, borderRadius: 8, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
-  cardTitle: { color: theme.colors.text, fontWeight: '600' },
-  muted: { color: theme.colors.textMuted, fontSize: 12, marginTop: 4 },
-});

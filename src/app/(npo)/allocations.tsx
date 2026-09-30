@@ -1,27 +1,28 @@
 // (npo) UC37 — My Allocations: review and claim allocated batches.
-// REMEDIATED Phase C (§21): LIST → DONATION DETAIL (quantity, allergens,
-// expiry, safety checks, photo, collection expectations, terms, status)
-// → facility + terms → CONFIRM (liability-aware) → claim → receipt state.
+// Layer 6 presentation rebuild; claimDonationFromMobile payload unchanged.
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, useColorScheme, TextInput, ScrollView, Switch, Image } from 'react-native';
+import { View, TouchableOpacity, Switch, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { auth } from '@/services/firebase-services';
 import { useAuth } from '@/context/AuthContext';
 import { listenNpoPartners, listenMyAllocations, claimDonationFromMobile } from '@/services/increment2-services';
 import type { DonationBatch, NpoPartner } from '@/types/increment2';
-import { getTheme } from '@/constants/theme';
-import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen, PageHeader, SectionHeader } from '@/components/ui/screen';
+import { Card } from '@/components/ui/surface';
+import { ListRow } from '@/components/ui/list-row';
+import { StatusPill } from '@/components/ui/status-pill';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/states';
+import { AppText } from '@/components/ui/text';
+import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
 import { DetailModal, ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
-import { goBack } from '@/utils/navigation';
-import { useRouter } from 'expo-router';
 
 type Step = 'detail' | 'confirm';
 
 export default function NpoAllocationsScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const styles = createStyles(theme);
+  const theme = useAppTheme();
   const { profile } = useAuth();
   const email = (profile?.email || auth.currentUser?.email || '').toLowerCase();
 
@@ -40,7 +41,7 @@ export default function NpoAllocationsScreen() {
   useEffect(() => {
     if (!email) { setNpoKnown(true); return; }
     setLoadError('');
-    const onErr = (e: Error) => setLoadError(e.message);
+    const onErr = (e: Error) => { setLoadError(e.message); setNpoKnown(true); };
     return listenNpoPartners((list) => {
       setMyNpo(list.find((n) => n.verificationStatus === 'approved' && n.email.toLowerCase() === email) || null);
       setNpoKnown(true);
@@ -52,69 +53,79 @@ export default function NpoAllocationsScreen() {
     return listenMyAllocations(myNpo.npoId, setItems, (e) => setLoadError(e.message));
   }, [myNpo]);
 
-  const openBatch = (b: DonationBatch) => {
-    setSelected(b); setStep('detail');
-    setFacility(b.receivingFacility || ''); setTerms(false);
-  };
+  const openBatch = (b: DonationBatch) => { setSelected(b); setStep('detail'); setFacility(b.receivingFacility || ''); setTerms(false); };
 
   const claim = async () => {
     if (!selected || !myNpo) return;
     setBusy(true);
     try {
-      await claimDonationFromMobile({
-        batchDocId: selected.id, receivingFacility: facility, acceptTerms: terms,
-      });
+      await claimDonationFromMobile({ batchDocId: selected.id, receivingFacility: facility, acceptTerms: terms });
       setSelected(null); setFacility(''); setTerms(false);
       showAlert({ title: 'Allocation claimed', message: 'Kitchen management notified — collection will be scheduled.', type: 'success' });
     } catch (e: any) {
       showAlert({ title: 'Claim failed', message: e?.message || 'Allocation unavailable.', type: 'error' });
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
   const awaiting = items.filter((b) => b.status === 'allocated_awaiting_claim');
   const rest = items.filter((b) => b.status !== 'allocated_awaiting_claim');
+  const facilities = (myNpo?.facilities || []).filter((f) => f.active);
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => goBack(router, '/(npo)/dashboard')}><Ionicons name="arrow-back" size={24} color={theme.colors.text} /></TouchableOpacity>
-        <Text style={styles.title}>Donations</Text>
-      </View>
+    <Screen scroll>
+      <PageHeader title="Allocations" subtitle={myNpo?.organisationName || 'Claim allocated food batches'} showBack fallback="/(npo)/dashboard" />
       <LiveErrorBanner error={loadError} onRetry={() => setLoadError('')} />
-      {!npoKnown && <ActivityIndicator size="large" color={theme.colors.primary} />}
-      {npoKnown && !myNpo && (
-        <Text style={styles.muted}>No approved NPO is linked to {email || 'this account'} yet. Verification by an administrator activates this tab.</Text>
-      )}
-      {myNpo && <Text style={styles.org}>{myNpo.organisationName}</Text>}
 
-      {myNpo && (
+      {!npoKnown ? (
+        <ListSkeleton rows={3} />
+      ) : !myNpo ? (
+        loadError ? (
+          <ErrorState title="Couldn't load your organisation" message="Allocations are unavailable right now." details={loadError} onRetry={() => setLoadError('')} />
+        ) : (
+          <EmptyState icon="hourglass-outline" title="Verification pending" message="No approved NPO is linked to this account yet. Verification by an administrator activates this tab." />
+        )
+      ) : (
         <>
-          <Text style={styles.section}>Awaiting claim ({awaiting.length})</Text>
-          {awaiting.length === 0 && <Text style={styles.muted}>No allocations awaiting your claim.</Text>}
-          {awaiting.map((b) => (
-            <TouchableOpacity key={b.id} style={styles.card} onPress={() => openBatch(b)} activeOpacity={0.7}>
-              <Text style={styles.cardTitle}>{b.batchId} — {b.itemName}</Text>
-              <Text style={styles.muted}>{b.portionCount} portions · {b.estimatedWeightKg}kg · {b.mealCategory}</Text>
-              <Text style={styles.review}>Tap to inspect ›</Text>
-            </TouchableOpacity>
-          ))}
+          <SectionHeader title={`Awaiting claim (${awaiting.length})`} />
+          {awaiting.length === 0 ? (
+            <AppText variant="body" tone="muted">No allocations awaiting your claim.</AppText>
+          ) : (
+            <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+              {awaiting.map((b, i) => (
+                <View key={b.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+                  <ListRow
+                    title={`${b.batchId} — ${b.itemName}`}
+                    subtitle={`${b.portionCount} portions · ${b.estimatedWeightKg}kg · ${b.mealCategory}`}
+                    status={<StatusPill status={b.status} size="sm" />}
+                    onPress={() => openBatch(b)}
+                  />
+                </View>
+              ))}
+            </Card>
+          )}
 
-          <Text style={styles.section}>Claimed & scheduled ({rest.length})</Text>
-          {rest.length === 0 && <Text style={styles.muted}>Nothing here yet.</Text>}
-          {rest.map((b) => (
-            <TouchableOpacity key={b.id} style={styles.card} onPress={() => openBatch(b)} activeOpacity={0.7}>
-              <Text style={styles.cardTitle}>{b.batchId} — {b.itemName}</Text>
-              <Text style={styles.muted}>{b.status}{b.receivingFacility ? ` · → ${b.receivingFacility}` : ''}</Text>
-              <Text style={styles.review}>Tap to inspect ›</Text>
-            </TouchableOpacity>
-          ))}
+          <SectionHeader title={`Claimed & scheduled (${rest.length})`} />
+          {rest.length === 0 ? (
+            <AppText variant="body" tone="muted">Nothing here yet.</AppText>
+          ) : (
+            <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+              {rest.map((b, i) => (
+                <View key={b.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+                  <ListRow
+                    title={`${b.batchId} — ${b.itemName}`}
+                    subtitle={`${b.portionCount} portions${b.receivingFacility ? ` · → ${b.receivingFacility}` : ''}`}
+                    status={<StatusPill status={b.status} size="sm" />}
+                    onPress={() => openBatch(b)}
+                  />
+                </View>
+              ))}
+            </Card>
+          )}
         </>
       )}
 
       <DetailModal visible={selected !== null} title={selected ? `${selected.batchId} — ${selected.itemName}` : ''} onClose={() => setSelected(null)}>
-        {selected && step === 'detail' && (
+        {selected && step === 'detail' ? (
           <View>
             <StatusBadge status={selected.status} />
             <SectionTitle>DONATION</SectionTitle>
@@ -129,55 +140,61 @@ export default function NpoAllocationsScreen() {
             <KV label="Packaging" value={selected.safetyChecklist?.packagingIntegrityVerified ? 'Verified ✓' : 'NOT verified'} />
             <KV label="Allergen labels" value={selected.safetyChecklist?.allergenLabelsVerified ? 'Verified ✓' : 'NOT verified'} />
             <KV label="Prep window" value={selected.safetyChecklist?.safePreparationWindowVerified ? 'Verified ✓' : 'NOT verified'} />
-            {!!selected.safetyPhotoUrl && (
+            {selected.safetyPhotoUrl ? (
               <>
                 <SectionTitle>PHOTO</SectionTitle>
-                <Image source={{ uri: selected.safetyPhotoUrl }} style={styles.photo} resizeMode="cover" />
+                <Image source={{ uri: selected.safetyPhotoUrl }} style={{ width: '100%', height: 180, borderRadius: theme.radius.sm, marginTop: 4 }} resizeMode="cover" />
               </>
-            )}
+            ) : null}
             <SectionTitle>COLLECTION EXPECTATIONS</SectionTitle>
             <KV label="Pickup" value={selected.pickupWindowStart ? `${new Date(selected.pickupWindowStart).toLocaleString()} → ${selected.pickupWindowEnd ? new Date(selected.pickupWindowEnd).toLocaleString() : '—'}` : 'Scheduled after your claim'} />
             <KV label="Bay" value={selected.loadingBay || 'Assigned at scheduling'} />
             <KV label="Deliver to" value={selected.receivingFacility || 'You choose below'} />
-            {selected.status === 'allocated_awaiting_claim' && (
+            {selected.status === 'allocated_awaiting_claim' ? (
               <>
                 <SectionTitle>YOUR FACILITY & TERMS</SectionTitle>
-                {(myNpo?.facilities || []).filter((f) => f.active).length === 0 ? (
-                  <View style={{ marginBottom: 10 }}>
-                    <Text style={styles.muted}>No registered facilities yet. Add your receiving facility to claim.</Text>
+                {facilities.length === 0 ? (
+                  <View style={{ marginBottom: theme.space.sm }}>
+                    <AppText variant="body" tone="muted">No registered facilities yet. Add your receiving facility to claim.</AppText>
                     <TouchableOpacity onPress={() => router.push('/(npo)/organisation' as any)}>
-                      <Text style={styles.review}>Add facility ›</Text>
+                      <AppText variant="label" tone="primary" weight="700" style={{ marginTop: 4 }}>Add facility ›</AppText>
                     </TouchableOpacity>
                   </View>
                 ) : (
-                  (myNpo?.facilities || []).filter((f) => f.active).map((f) => (
-                    <TouchableOpacity key={f.id} style={[styles.facilityCard, facility === f.name && styles.facilityPicked]} onPress={() => setFacility(f.name)} activeOpacity={0.7}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.cardTitle}>{f.name}</Text>
-                        {!!f.address && <Text style={styles.muted}>{f.address}</Text>}
-                        {!!f.capacity && <Text style={styles.muted}>Capacity: {f.capacity}</Text>}
-                      </View>
-                      {facility === f.name && <Ionicons name="checkmark-circle" size={18} color={theme.colors.primary} />}
-                    </TouchableOpacity>
-                  ))
+                  facilities.map((f) => {
+                    const picked = facility === f.name;
+                    return (
+                      <Card key={f.id} tone={picked ? 'primarySoft' : 'surface'} bordered style={[{ marginBottom: theme.space.sm }, picked ? { borderColor: theme.colors.primary, borderWidth: 2 } : null]}>
+                        <ListRow
+                          title={f.name}
+                          subtitle={[f.address, f.capacity ? `Capacity: ${f.capacity}` : null].filter(Boolean).join(' · ') || undefined}
+                          trailing={picked ? <Ionicons name="checkmark-circle" size={theme.iconSize.md} color={theme.colors.primary} /> : undefined}
+                          showChevron={!picked}
+                          onPress={() => setFacility(f.name)}
+                        />
+                      </Card>
+                    );
+                  })
                 )}
-                <View style={styles.row}>
-                  <Text style={[styles.checkLabel, { color: theme.colors.text }]}>Accept distribution terms (cold chain, use before expiry, confirm receipt)</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space.md, marginTop: theme.space.sm }}>
+                  <AppText variant="caption" style={{ flex: 1 }}>Accept distribution terms (cold chain, use before expiry, confirm receipt)</AppText>
                   <Switch value={terms} onValueChange={setTerms} />
                 </View>
-                <ModalButton
-                  label="Review claim"
-                  onPress={() => {
-                    if (!facility.trim()) { showAlert({ title: 'Facility required', message: 'Select the receiving community facility.', type: 'error' }); return; }
-                    if (!terms) { showAlert({ title: 'Terms required', message: 'You must accept the distribution terms.', type: 'error' }); return; }
-                    setStep('confirm');
-                  }}
-                />
+                <View style={{ marginTop: theme.space.md }}>
+                  <ModalButton
+                    label="Review claim"
+                    onPress={() => {
+                      if (!facility.trim()) { showAlert({ title: 'Facility required', message: 'Select the receiving community facility.', type: 'error' }); return; }
+                      if (!terms) { showAlert({ title: 'Terms required', message: 'You must accept the distribution terms.', type: 'error' }); return; }
+                      setStep('confirm');
+                    }}
+                  />
+                </View>
               </>
-            )}
+            ) : null}
           </View>
-        )}
-        {selected && step === 'confirm' && (
+        ) : null}
+        {selected && step === 'confirm' ? (
           <ConfirmBlock
             title="Confirm claim?"
             rows={[
@@ -190,28 +207,10 @@ export default function NpoAllocationsScreen() {
             warning="Claiming accepts responsibility for safe transport, cold chain, and distribution before expiry."
             confirmLabel="Confirm claim" onConfirm={claim} onCancel={() => setStep('detail')} busy={busy}
           />
-        )}
+        ) : null}
       </DetailModal>
-      <View style={{ height: 60 }} />
+      <View style={{ height: theme.space['4xl'] }} />
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
-    </ScrollView>
+    </Screen>
   );
 }
-
-const createStyles = (theme: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, padding: 16 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  title: { fontSize: 22, fontWeight: '800', color: theme.colors.text, marginBottom: 8 },
-  org: { fontSize: 14, fontWeight: '600', color: theme.colors.primary, marginBottom: 4 },
-  section: { fontSize: 16, fontWeight: '700', color: theme.colors.text, marginTop: 16, marginBottom: 8 },
-  card: { backgroundColor: theme.colors.surface, borderRadius: 8, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
-  cardTitle: { color: theme.colors.text, fontWeight: '600' },
-  muted: { color: theme.colors.textMuted, fontSize: 12, marginTop: 4 },
-  review: { color: theme.colors.primary, fontSize: 12, fontWeight: '700', marginTop: 6 },
-  input: { borderWidth: 1, borderRadius: 8, padding: 12, marginTop: 8, marginBottom: 10, backgroundColor: 'transparent' },
-  facilityCard: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.surface, borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
-  facilityPicked: { borderColor: theme.colors.primary, borderWidth: 2 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  checkLabel: { flex: 1, marginRight: 8, fontSize: 12 },
-  photo: { width: '100%', height: 180, borderRadius: 8, marginTop: 4 },
-});

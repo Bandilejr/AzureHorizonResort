@@ -1,27 +1,28 @@
-// (kitchen) UC38 — Logistics.
-// REMEDIATED Phase C (§22): card → COLLECTION DETAIL (donation, window, bay,
-// courier, facility, QR status/expiry, collection state) → schedule form
-// (always editable — reschedule supported) → CONFIRM → signed QR result.
+// (kitchen) UC38 — Logistics. Layer 6 presentation rebuild.
+// scheduleDonationCollectionMobile payload unchanged: pickupDate YYYY-MM-DD,
+// windowStart/windowEnd ISO strings (new Date('YYYY-MM-DDTHH:mm').toISOString()).
+// Raw NPO id removed from the UI (facility shown instead).
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, useColorScheme, TextInput, ScrollView } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { listenDonationBatches, scheduleDonationCollectionMobile } from '@/services/increment2-services';
 import type { DonationBatch } from '@/types/increment2';
 import { todayISO } from '@/utils/dates';
-import { getTheme } from '@/constants/theme';
-import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen, PageHeader } from '@/components/ui/screen';
+import { Card } from '@/components/ui/surface';
+import { ListRow } from '@/components/ui/list-row';
+import { StatusPill } from '@/components/ui/status-pill';
+import { Field } from '@/components/ui/inputs';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/states';
+import { AppText } from '@/components/ui/text';
+import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
 import { DetailModal, ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
-import { goBack } from '@/utils/navigation';
-import { useRouter } from 'expo-router';
 
 type Step = 'detail' | 'confirm' | 'done';
 
 export default function KitchenLogisticsScreen() {
-  const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const styles = createStyles(theme);
+  const theme = useAppTheme();
   const [items, setItems] = useState<DonationBatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -35,10 +36,13 @@ export default function KitchenLogisticsScreen() {
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({ visible: false, title: '', message: '' });
   const showAlert = (config: Omit<AlertConfig, 'visible'>) => setAlertConfig({ ...config, visible: true });
 
-  useEffect(() => listenDonationBatches((list) => {
-    setItems(list.filter((b) => b.status === 'claimed_ready_for_scheduling' || b.status === 'collection_scheduled'));
-    setLoading(false);
-  }, undefined, (e) => { setLoadError(e.message); setLoading(false); }), [retryKey]);
+  useEffect(() => {
+    setLoading(true);
+    return listenDonationBatches((list) => {
+      setItems(list.filter((b) => b.status === 'claimed_ready_for_scheduling' || b.status === 'collection_scheduled'));
+      setLoading(false);
+    }, undefined, (e) => { setLoadError(e.message); setLoading(false); });
+  }, [retryKey]);
 
   const openBatch = (b: DonationBatch) => {
     setSelected(b); setStep('detail'); setQr(b.collectionQr || null); setFormError('');
@@ -72,49 +76,47 @@ export default function KitchenLogisticsScreen() {
       setQr(code); setStep('done');
     } catch (e: any) {
       showAlert({ title: 'Scheduling failed', message: e?.message || 'Could not schedule.', type: 'error' });
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
-  if (loading) return <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 60 }} />;
-
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => goBack(router, '/(kitchen)/dashboard')}><Ionicons name="arrow-back" size={24} color={theme.colors.text} /></TouchableOpacity>
-        <Text style={styles.title}>Logistics ({items.length})</Text>
-      </View>
+    <Screen scroll>
+      <PageHeader title={`Logistics${items.length ? ` (${items.length})` : ''}`} subtitle="Plan pickups & issue collection passes" showBack fallback="/(kitchen)/dashboard" />
       <LiveErrorBanner error={loadError} onRetry={() => { setLoadError(''); setRetryKey((k) => k + 1); }} />
-      {items.length === 0 && (
-        <View style={styles.empty}>
-          <Ionicons name={"truck-outline" as any} size={40} color={theme.colors.textMuted} />
-          <Text style={styles.muted}>Nothing awaiting scheduling. Claimed donations appear here for collection planning.</Text>
-        </View>
+
+      {loading ? (
+        <ListSkeleton rows={3} />
+      ) : loadError && items.length === 0 ? (
+        <ErrorState title="Couldn't load collections" message="Collection planning is unavailable right now." details={loadError} onRetry={() => { setLoadError(''); setRetryKey((k) => k + 1); }} />
+      ) : items.length === 0 ? (
+        <EmptyState icon="bus-outline" title="Nothing awaiting scheduling" message="Claimed donations appear here for collection planning." />
+      ) : (
+        <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+          {items.map((b, i) => (
+            <View key={b.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+              <ListRow
+                title={`${b.batchId} — ${b.itemName}`}
+                subtitle={
+                  b.status === 'collection_scheduled' && b.pickupWindowStart
+                    ? `${new Date(b.pickupWindowStart).toLocaleString()} → ${b.pickupWindowEnd ? new Date(b.pickupWindowEnd).toLocaleString() : '—'} · ${b.loadingBay || 'Bay TBC'}`
+                    : `${b.receivingFacility || 'NPO partner'} · not scheduled`
+                }
+                status={<StatusPill status={b.status} size="sm" />}
+                onPress={() => openBatch(b)}
+              />
+            </View>
+          ))}
+        </Card>
       )}
-      {items.map((b) => (
-        <TouchableOpacity key={b.id} style={styles.card} onPress={() => openBatch(b)} activeOpacity={0.7}>
-          <View style={styles.cardTop}>
-            <Text style={styles.cardTitle}>{b.batchId}</Text>
-            <StatusBadge status={b.status} />
-          </View>
-          <Text style={styles.muted}>{b.itemName} → {b.receivingFacility || '—'}</Text>
-          {b.status === 'collection_scheduled' && (
-            <Text style={styles.muted}>{b.pickupWindowStart ? new Date(b.pickupWindowStart).toLocaleString() : ''} → {b.pickupWindowEnd ? new Date(b.pickupWindowEnd).toLocaleString() : ''} · {b.loadingBay}</Text>
-          )}
-          <Text style={styles.review}>Tap to inspect ›</Text>
-        </TouchableOpacity>
-      ))}
 
       <DetailModal visible={selected !== null} title={selected?.batchId || ''} onClose={() => { setSelected(null); setQr(null); }}>
-        {selected && step === 'detail' && (
+        {selected && step === 'detail' ? (
           <View>
             <StatusBadge status={selected.status} />
             <SectionTitle>DONATION</SectionTitle>
             <KV label="Item" value={`${selected.itemName} · ${selected.portionCount} portions · ${selected.estimatedWeightKg}kg`} />
             <KV label="Allergens" value={(selected.allergens || []).join(', ') || 'none'} />
             <KV label="Use by" value={selected.expiryAt ? new Date(selected.expiryAt).toLocaleString() : '—'} />
-            <KV label="NPO" value={selected.allocatedNpoId || '—'} />
             <KV label="Facility" value={selected.receivingFacility || '—'} />
             <SectionTitle>CURRENT SCHEDULE</SectionTitle>
             <KV label="Window" value={selected.pickupWindowStart ? `${new Date(selected.pickupWindowStart).toLocaleString()} → ${selected.pickupWindowEnd ? new Date(selected.pickupWindowEnd).toLocaleString() : '—'}` : 'Not scheduled'} />
@@ -122,21 +124,23 @@ export default function KitchenLogisticsScreen() {
             <KV label="Courier" value={selected.courierName || '—'} />
             <KV label="QR pass" value={selected.collectionQr ? (selected.qrConsumed ? 'Used' : 'Issued, unused') : 'None'} />
             <SectionTitle>{selected.collectionQr ? 'RESCHEDULE (rotates the pass)' : 'SCHEDULE PICKUP'}</SectionTitle>
-            <TextInput style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.border }]} value={form.date} onChangeText={(v) => setForm((p) => ({ ...p, date: v }))} placeholder="Pickup date YYYY-MM-DD" placeholderTextColor={theme.colors.textMuted} />
-            <TextInput style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.border }]} value={form.start} onChangeText={(v) => setForm((p) => ({ ...p, start: v }))} placeholder="Window start YYYY-MM-DDTHH:mm" placeholderTextColor={theme.colors.textMuted} />
-            <TextInput style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.border }]} value={form.end} onChangeText={(v) => setForm((p) => ({ ...p, end: v }))} placeholder="Window end YYYY-MM-DDTHH:mm" placeholderTextColor={theme.colors.textMuted} />
-            <TextInput style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.border }]} value={form.bay} onChangeText={(v) => setForm((p) => ({ ...p, bay: v }))} placeholder="Loading bay" placeholderTextColor={theme.colors.textMuted} />
-            <TextInput style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.border }]} value={form.courier} onChangeText={(v) => setForm((p) => ({ ...p, courier: v }))} placeholder="Courier (optional)" placeholderTextColor={theme.colors.textMuted} />
-            {!!formError && <Text style={styles.error}>{formError}</Text>}
-            <View style={{ marginTop: 8 }}>
+            <View style={{ gap: theme.space.sm, marginTop: theme.space.sm }}>
+              <Field label="Pickup date" value={form.date} onChangeText={(v) => setForm((p) => ({ ...p, date: v }))} placeholder="YYYY-MM-DD" />
+              <Field label="Window start" value={form.start} onChangeText={(v) => setForm((p) => ({ ...p, start: v }))} placeholder="YYYY-MM-DDTHH:mm" />
+              <Field label="Window end" value={form.end} onChangeText={(v) => setForm((p) => ({ ...p, end: v }))} placeholder="YYYY-MM-DDTHH:mm" />
+              <Field label="Loading bay" value={form.bay} onChangeText={(v) => setForm((p) => ({ ...p, bay: v }))} placeholder="Bay A" />
+              <Field label="Courier (optional)" value={form.courier} onChangeText={(v) => setForm((p) => ({ ...p, courier: v }))} placeholder="Courier name" />
+            </View>
+            {formError ? <AppText variant="caption" tone="error" style={{ marginTop: theme.space.sm }}>{formError}</AppText> : null}
+            <View style={{ marginTop: theme.space.md }}>
               <ModalButton
                 label={selected.collectionQr ? 'Review reschedule' : 'Review schedule'}
                 onPress={() => { const err = validForm(); setFormError(err); if (!err) setStep('confirm'); }}
               />
             </View>
           </View>
-        )}
-        {selected && step === 'confirm' && (
+        ) : null}
+        {selected && step === 'confirm' ? (
           <ConfirmBlock
             title={selected.collectionQr ? 'Confirm reschedule?' : 'Confirm schedule?'}
             rows={[
@@ -149,35 +153,20 @@ export default function KitchenLogisticsScreen() {
             confirmLabel={selected.collectionQr ? 'Confirm reschedule' : 'Generate QR pass'}
             onConfirm={schedule} onCancel={() => setStep('detail')} busy={busy}
           />
-        )}
-        {step === 'done' && !!qr && (
-          <View style={styles.qrBox}>
-            <Text style={[styles.title, { marginBottom: 8 }]}>Collection pass ready</Text>
+        ) : null}
+        {step === 'done' && qr ? (
+          <View style={{ alignItems: 'center', marginVertical: theme.space.md, gap: theme.space.sm }}>
+            <AppText variant="title">Collection pass ready</AppText>
             <QRCode value={qr} size={220} />
-            <Text style={styles.muted}>Single-use pass for the courier. Show this at {form.bay}.</Text>
-            <View style={{ marginTop: 12, width: '100%' }}>
+            <AppText variant="body" tone="muted" align="center">Single-use pass for the courier. Show this at {form.bay}.</AppText>
+            <View style={{ marginTop: theme.space.md, width: '100%' }}>
               <ModalButton label="Done" onPress={() => { setSelected(null); setQr(null); }} />
             </View>
           </View>
-        )}
+        ) : null}
       </DetailModal>
-      <View style={{ height: 40 }} />
+      <View style={{ height: theme.space['4xl'] }} />
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
-    </ScrollView>
+    </Screen>
   );
 }
-
-const createStyles = (theme: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, padding: 16 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  title: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
-  card: { backgroundColor: theme.colors.surface, borderRadius: 10, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-  cardTitle: { color: theme.colors.text, fontWeight: '700', flex: 1 },
-  muted: { color: theme.colors.textMuted, fontSize: 12, marginTop: 4 },
-  review: { color: theme.colors.primary, fontSize: 12, fontWeight: '700', marginTop: 6 },
-  empty: { alignItems: 'center', padding: 24, gap: 8 },
-  input: { borderWidth: 1, borderRadius: 8, padding: 12, marginTop: 8 },
-  error: { color: theme.colors.error || '#dc2626', fontSize: 12, marginTop: 6 },
-  qrBox: { alignItems: 'center', marginVertical: 12 },
-});

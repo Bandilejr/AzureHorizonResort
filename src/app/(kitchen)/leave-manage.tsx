@@ -1,42 +1,42 @@
 // (kitchen) manager — leave approvals (UC41) + swap approvals (UC43).
-// REMEDIATED Phase C (§15–§17, P0-3): separate LEAVE REVIEW and SWAP REVIEW
-// interaction states (no shared reason), tappable cards → DETAIL
-// (staff, dates, reason, proof, conflicts / shift details) → CONFIRM → execute.
+// Layer 6 presentation rebuild; reviewLeaveMobile/reviewSwapMobile payloads
+// unchanged. Raw shift IDs/UIDs replaced with human shift lines and names.
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, useColorScheme, TextInput, ScrollView, Linking } from 'react-native';
+import { View, TouchableOpacity, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { listenLeaveQueue, listenPendingSwaps, listenPublishedRosters, reviewLeaveMobile, reviewSwapMobile } from '@/services/increment2-services';
 import type { LeaveRequest, ShiftSwap, ShiftRoster } from '@/types/increment2';
-import { getTheme } from '@/constants/theme';
-import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen, PageHeader, SectionHeader } from '@/components/ui/screen';
+import { Card } from '@/components/ui/surface';
+import { ListRow } from '@/components/ui/list-row';
+import { StatusPill } from '@/components/ui/status-pill';
+import { Field } from '@/components/ui/inputs';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/states';
+import { AppText } from '@/components/ui/text';
+import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
 import { DetailModal, ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
 import { useStaffNames, staffNameOf } from '@/hooks/use-staff-names';
-import { goBack } from '@/utils/navigation';
 import { usePermissions } from '@/context/PermissionsContext';
-import { useRouter } from 'expo-router';
 
-type LeaveStep = 'detail' | 'confirm-approve' | 'confirm-reject';
-type SwapStep = 'detail' | 'confirm-approve' | 'confirm-reject';
+type Step = 'detail' | 'confirm-approve' | 'confirm-reject';
 
 export default function LeaveManageScreen() {
-  const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const styles = createStyles(theme);
+  const theme = useAppTheme();
 
   const [queue, setQueue] = useState<LeaveRequest[]>([]);
   const [swaps, setSwaps] = useState<ShiftSwap[]>([]);
   const [rosters, setRosters] = useState<ShiftRoster[]>([]);
   const [loadError, setLoadError] = useState('');
+  const [loaded, setLoaded] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const [selLeave, setSelLeave] = useState<LeaveRequest | null>(null);
-  const [leaveStep, setLeaveStep] = useState<LeaveStep>('detail');
+  const [leaveStep, setLeaveStep] = useState<Step>('detail');
   const [leaveReason, setLeaveReason] = useState('');
   const [selSwap, setSelSwap] = useState<ShiftSwap | null>(null);
-  const [swapStep, setSwapStep] = useState<SwapStep>('detail');
+  const [swapStep, setSwapStep] = useState<Step>('detail');
   const [swapReason, setSwapReason] = useState('');
   const [busy, setBusy] = useState(false);
-  // Phase 2 (§3.A): human-readable employee names — never raw UIDs in the UI.
   const staffNames = useStaffNames();
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({ visible: false, title: '', message: '' });
   const showAlert = (config: Omit<AlertConfig, 'visible'>) => setAlertConfig({ ...config, visible: true });
@@ -44,8 +44,9 @@ export default function LeaveManageScreen() {
 
   useEffect(() => {
     setLoadError('');
-    const onErr = (e: Error) => setLoadError(e.message);
-    const u1 = listenLeaveQueue(setQueue, onErr);
+    setLoaded(false);
+    const onErr = (e: Error) => { setLoadError(e.message); setLoaded(true); };
+    const u1 = listenLeaveQueue((l) => { setQueue(l); setLoaded(true); }, onErr);
     const u2 = listenPendingSwaps(setSwaps, onErr);
     const u3 = listenPublishedRosters(setRosters, onErr);
     return () => { u1(); u2(); u3(); };
@@ -58,16 +59,17 @@ export default function LeaveManageScreen() {
     }
     return null;
   };
+  const shiftLine = (id: string) => {
+    const s = shiftDetail(id);
+    return s ? `${s.date} ${s.startTime}–${s.endTime} · ${s.role}` : 'Shift not found on published rosters';
+  };
 
   const openLeave = (l: LeaveRequest) => { setSelLeave(l); setLeaveStep('detail'); setLeaveReason(''); };
   const openSwap = (s: ShiftSwap) => { setSelSwap(s); setSwapStep('detail'); setSwapReason(''); };
 
   const reviewLeave = async (approve: boolean) => {
     if (!selLeave) return;
-    if (!approve && !leaveReason.trim()) {
-      showAlert({ title: 'Reason required', message: 'Enter a rejection reason for this leave request.', type: 'error' });
-      return;
-    }
+    if (!approve && !leaveReason.trim()) { showAlert({ title: 'Reason required', message: 'Enter a rejection reason for this leave request.', type: 'error' }); return; }
     setBusy(true);
     try {
       await reviewLeaveMobile({ leaveDocId: selLeave.id, approve, reason: leaveReason });
@@ -75,17 +77,12 @@ export default function LeaveManageScreen() {
       showAlert({ title: approve ? 'Leave approved' : 'Leave rejected', message: 'Staff member notified.', type: 'success' });
     } catch (e: any) {
       showAlert({ title: 'Review failed', message: e?.message || 'Could not review.', type: 'error' });
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
   const reviewSwap = async (approve: boolean) => {
     if (!selSwap) return;
-    if (!approve && !swapReason.trim()) {
-      showAlert({ title: 'Reason required', message: 'Enter a rejection reason for this swap.', type: 'error' });
-      return;
-    }
+    if (!approve && !swapReason.trim()) { showAlert({ title: 'Reason required', message: 'Enter a rejection reason for this swap.', type: 'error' }); return; }
     setBusy(true);
     try {
       await reviewSwapMobile({ swapDocId: selSwap.id, approve, reason: swapReason });
@@ -93,51 +90,69 @@ export default function LeaveManageScreen() {
       showAlert({ title: approve ? 'Swap approved' : 'Swap rejected', message: approve ? 'Both assignments updated.' : 'Parties notified.', type: 'success' });
     } catch (e: any) {
       showAlert({ title: 'Review failed', message: e?.message || 'Could not review.', type: 'error' });
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
-  // Phase 1 (§20): capability gate — only leave/swap approvers may review.
   if (!hasPermission('leave_approve')) {
     return (
-      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', gap: 8 }]}>
-        <Ionicons name="lock-closed" size={36} color={theme.colors.textMuted} />
-        <Text style={styles.muted}>Leave and swap approvals are restricted to managers.</Text>
-      </View>
+      <Screen>
+        <PageHeader title="Approvals" showBack fallback="/(kitchen)/dashboard" />
+        <EmptyState icon="lock-closed-outline" title="Restricted" message="Leave and swap approvals are restricted to managers." />
+      </Screen>
     );
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => goBack(router, '/(kitchen)/dashboard')}><Ionicons name="arrow-back" size={24} color={theme.colors.text} /></TouchableOpacity>
-        <Text style={styles.title}>Leave & Swap Approvals</Text>
-      </View>
+    <Screen scroll>
+      <PageHeader title="Approvals" subtitle="Leave & shift swaps awaiting decision" showBack fallback="/(kitchen)/dashboard" />
       <LiveErrorBanner error={loadError} onRetry={() => { setLoadError(''); setRetryKey((k) => k + 1); }} />
 
-      <Text style={styles.section}>Leave Review · UC41 ({queue.length})</Text>
-      {queue.length === 0 && <Text style={styles.muted}>No pending leave requests.</Text>}
-      {queue.map((l) => (
-        <TouchableOpacity key={l.id} style={styles.card} onPress={() => openLeave(l)} activeOpacity={0.7}>
-          <Text style={styles.cardTitle}>{staffNameOf(staffNames, l.staffId)} — {l.leaveType}</Text>
-          <Text style={styles.muted}>{l.startDate} → {l.endDate}</Text>
-          <Text style={styles.review}>Tap to inspect ›</Text>
-        </TouchableOpacity>
-      ))}
+      {loadError && !loaded ? (
+        <ErrorState title="Couldn't load approvals" message="The approvals queue is unavailable right now." details={loadError} onRetry={() => { setLoadError(''); setRetryKey((k) => k + 1); }} />
+      ) : !loaded ? (
+        <ListSkeleton rows={3} />
+      ) : (
+        <>
+          <SectionHeader title={`Leave review (${queue.length})`} />
+          {queue.length === 0 ? (
+            <AppText variant="body" tone="muted">No pending leave requests.</AppText>
+          ) : (
+            <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+              {queue.map((l, i) => (
+                <View key={l.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+                  <ListRow
+                    title={`${staffNameOf(staffNames, l.staffId)} — ${l.leaveType}`}
+                    subtitle={`${l.startDate} → ${l.endDate}`}
+                    status={<StatusPill status={l.status} size="sm" />}
+                    onPress={() => openLeave(l)}
+                  />
+                </View>
+              ))}
+            </Card>
+          )}
 
-      <Text style={styles.section}>Swap Review · UC43 ({swaps.length})</Text>
-      {swaps.length === 0 && <Text style={styles.muted}>Nothing awaiting decision.</Text>}
-      {swaps.map((s) => (
-        <TouchableOpacity key={s.id} style={styles.card} onPress={() => openSwap(s)} activeOpacity={0.7}>
-          <Text style={styles.cardTitle}>{s.requesterShiftId} ⇄ {s.targetShiftId}</Text>
-          <Text style={styles.muted}>{s.status}</Text>
-          <Text style={styles.review}>Tap to inspect ›</Text>
-        </TouchableOpacity>
-      ))}
+          <SectionHeader title={`Swap review (${swaps.length})`} />
+          {swaps.length === 0 ? (
+            <AppText variant="body" tone="muted">Nothing awaiting decision.</AppText>
+          ) : (
+            <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+              {swaps.map((s, i) => (
+                <View key={s.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+                  <ListRow
+                    title={`${staffNameOf(staffNames, s.requesterStaffId)} ⇄ ${staffNameOf(staffNames, s.targetStaffId)}`}
+                    subtitle={`${shiftLine(s.requesterShiftId)}  ⇄  ${shiftLine(s.targetShiftId)}`}
+                    status={<StatusPill status={s.status} size="sm" />}
+                    onPress={() => openSwap(s)}
+                  />
+                </View>
+              ))}
+            </Card>
+          )}
+        </>
+      )}
 
       <DetailModal visible={selLeave !== null} title={selLeave ? `Leave — ${staffNameOf(staffNames, selLeave.staffId)}` : ''} onClose={() => setSelLeave(null)}>
-        {selLeave && leaveStep === 'detail' && (
+        {selLeave && leaveStep === 'detail' ? (
           <View>
             <StatusBadge status={selLeave.status} />
             <SectionTitle>REQUEST</SectionTitle>
@@ -145,102 +160,77 @@ export default function LeaveManageScreen() {
             <KV label="Type" value={selLeave.leaveType} />
             <KV label="Dates" value={`${selLeave.startDate} → ${selLeave.endDate}`} />
             <KV label="Submitted" value={selLeave.submittedAt ? new Date(selLeave.submittedAt).toLocaleString() : '—'} />
-            <SectionTitle>EVIDENCE ({(selLeave.supportingDocuments || []).length})</SectionTitle>
-            {(selLeave.supportingDocuments || []).length === 0 && <Text style={styles.muted}>No supporting documents.</Text>}
+            <SectionTitle>{`EVIDENCE (${(selLeave.supportingDocuments || []).length})`}</SectionTitle>
+            {(selLeave.supportingDocuments || []).length === 0 ? <AppText variant="body" tone="muted">No supporting documents.</AppText> : null}
             {(selLeave.supportingDocuments || []).map((d, i) => (
-              <TouchableOpacity key={i} style={styles.doc} onPress={() => d.url && Linking.openURL(d.url)}>
-                <Ionicons name={"document-text-outline" as any} size={18} color={theme.colors.primary} />
-                <Text style={styles.docText}>{d.fileName || `Document ${i + 1}`}</Text>
+              <TouchableOpacity key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.sm, paddingVertical: 6 }} onPress={() => d.url && Linking.openURL(d.url)}>
+                <Ionicons name="document-text-outline" size={18} color={theme.colors.primary} />
+                <AppText variant="body" tone="primary" weight="600">{d.fileName || `Document ${i + 1}`}</AppText>
               </TouchableOpacity>
             ))}
-            <TextInput
-              style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.border }]}
-              value={leaveReason} onChangeText={setLeaveReason}
-              placeholder="Decision reason (required to reject this leave)" placeholderTextColor={theme.colors.textMuted} multiline
-            />
-            <View style={styles.btnRow}>
+            <View style={{ marginTop: theme.space.md }}>
+              <Field label="Decision reason (required to reject)" value={leaveReason} onChangeText={setLeaveReason} multiline />
+            </View>
+            <View style={{ flexDirection: 'row', gap: theme.space.sm, marginTop: theme.space.md }}>
               <ModalButton label="Reject" kind="danger" onPress={() => setLeaveStep('confirm-reject')} />
               <ModalButton label="Approve" onPress={() => setLeaveStep('confirm-approve')} />
             </View>
           </View>
-        )}
-        {selLeave && leaveStep === 'confirm-approve' && (
+        ) : null}
+        {selLeave && leaveStep === 'confirm-approve' ? (
           <ConfirmBlock
             title="Approve this leave?"
-            rows={[['Staff', selLeave.staffName || selLeave.staffId], ['Leave', `${selLeave.leaveType}: ${selLeave.startDate} → ${selLeave.endDate}`], ['Effect', 'Staff notified; roster validation will respect it']]}
+            rows={[['Staff', staffNameOf(staffNames, selLeave.staffId)], ['Leave', `${selLeave.leaveType}: ${selLeave.startDate} → ${selLeave.endDate}`], ['Effect', 'Staff notified; roster validation will respect it']]}
             confirmLabel="Confirm approval" onConfirm={() => reviewLeave(true)} onCancel={() => setLeaveStep('detail')} busy={busy}
           />
-        )}
-        {selLeave && leaveStep === 'confirm-reject' && (
+        ) : null}
+        {selLeave && leaveStep === 'confirm-reject' ? (
           <ConfirmBlock
             title="Reject this leave?"
-            rows={[['Staff', selLeave.staffName || selLeave.staffId], ['Leave', `${selLeave.leaveType}: ${selLeave.startDate} → ${selLeave.endDate}`], ['Reason', leaveReason || '(none — required)']]}
+            rows={[['Staff', staffNameOf(staffNames, selLeave.staffId)], ['Leave', `${selLeave.leaveType}: ${selLeave.startDate} → ${selLeave.endDate}`], ['Reason', leaveReason || '(none — required)']]}
             warning="Rejection is terminal for this request and is shown to the staff member."
             confirmLabel="Confirm rejection" danger onConfirm={() => reviewLeave(false)} onCancel={() => setLeaveStep('detail')} busy={busy}
           />
-        )}
+        ) : null}
       </DetailModal>
 
       <DetailModal visible={selSwap !== null} title="Swap review" onClose={() => setSelSwap(null)}>
-        {selSwap && swapStep === 'detail' && (() => {
-          const a = shiftDetail(selSwap.requesterShiftId);
-          const b = shiftDetail(selSwap.targetShiftId);
-          return (
-            <View>
-              <StatusBadge status={selSwap.status} />
-              <SectionTitle>REQUESTER SHIFT</SectionTitle>
-              <KV label="Shift" value={selSwap.requesterShiftId} />
-              <KV label="Staff" value={staffNameOf(staffNames, selSwap.requesterStaffId)} />
-              <KV label="Detail" value={a ? `${a.date} ${a.startTime}–${a.endTime} · ${a.role} (week ${a.week})` : 'Not found on published rosters'} />
-              <SectionTitle>TARGET SHIFT</SectionTitle>
-              <KV label="Shift" value={selSwap.targetShiftId} />
-              <KV label="Staff" value={staffNameOf(staffNames, selSwap.targetStaffId)} />
-              <KV label="Detail" value={b ? `${b.date} ${b.startTime}–${b.endTime} · ${b.role} (week ${b.week})` : 'Not found on published rosters'} />
-              <TextInput
-                style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.border }]}
-                value={swapReason} onChangeText={setSwapReason}
-                placeholder="Decision reason (required to reject this swap)" placeholderTextColor={theme.colors.textMuted} multiline
-              />
-              <View style={styles.btnRow}>
-                <ModalButton label="Reject" kind="danger" onPress={() => setSwapStep('confirm-reject')} />
-                <ModalButton label="Approve" onPress={() => setSwapStep('confirm-approve')} />
-              </View>
+        {selSwap && swapStep === 'detail' ? (
+          <View>
+            <StatusBadge status={selSwap.status} />
+            <SectionTitle>REQUESTER SHIFT</SectionTitle>
+            <KV label="Staff" value={staffNameOf(staffNames, selSwap.requesterStaffId)} />
+            <KV label="Shift" value={shiftLine(selSwap.requesterShiftId)} />
+            <SectionTitle>TARGET SHIFT</SectionTitle>
+            <KV label="Staff" value={staffNameOf(staffNames, selSwap.targetStaffId)} />
+            <KV label="Shift" value={shiftLine(selSwap.targetShiftId)} />
+            <View style={{ marginTop: theme.space.md }}>
+              <Field label="Decision reason (required to reject)" value={swapReason} onChangeText={setSwapReason} multiline />
             </View>
-          );
-        })()}
-        {selSwap && swapStep === 'confirm-approve' && (
+            <View style={{ flexDirection: 'row', gap: theme.space.sm, marginTop: theme.space.md }}>
+              <ModalButton label="Reject" kind="danger" onPress={() => setSwapStep('confirm-reject')} />
+              <ModalButton label="Approve" onPress={() => setSwapStep('confirm-approve')} />
+            </View>
+          </View>
+        ) : null}
+        {selSwap && swapStep === 'confirm-approve' ? (
           <ConfirmBlock
             title="Approve this swap?"
-            rows={[['Swap', `${selSwap.requesterShiftId} ⇄ ${selSwap.targetShiftId}`], ['Parties', `${selSwap.requesterStaffId} ⇄ ${selSwap.targetStaffId}`], ['Effect', 'Roster assignments swap; both parties notified']]}
+            rows={[['Swap', `${shiftLine(selSwap.requesterShiftId)} ⇄ ${shiftLine(selSwap.targetShiftId)}`], ['Parties', `${staffNameOf(staffNames, selSwap.requesterStaffId)} ⇄ ${staffNameOf(staffNames, selSwap.targetStaffId)}`], ['Effect', 'Roster assignments swap; both parties notified']]}
             confirmLabel="Confirm approval" onConfirm={() => reviewSwap(true)} onCancel={() => setSwapStep('detail')} busy={busy}
           />
-        )}
-        {selSwap && swapStep === 'confirm-reject' && (
+        ) : null}
+        {selSwap && swapStep === 'confirm-reject' ? (
           <ConfirmBlock
             title="Reject this swap?"
-            rows={[['Swap', `${selSwap.requesterShiftId} ⇄ ${selSwap.targetShiftId}`], ['Reason', swapReason || '(none — required)']]}
+            rows={[['Swap', `${shiftLine(selSwap.requesterShiftId)} ⇄ ${shiftLine(selSwap.targetShiftId)}`], ['Reason', swapReason || '(none — required)']]}
             warning="Rejection is terminal for this request."
             confirmLabel="Confirm rejection" danger onConfirm={() => reviewSwap(false)} onCancel={() => setSwapStep('detail')} busy={busy}
           />
-        )}
+        ) : null}
       </DetailModal>
-      <View style={{ height: 40 }} />
+      <View style={{ height: theme.space['4xl'] }} />
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
-    </ScrollView>
+    </Screen>
   );
 }
-
-const createStyles = (theme: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, padding: 16 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  title: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
-  section: { fontSize: 16, fontWeight: '700', color: theme.colors.text, marginTop: 16, marginBottom: 8 },
-  card: { backgroundColor: theme.colors.surface, borderRadius: 10, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
-  cardTitle: { color: theme.colors.text, fontWeight: '700' },
-  muted: { color: theme.colors.textMuted, fontSize: 12, marginTop: 4 },
-  review: { color: theme.colors.primary, fontSize: 12, fontWeight: '700', marginTop: 6 },
-  input: { borderWidth: 1, borderRadius: 8, padding: 12, marginTop: 12, backgroundColor: 'transparent' },
-  btnRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
-  doc: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
-  docText: { color: theme.colors.primary, fontSize: 13, fontWeight: '600' },
-});

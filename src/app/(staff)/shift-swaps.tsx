@@ -1,33 +1,35 @@
-// (staff) UC43 — Shift Swaps.
-// REMEDIATED Phase C (§24): My shift (picker from my published shifts) →
-// eligible colleague shifts (same roster week, tappable) → review → send.
-// Peer decisions and manager queue view include full shift detail + confirm.
+// (staff) UC43 — Shift Swaps. Layer 6 presentation rebuild; swap service
+// calls and peer/manager flow unchanged. No raw UIDs/shift IDs in the UI.
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, useColorScheme, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { auth } from '@/services/firebase-services';
 import { listenPublishedRosters, listenMySwaps, requestSwapMobile, peerAcceptSwapMobile } from '@/services/increment2-services';
 import type { ShiftRoster, ShiftSwap, RosterShift } from '@/types/increment2';
-import { getTheme } from '@/constants/theme';
-import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen, PageHeader, SectionHeader } from '@/components/ui/screen';
+import { Card } from '@/components/ui/surface';
+import { ListRow } from '@/components/ui/list-row';
+import { StatusPill } from '@/components/ui/status-pill';
+import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states';
+import { AppText } from '@/components/ui/text';
+import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
 import { DetailModal, ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
 import { useStaffNames, staffNameOf } from '@/hooks/use-staff-names';
-import { goBack } from '@/utils/navigation';
-import { useRouter, useLocalSearchParams } from 'expo-router';
 
 type Step = 'detail' | 'confirm-request' | 'confirm-peer';
 
 export default function ShiftSwapsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ myShiftId?: string }>();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const styles = createStyles(theme);
+  const theme = useAppTheme();
   const staffId = auth.currentUser?.uid || '';
 
   const [rosters, setRosters] = useState<ShiftRoster[]>([]);
   const [swaps, setSwaps] = useState<ShiftSwap[]>([]);
   const [loadError, setLoadError] = useState('');
+  const [loaded, setLoaded] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const [myShiftId, setMyShiftId] = useState('');
   const [targetShiftId, setTargetShiftId] = useState('');
@@ -37,32 +39,26 @@ export default function ShiftSwapsScreen() {
   const [busy, setBusy] = useState(false);
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({ visible: false, title: '', message: '' });
   const showAlert = (config: Omit<AlertConfig, 'visible'>) => setAlertConfig({ ...config, visible: true });
-  // Phase 2 (§3.A): human-readable colleague names — never raw UIDs in the UI.
   const staffNames = useStaffNames();
 
   useEffect(() => {
-    if (!staffId) return;
+    if (!staffId) { setLoaded(true); return; }
     setLoadError('');
-    const onErr = (e: Error) => setLoadError(e.message);
-    const u1 = listenPublishedRosters(setRosters, onErr);
+    setLoaded(false);
+    const onErr = (e: Error) => { setLoadError(e.message); setLoaded(true); };
+    const u1 = listenPublishedRosters((l) => { setRosters(l); setLoaded(true); }, onErr);
     const u2 = listenMySwaps(staffId, setSwaps, onErr);
     return () => { u1(); u2(); };
   }, [staffId, retryKey]);
 
-  // Deep handoff from My Roster shift detail (prefills step 1).
   useEffect(() => {
     if (typeof params.myShiftId === 'string' && params.myShiftId) setMyShiftId(params.myShiftId);
   }, [params.myShiftId]);
 
-  const allShifts = rosters.flatMap((r) =>
-    (r.shifts || []).map((s) => ({ ...s, rosterDocId: r.id, week: r.weekStart, department: r.department })));
+  const allShifts = rosters.flatMap((r) => (r.shifts || []).map((s) => ({ ...s, rosterDocId: r.id, week: r.weekStart, department: r.department })));
   const myShifts = allShifts.filter((s) => s.staffId === staffId);
   const myShift = myShifts.find((s) => s.shiftId === myShiftId) || null;
-  // Eligible targets: same weekStart (Deputy/WhenIWork pattern — not same doc) + not self.
-  // Scoring: same department first, then same role (recommended).
-  const targetsRaw = myShift
-    ? allShifts.filter((s) => s.week === myShift.week && s.staffId !== staffId)
-    : [];
+  const targetsRaw = myShift ? allShifts.filter((s) => s.week === myShift.week && s.staffId !== staffId) : [];
   const targets = targetsRaw.sort((a, b) => {
     const aScore = (a.department === myShift?.department ? 2 : 0) + (a.role === myShift?.role ? 1 : 0);
     const bScore = (b.department === myShift?.department ? 2 : 0) + (b.role === myShift?.role ? 1 : 0);
@@ -82,9 +78,7 @@ export default function ShiftSwapsScreen() {
       showAlert({ title: 'Swap requested', message: 'Colleague must accept before manager review.', type: 'success' });
     } catch (e: any) {
       showAlert({ title: 'Request failed', message: e?.message || 'Could not request.', type: 'error' });
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
   const peer = async () => {
@@ -96,64 +90,105 @@ export default function ShiftSwapsScreen() {
       showAlert({ title: peerChoice ? 'Accepted' : 'Declined', message: peerChoice ? 'Sent for manager approval.' : 'Requester notified.', type: 'success' });
     } catch (e: any) {
       showAlert({ title: 'Action failed', message: e?.message || 'Could not update.', type: 'error' });
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
   const findShift = (id: string) => allShifts.find((s) => s.shiftId === id) || null;
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => goBack(router, '/(staff)/staff-dashboard')}><Ionicons name="arrow-back" size={24} color={theme.colors.text} /></TouchableOpacity>
-        <Text style={styles.title}>Shift Swaps</Text>
-      </View>
+    <Screen scroll>
+      <PageHeader title="Shift swaps" subtitle="Request or respond to swaps" showBack fallback="/(staff)/staff-dashboard" />
       <LiveErrorBanner error={loadError} onRetry={() => { setLoadError(''); setRetryKey((k) => k + 1); }} />
 
-      <Text style={styles.section}>1 · My shift</Text>
-      {myShifts.length === 0 && <Text style={styles.muted}>No published shifts assigned to you yet.</Text>}
-      {myShifts.map((s) => (
-        <TouchableOpacity key={s.shiftId} style={[styles.pick, myShiftId === s.shiftId && styles.picked]} onPress={() => { setMyShiftId(s.shiftId); setTargetShiftId(''); }}>
-          <Text style={styles.cardTitle}>{s.date} {s.startTime}–{s.endTime} · {s.role}</Text>
-        </TouchableOpacity>
-      ))}
-
-      {myShift && (
+      {loadError && !loaded ? (
+        <ErrorState title="Couldn't load swaps" message="Swap data is unavailable right now." details={loadError} onRetry={() => { setLoadError(''); setRetryKey((k) => k + 1); }} />
+      ) : !loaded ? (
+        <Skeleton width="100%" height={200} radius={theme.radius.lg} />
+      ) : (
         <>
-          <Text style={styles.section}>2 · Colleague shift (week {myShift.week})</Text>
-          {targets.length === 0 && <Text style={styles.muted}>No other shifts on this roster week.</Text>}
-          {targets.map((s) => (
-            <TouchableOpacity key={s.shiftId} style={[styles.pick, targetShiftId === s.shiftId && styles.picked]} onPress={() => setTargetShiftId(s.shiftId)}>
-              <Text style={styles.cardTitle}>{s.date} {s.startTime}–{s.endTime} · {s.role}</Text>
-              <Text style={styles.muted}>{staffNameOf(staffNames, s.staffId)}</Text>
-            </TouchableOpacity>
-          ))}
+          <SectionHeader title="1 · My shift" />
+          {myShifts.length === 0 ? (
+            <AppText variant="body" tone="muted">No published shifts assigned to you yet.</AppText>
+          ) : (
+            <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+              {myShifts.map((s, i) => {
+                const picked = myShiftId === s.shiftId;
+                return (
+                  <View key={s.shiftId} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+                    <ListRow
+                      title={`${s.date} ${s.startTime}–${s.endTime}`}
+                      subtitle={`${s.role} · ${s.department}`}
+                      status={picked ? <StatusPill status="approved" size="sm" label="Selected" /> : undefined}
+                      trailing={picked ? <Ionicons name="checkmark-circle" size={theme.iconSize.md} color={theme.colors.primary} /> : undefined}
+                      showChevron={!picked}
+                      onPress={() => { setMyShiftId(s.shiftId); setTargetShiftId(''); }}
+                    />
+                  </View>
+                );
+              })}
+            </Card>
+          )}
+
+          {myShift ? (
+            <>
+              <SectionHeader title={`2 · Colleague shift (week ${myShift.week})`} />
+              {targets.length === 0 ? (
+                <AppText variant="body" tone="muted">No other shifts on this roster week.</AppText>
+              ) : (
+                <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+                  {targets.map((s, i) => {
+                    const picked = targetShiftId === s.shiftId;
+                    return (
+                      <View key={s.shiftId} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+                        <ListRow
+                          title={`${s.date} ${s.startTime}–${s.endTime} · ${s.role}`}
+                          subtitle={staffNameOf(staffNames, s.staffId)}
+                          status={picked ? <StatusPill status="approved" size="sm" label="Selected" /> : undefined}
+                          trailing={picked ? <Ionicons name="checkmark-circle" size={theme.iconSize.md} color={theme.colors.primary} /> : undefined}
+                          showChevron={!picked}
+                          onPress={() => setTargetShiftId(s.shiftId)}
+                        />
+                      </View>
+                    );
+                  })}
+                </Card>
+              )}
+              {target ? (
+                <Pressable onPress={() => setStep('confirm-request')} style={{ marginTop: theme.space.md }}>
+                  <View style={{ backgroundColor: theme.colors.primary, borderRadius: theme.radius.md, padding: 14, alignItems: 'center' }}>
+                    <AppText variant="bodyStrong" color={theme.colors.textInverse}>Review swap request</AppText>
+                  </View>
+                </Pressable>
+              ) : null}
+            </>
+          ) : null}
+
+          <SectionHeader title={`My swaps (${swaps.length})`} />
+          {swaps.length === 0 ? (
+            <EmptyState icon="swap-horizontal-outline" title="No swap requests yet" message="Requested and received swaps appear here." />
+          ) : (
+            <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+              {swaps.map((s, i) => (
+                <View key={s.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+                  <ListRow
+                    title="Shift swap"
+                    subtitle={`${shiftLine(findShift(s.requesterShiftId))}  ⇄  ${shiftLine(findShift(s.targetShiftId))}`}
+                    status={<StatusPill status={s.status} size="sm" />}
+                    onPress={() => { setSelSwap(s); setStep('detail'); }}
+                  />
+                </View>
+              ))}
+            </Card>
+          )}
         </>
       )}
-
-      {myShift && target && (
-        <View style={{ marginTop: 12 }}>
-          <ModalButton label="Review swap request" onPress={() => setStep('confirm-request')} />
-        </View>
-      )}
-
-      <Text style={styles.section}>My swaps ({swaps.length})</Text>
-      {swaps.length === 0 && <Text style={styles.muted}>No swap requests yet.</Text>}
-      {swaps.map((s) => (
-        <TouchableOpacity key={s.id} style={styles.card} onPress={() => { setSelSwap(s); setStep('detail'); }} activeOpacity={0.7}>
-          <Text style={styles.cardTitle}>{s.requesterShiftId} ⇄ {s.targetShiftId}</Text>
-          <Text style={styles.muted}>{s.status}</Text>
-          <Text style={styles.review}>Tap to inspect ›</Text>
-        </TouchableOpacity>
-      ))}
 
       <DetailModal
         visible={step === 'confirm-request' || selSwap !== null}
         title={step === 'confirm-request' ? 'Review swap request' : 'Swap detail'}
         onClose={() => { setSelSwap(null); setStep('detail'); }}
       >
-        {step === 'confirm-request' && myShift && target && (
+        {step === 'confirm-request' && myShift && target ? (
           <ConfirmBlock
             title="Send this swap request?"
             rows={[
@@ -164,8 +199,8 @@ export default function ShiftSwapsScreen() {
             ]}
             confirmLabel="Send request" onConfirm={request} onCancel={() => setStep('detail')} busy={busy}
           />
-        )}
-        {selSwap && step === 'detail' && (() => {
+        ) : null}
+        {selSwap && step === 'detail' ? (() => {
           const a = findShift(selSwap.requesterShiftId);
           const b = findShift(selSwap.targetShiftId);
           const canPeer = selSwap.targetStaffId === staffId && selSwap.status === 'pending_peer';
@@ -178,45 +213,31 @@ export default function ShiftSwapsScreen() {
               <SectionTitle>TARGET</SectionTitle>
               <KV label="Staff" value={staffNameOf(staffNames, selSwap.targetStaffId)} />
               <KV label="Shift" value={shiftLine(b)} />
-              {!!selSwap.reviewedBy && <KV label="Reviewed by" value={selSwap.reviewedBy} />}
-              {!!selSwap.rejectionReason && <KV label="Reason" value={selSwap.rejectionReason} />}
-              {canPeer && (
-                <View style={styles.btnRow}>
+              {selSwap.reviewedBy ? <KV label="Reviewed" value="Manager" /> : null}
+              {selSwap.rejectionReason ? <KV label="Reason" value={selSwap.rejectionReason} /> : null}
+              {canPeer ? (
+                <View style={{ flexDirection: 'row', gap: theme.space.sm, marginTop: theme.space.md }}>
                   <ModalButton label="Decline" kind="danger" onPress={() => { setPeerChoice(false); setStep('confirm-peer'); }} />
                   <ModalButton label="Accept" onPress={() => { setPeerChoice(true); setStep('confirm-peer'); }} />
                 </View>
-              )}
+              ) : null}
             </View>
           );
-        })()}
-        {selSwap && step === 'confirm-peer' && (
+        })() : null}
+        {selSwap && step === 'confirm-peer' ? (
           <ConfirmBlock
             title={peerChoice ? 'Accept this swap?' : 'Decline this swap?'}
             rows={[
-              ['Swap', `${selSwap.requesterShiftId} ⇄ ${selSwap.targetShiftId}`],
+              ['Swap', `${shiftLine(findShift(selSwap.requesterShiftId))} ⇄ ${shiftLine(findShift(selSwap.targetShiftId))}`],
               ['Effect', peerChoice ? 'Goes to manager for final approval' : 'Requester is notified'],
             ]}
             confirmLabel={peerChoice ? 'Confirm accept' : 'Confirm decline'}
             danger={!peerChoice} onConfirm={peer} onCancel={() => setStep('detail')} busy={busy}
           />
-        )}
+        ) : null}
       </DetailModal>
-      <View style={{ height: 40 }} />
+      <View style={{ height: theme.space['4xl'] }} />
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
-    </ScrollView>
+    </Screen>
   );
 }
-
-const createStyles = (theme: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, padding: 16 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  title: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
-  section: { fontSize: 16, fontWeight: '700', color: theme.colors.text, marginTop: 16, marginBottom: 8 },
-  pick: { backgroundColor: theme.colors.surface, borderRadius: 8, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
-  picked: { borderColor: theme.colors.primary, borderWidth: 2 },
-  card: { backgroundColor: theme.colors.surface, borderRadius: 10, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
-  cardTitle: { color: theme.colors.text, fontWeight: '600' },
-  muted: { color: theme.colors.textMuted, fontSize: 12, marginTop: 4 },
-  review: { color: theme.colors.primary, fontSize: 12, fontWeight: '700', marginTop: 6 },
-  btnRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
-});
