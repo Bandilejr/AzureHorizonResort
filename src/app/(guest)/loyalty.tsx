@@ -17,7 +17,7 @@ import { doc, onSnapshot, getDoc } from 'firebase/firestore';
 import QRCode from 'react-native-qrcode-svg';
 import { getTheme } from '@/constants/theme';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 
 const TIERS = [
@@ -29,10 +29,10 @@ const TIERS = [
 
 const REWARDS = [
   { id: 1, title: 'Complimentary Dessert & Coffee', pts: 100, category: 'Dining' },
-  { id: 2, title: '2-for-1 Cocktails at Sunset Lounge', pts: 200, category: 'Bar' },
-  { id: 3, title: 'Room Upgrade Request', pts: 300, category: 'Stay' },
-  { id: 4, title: 'Free Spa Massage Treatment', pts: 500, category: 'Wellness' },
-  { id: 5, title: 'Private Beach Dinner Voucher', pts: 1000, category: 'Dining' },
+  { id: 2, title: 'Complimentary Welcome Drink', pts: 150, category: 'Bar' },
+  { id: 3, title: '2-for-1 Cocktails at Sunset Lounge', pts: 200, category: 'Bar' },
+  { id: 4, title: 'Dessert Platter for Two', pts: 250, category: 'Dining' },
+  { id: 5, title: '10% Dining Discount Voucher', pts: 300, category: 'Dining' },
 ];
 
 const formatTier = (tierName: string) => tierName.charAt(0).toUpperCase() + tierName.slice(1);

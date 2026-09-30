@@ -1,0 +1,174 @@
+// (staff) UC44 — Open Shifts: browse, inspect, check eligibility, claim.
+// REMEDIATED Phase C (§25): card → SHIFT DETAIL (date/time/role/skill/dept,
+// urgency/status) → eligibility preview (overlap + leave conflicts) →
+// CONFIRM → claim → roster-linked result.
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, useColorScheme, ScrollView, ActivityIndicator, TextInput } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { auth } from '@/services/firebase-services';
+import { listenOpenShiftsBoard, claimOpenShiftMobile, checkOpenShiftEligibility, ShiftEligibility } from '@/services/increment2-services';
+import type { OpenShift } from '@/types/increment2';
+import { getTheme } from '@/constants/theme';
+import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
+import { DetailModal, ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
+import { goBack } from '@/utils/navigation';
+import { useRouter } from 'expo-router';
+
+export default function StaffOpenShiftsScreen() {
+  const router = useRouter();
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
+  const styles = createStyles(theme);
+  const staffId = auth.currentUser?.uid || '';
+
+  const [open, setOpen] = useState<OpenShift[]>([]);
+  const [loadError, setLoadError] = useState('');
+  const [retryKey, setRetryKey] = useState(0);
+  const [filter, setFilter] = useState<'all' | 'today' | 'week' | 'urgent'>('all');
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState<OpenShift | null>(null);
+  const [elig, setElig] = useState<ShiftEligibility | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [alertConfig, setAlertConfig] = useState<AlertConfig>({ visible: false, title: '', message: '' });
+  const showAlert = (config: Omit<AlertConfig, 'visible'>) => setAlertConfig({ ...config, visible: true });
+
+  useEffect(() => listenOpenShiftsBoard(setOpen, (e) => setLoadError(e.message)), [retryKey]);
+
+  const openShift = async (s: OpenShift) => {
+    setSelected(s); setConfirming(false); setElig(null); setChecking(true);
+    try {
+      setElig(await checkOpenShiftEligibility(s, staffId));
+    } catch {
+      setElig(null);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const claim = async () => {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      await claimOpenShiftMobile(selected.id);
+      setSelected(null); setConfirming(false);
+      showAlert({ title: 'Shift claimed', message: 'Added to your roster.', type: 'success' });
+    } catch (e: any) {
+      showAlert({ title: 'Claim failed', message: e?.message || 'Shift may have just been filled.', type: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const weekEnd = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+  const filtered = open.filter((s) => {
+    if (filter === 'today' && s.date !== today) return false;
+    if (filter === 'week' && (s.date < today || s.date > weekEnd)) return false;
+    if (filter === 'urgent' && s.urgency !== 'urgent' && s.urgency !== 'critical') return false;
+    if (query && !`${s.role} ${s.department} ${s.date}`.toLowerCase().includes(query.toLowerCase())) return false;
+    return true;
+  }).sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime));
+
+  return (
+    <ScrollView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => goBack(router, '/(staff)/staff-dashboard')}><Ionicons name="arrow-back" size={24} color={theme.colors.text} /></TouchableOpacity>
+        <Text style={styles.title}>Open Shifts</Text>
+      </View>
+      <LiveErrorBanner error={loadError} onRetry={() => { setLoadError(''); setRetryKey((k) => k + 1); }} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginBottom: 12 }}>
+        {(['all', 'today', 'week', 'urgent'] as const).map((f) => (
+          <TouchableOpacity key={f} onPress={() => setFilter(f)} style={[styles.chip, filter === f && { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }]}>
+            <Text style={[styles.chipText, filter === f && { color: '#fff' }]}>{f === 'all' ? 'All' : f === 'today' ? 'Today' : f === 'week' ? 'This week' : 'Urgent'}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+      <View style={[styles.input, { flexDirection: 'row', alignItems: 'center', gap: 8 }]}>
+        <Ionicons name="search-outline" size={16} color={theme.colors.textMuted} />
+        <TextInput value={query} onChangeText={setQuery} placeholder="Search role or department" placeholderTextColor={theme.colors.textMuted} style={{ flex: 1, color: theme.colors.text, paddingVertical: 2 }} />
+        {query ? <TouchableOpacity onPress={() => setQuery('')}><Ionicons name="close-circle" size={16} color={theme.colors.textMuted} /></TouchableOpacity> : null}
+      </View>
+
+      <Text style={styles.section}>Available ({filtered.length}/{open.length})</Text>
+      {filtered.length === 0 && (
+        <View style={styles.empty}>
+          <Ionicons name={"calendar-outline" as any} size={40} color={theme.colors.textMuted} />
+          <Text style={styles.muted}>{open.length === 0 ? 'No open shifts right now. Published surge shifts appear here to claim.' : 'No shifts match your filter.'}</Text>
+        </View>
+      )}
+      {filtered.map((s) => (
+        <TouchableOpacity key={s.id} style={styles.card} onPress={() => openShift(s)} activeOpacity={0.7}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={styles.cardTitle}>{s.date} {s.startTime}–{s.endTime} · {s.role}</Text>
+            {s.urgency === 'urgent' || s.urgency === 'critical' ? <View style={styles.urgent}><Text style={styles.urgentText}>{s.urgency}</Text></View> : null}
+          </View>
+          <Text style={styles.muted}>{s.department} · {s.hours}h · {s.requiredSkill || 'no skill req'}</Text>
+          <Text style={styles.review}>Tap to inspect ›</Text>
+        </TouchableOpacity>
+      ))}
+
+      <DetailModal visible={selected !== null} title={selected ? `${selected.date} · ${selected.role}` : ''} onClose={() => setSelected(null)}>
+        {selected && !confirming && (
+          <View>
+            <StatusBadge status={selected.status} />
+            <SectionTitle>SHIFT</SectionTitle>
+            <KV label="Date" value={selected.date} />
+            <KV label="Time" value={`${selected.startTime}–${selected.endTime} (${selected.hours}h)`} />
+            <KV label="Role" value={selected.role} />
+            <KV label="Required skill" value={selected.requiredSkill || 'None'} />
+            <KV label="Department" value={selected.department} />
+            <KV label="Urgency" value={selected.urgency || 'normal'} />
+            <SectionTitle>ELIGIBILITY</SectionTitle>
+            {checking && <ActivityIndicator color={theme.colors.primary} />}
+            {!checking && elig && elig.eligible && <View style={styles.okBox}><Ionicons name="checkmark-circle" size={16} color="#16a34a" /><Text style={styles.ok}> No conflicts — you can claim this shift.</Text></View>}
+            {!checking && elig && !elig.eligible && <View style={styles.warnBox}>{elig.reasons.map((r, i) => <Text key={i} style={styles.warn}>• {r}</Text>)}</View>}
+            {!checking && !elig && <Text style={styles.muted}>Checking eligibility failed — please retry. Claim is blocked until check passes.</Text>}
+            <View style={{ marginTop: 12 }}>
+              <ModalButton
+                label={checking ? 'Checking…' : 'Review claim'} onPress={() => setConfirming(true)}
+                disabled={checking || !elig || !elig.eligible}
+              />
+            </View>
+          </View>
+        )}
+        {selected && confirming && (
+          <ConfirmBlock
+            title="Claim this shift?"
+            rows={[
+              ['Shift', `${selected.date} ${selected.startTime}–${selected.endTime}`],
+              ['Role', `${selected.role}${selected.requiredSkill ? ` (${selected.requiredSkill})` : ''}`],
+              ['Department', selected.department],
+              ['Effect', 'Shift fills immediately and links into your roster'],
+            ]}
+            confirmLabel="Confirm claim" onConfirm={claim} onCancel={() => setConfirming(false)} busy={busy}
+          />
+        )}
+      </DetailModal>
+      <View style={{ height: 40 }} />
+      <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
+    </ScrollView>
+  );
+}
+
+const createStyles = (theme: any) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.colors.background, padding: 16 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  title: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
+  section: { fontSize: 16, fontWeight: '700', color: theme.colors.text, marginTop: 16, marginBottom: 8 },
+  card: { backgroundColor: theme.colors.surface, borderRadius: 10, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
+  cardTitle: { color: theme.colors.text, fontWeight: '700' },
+  muted: { color: theme.colors.textMuted, fontSize: 12, marginTop: 4 },
+  review: { color: theme.colors.primary, fontSize: 12, fontWeight: '700', marginTop: 6 },
+  empty: { alignItems: 'center', padding: 24, gap: 8 },
+  ok: { color: '#16a34a', fontSize: 13, fontWeight: '600' },
+  okBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0fdf4', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: '#bbf7d0' },
+  warn: { color: '#92400e', fontSize: 12, marginTop: 4 },
+  warnBox: { backgroundColor: '#fffbeb', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: '#fde68a' },
+  chip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#fff' },
+  chipText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  urgent: { backgroundColor: '#fef2f2', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1, borderColor: '#fecaca' },
+  urgentText: { fontSize: 10, fontWeight: '700', color: '#dc2626', textTransform: 'uppercase' },
+  input: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, padding: 10, backgroundColor: '#fff', marginBottom: 8 },
+});

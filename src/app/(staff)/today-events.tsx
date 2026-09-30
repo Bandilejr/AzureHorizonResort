@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { getTheme } from '@/constants/theme';
 import { db , getAttendeeCheckIns } from '@/services/firebase-services';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot } from 'firebase/firestore';
 
 interface EventBooking {
   id: string;
@@ -42,11 +42,12 @@ export default function TodayEventsScreen() {
   }, []);
 
   useEffect(() => {
-    const q = query(collection(db, 'event_bookings'), where('eventDateStr', '==', today));
     const unsub = onSnapshot(
-      q,
+      collection(db, 'event_bookings'),
       (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<EventBooking, 'id'>) }));
+        const list = snap.docs
+          .map((d) => ({ id: d.id, ...(d.data() as Omit<EventBooking, 'id'>) }))
+          .filter((e) => String(e.eventDateStr || e.eventDate || '').slice(0, 10) === today);
         setEvents(list);
         setLoading(false);
         if (list.length > 0) loadCounts(list);

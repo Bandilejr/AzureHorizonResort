@@ -1,17 +1,34 @@
-import React from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Image, StatusBar } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useState } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, Image, StatusBar, Platform, ScrollView, ActivityIndicator } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { getTheme, useColorScheme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { loginMobileUser } from '@/services/firebase-services';
+import { homeRouteFor } from '@/utils/role-home';
+import { Alert } from 'react-native';
 
 const HERO_IMAGE = require('../../assets/images/resort-exterior.jpg');
+
+// One-tap demos — one chip per SRS Increment-2 actor (no duplicate roles).
+const DEMO_ACCOUNTS = [
+  { label: 'Admin', icon: 'shield-checkmark-outline' as const, email: 'staff@azure.com', password: 'Staff.1234' },
+  { label: 'Kitchen Mgr', icon: 'people-outline' as const, email: 'kim.kitchen@azurehorizon.demo', password: 'Kitchen.1234' },
+  { label: 'Kitchen Staff', icon: 'restaurant-outline' as const, email: 's.khoza@azurehorizon.com', password: 'Kitchen.1234' },
+  { label: 'Staff A', icon: 'person-outline' as const, email: 'staffa@azurehorizon.demo', password: 'Staff.1234' },
+  { label: 'Staff B', icon: 'person-outline' as const, email: 'staffb@azurehorizon.demo', password: 'Staff.1234' },
+  { label: 'Courier', icon: 'basket-outline' as const, email: 'sam.staff@azurehorizon.demo', password: 'Staff.1234' },
+  { label: 'Hotel Staff', icon: 'person-outline' as const, email: 'joe.staff@azurehorizon.demo', password: 'Staff.1234' },
+  { label: 'NPO Rep', icon: 'heart-outline' as const, email: 'npo1@azurehorizon.demo', password: 'password123' },
+];
 
 export default function WelcomePage() {
   const colorScheme = useColorScheme();
   const theme = getTheme(colorScheme as any);
   const { user, signOut } = useAuth();
+  const insets = useSafeAreaInsets();
+  const [quickLogging, setQuickLogging] = useState<string | null>(null);
 
   const handleExploreResort = async () => {
     try {
@@ -22,8 +39,20 @@ export default function WelcomePage() {
     router.push({ pathname: '/guest-portal', params: { mode: 'visitor' } } as any);
   };
 
+  const handleQuickLogin = async (account: typeof DEMO_ACCOUNTS[number]) => {
+    setQuickLogging(account.label);
+    try {
+      const profile = (await loginMobileUser(account.email, account.password)) as { role?: string };
+      router.replace(homeRouteFor(profile) as any);
+    } catch (error: any) {
+      Alert.alert('Login Failed', error.message || 'Invalid credentials.');
+    } finally {
+      setQuickLogging(null);
+    }
+  };
+
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { marginTop: Platform.OS === 'android' ? -insets.top : 0 }]}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       
       {/* Background Image Layer */}
@@ -79,6 +108,27 @@ export default function WelcomePage() {
             <Ionicons name="lock-closed" size={12} color="rgba(255,255,255,0.7)" />
             <Text style={styles.staffLinkText}>Staff & Admin Access</Text>
           </TouchableOpacity>
+        </View>
+
+        <View style={styles.quickAccess}>
+          <Text style={styles.quickAccessLabel}>One-tap demo logins</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickChips}>
+            {DEMO_ACCOUNTS.map((a) => (
+              <TouchableOpacity
+                key={a.label}
+                style={[styles.quickChip, { backgroundColor: quickLogging === a.label ? theme.colors.surfaceVariant : 'rgba(255,255,255,0.14)' }]}
+                onPress={() => handleQuickLogin(a)}
+                disabled={quickLogging !== null}
+              >
+                {quickLogging === a.label ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name={a.icon} size={14} color="#fff" style={styles.quickChipIcon} />
+                )}
+                <Text style={styles.quickChipText}>{a.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
       </SafeAreaView>
     </View>
@@ -181,5 +231,40 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 1,
     textTransform: 'uppercase',
+  },
+  quickAccess: {
+    marginBottom: 8,
+  },
+  quickAccessLabel: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  quickChips: {
+    paddingHorizontal: 4,
+    gap: 8,
+  },
+  quickChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    minWidth: 74,
+    justifyContent: 'center',
+  },
+  quickChipIcon: {
+    marginRight: 6,
+  },
+  quickChipText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

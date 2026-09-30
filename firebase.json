@@ -8,5 +8,31 @@
     "predeploy": [
       "npm --prefix functions run build"
     ]
+  },
+  "hosting": {
+    "public": "rsvp-site",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "redirects": [
+      {
+        "source": "/",
+        "destination": "/rsvp/",
+        "type": 301
+      }
+    ],
+    "headers": [
+      {
+        "source": "/rsvp/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, max-age=0, must-revalidate"
+          }
+        ]
+      }
+    ]
   }
 }

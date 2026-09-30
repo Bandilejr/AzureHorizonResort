@@ -1,28 +1,34 @@
 /**
- * Room-key NFC abstraction.
+ * Room-key NFC abstraction - REAL, no simulation.
  *
  * Two independent features:
- *  1. HCE emulation: arms the native `RoomKeyBridge` module so the phone
- *     behaves like a Type-4 NFC tag exposing the URI record
- *     `azurehotel://room/<jwt>`.
+ *  1. HCE emulation: arms the native `RoomKeyApduService` (Type-4 NDEF tag)
+ *     so the phone behaves like a standard NFC tag exposing the URI record
+ *     `azurehotel://room/<payload>`. Any NFC reader - including another
+ *     phone running this app - reads it like a normal NDEF tag.
  *  2. Reader/verifier: reads a room-key tag via the OS NFC reader and
- *     verifies the JWT (RS256 signature + expiry) with the server public key.
+ *     verifies the payload against Firestore (`room_credentials`), which is
+ *     the shared authority - Spark-plan compatible, no Cloud Functions.
  *
- * Credentials are ONLY ever issued by the backend (`generateRoomCredential`),
- * signed with the server's private key. The app can verify but never sign.
+ * Credential lifecycle (all client-side, Firestore rules enforce access):
+ *  - `generateRoomCredential` issues a random 192-bit token, stores its
+ *    SHA-256 hash + expiry + room in `room_credentials/<bookingId>` and
+ *    returns the URI payload to arm onto the HCE tag.
+ *  - The reader only ever sees the token; it verifies the hash, room and
+ *    expiry in Firestore. A revoked or expired credential is rejected.
  *
- * Every function reports REAL hardware/API state - there is no simulation
- * anywhere in this module. If the device cannot perform a real NFC operation
- * the caller receives the underlying reason (no NFC chip, NFC disabled,
- * native bridge missing, signature/expiry failure, ...).
+ * Every function reports REAL hardware/API state. If the device cannot
+ * perform a real NFC operation the caller receives the underlying reason.
  */
 import { NativeModules, Platform } from 'react-native';
 import NfcManager, { NfcEvents, NfcAdapter, Ndef, TagEvent } from 'react-native-nfc-manager';
-import { KJUR, b64utoutf8 } from 'jsrsasign';
-import { SERVER_PUBLIC_KEY_PEM } from './room-key-keys';
-import { auth } from './firebase-services';
+import * as Crypto from 'expo-crypto';
+import { db } from './firebase-services';
+import { doc, getDoc } from 'firebase/firestore';
+import { RoomKeyPayload, buildRoomKeyUri, parseRoomKeyUri } from './room-key-payload';
 
-const ROOM_KEY_URI_PREFIX = 'azurehotel://room/';
+export type { RoomKeyPayload };
+export { buildRoomKeyUri, parseRoomKeyUri };
 
 export interface RoomKeyEnvironment {
   platform: 'android' | 'ios' | string;
@@ -43,8 +49,6 @@ function getBridge(): any {
 
 /**
  * Real device capability probe. Never assumes the hardware exists.
- * On web / iOS / emulator each report naturally reflects what the device
- * actually exposes (emulators report no NFC chip).
  */
 export async function checkRoomKeyEnvironment(): Promise<RoomKeyEnvironment> {
   if (Platform.OS === 'web') {
@@ -73,62 +77,54 @@ export async function checkRoomKeyEnvironment(): Promise<RoomKeyEnvironment> {
 }
 
 /**
- * Verifies the JWT (RS256 signature against the SERVER public key), the
- * credential type, the bearer and the lifetime. Throws with the real reason
- * on any failure. Called before anything is armed onto the NFC stack.
+ * Verifies a parsed payload against the Firestore authority:
+ *  - credential document exists
+ *  - token hash matches (capability, not forgeable without the token)
+ *  - room id matches the claimed room
+ *  - not expired, not revoked
+ * Throws with the real reason on any failure.
  */
-export function verifyRoomKeyCredential(jwt: string): Record<string, any> {
-  if (!jwt || jwt.split('.').length !== 3) {
-    throw new Error('Malformed room key credential');
+export async function verifyRoomKeyPayload(payload: RoomKeyPayload): Promise<void> {
+  if (payload.e < Date.now()) {
+    throw new Error('Room key has expired');
   }
-  const claims = JSON.parse(b64utoutf8(jwt.split('.')[1]));
-  if (!claims || typeof claims !== 'object') {
-    throw new Error('Invalid credential claims');
+  const snap = await getDoc(doc(db, 'room_credentials', payload.b));
+  if (!snap.exists()) {
+    throw new Error('Room key was not issued (unknown booking)');
   }
-  const valid = KJUR.jws.JWS.verify(jwt, SERVER_PUBLIC_KEY_PEM, ['RS256']);
-  if (!valid) {
-    throw new Error('Credential signature is invalid');
+  const cred = snap.data() as any;
+  if (cred.revoked === true) {
+    throw new Error('Room key has been revoked');
   }
-
-  const now = Date.now() / 1000;
-
-  if (claims.type !== 'room_key') {
-    throw new Error('Credential type is not a room key');
+  if (cred.roomId && payload.r && String(cred.roomId) !== String(payload.r)) {
+    throw new Error('Room key does not match this room');
   }
-  if (typeof claims.bookingId !== 'string' || !claims.bookingId) {
-    throw new Error('Credential has no booking reference');
+  const expectedHash = await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    payload.t
+  );
+  if (cred.tokenHash !== expectedHash) {
+    throw new Error('Room key signature is invalid');
   }
-  if (typeof claims.exp !== 'number' || claims.exp < now) {
-    throw new Error('Credential has expired');
+  if (cred.expiresAt && Number(cred.expiresAt) < Date.now()) {
+    throw new Error('Room key has expired');
   }
-  if (claims.iat && claims.iat > now + 60) {
-    throw new Error('Credential not yet valid');
-  }
-  if (auth.currentUser && claims.sub !== auth.currentUser.uid) {
-    throw new Error('Credential was not issued for the signed-in guest');
-  }
-  return claims as Record<string, any>;
-}
-
-export function extractJwtFromUri(uri: string | null | undefined): string | null {
-  if (!uri || !uri.startsWith(ROOM_KEY_URI_PREFIX)) return null;
-  return uri.slice(ROOM_KEY_URI_PREFIX.length);
 }
 
 /**
- * Arms the HCE service with the room-key JWT. Performs the ENTIRE real chain
+ * Arms the HCE service with the room-key URI. Performs the ENTIRE real chain
  * on the device:
- *  1. local verification of the server-issued credential (throws on failure)
+ *  1. local verification of the payload structure
  *  2. native arming of the HCE payload
  *  3. native read-back round-trip confirming the payload actually landed
- *  with no simulation at any step.
  */
-export async function activateRoomKey(jwt: string): Promise<void> {
-  verifyRoomKeyCredential(jwt);
-  const ok = await getBridge().setPayload(jwt);
+export async function activateRoomKey(uri: string): Promise<void> {
+  const payload = parseRoomKeyUri(uri);
+  if (!payload) throw new Error('Malformed room key payload');
+  const ok = await getBridge().setPayload(uri);
   if (!ok) throw new Error('Failed to arm NFC room key');
   const stored = await getBridge().getPayload();
-  if (stored !== jwt) {
+  if (stored !== uri) {
     throw new Error('Failed to confirm the armed payload on the NFC emulator');
   }
 }
@@ -173,42 +169,50 @@ function getUriFromTag(tag: TagEvent): string | null {
 
 /**
  * Starts reader mode and resolves once a room-key tag is tapped and its
- * signed JWT verifies. Rejects with the real error otherwise (bad tag or
- * bad signature). The caller is responsible for a real timeout if wanted.
+ * payload verifies against Firestore. Rejects with the real error otherwise
+ * (bad tag, bad signature, expired/revoked credential, or timeout).
  */
-export async function readRoomKey() {
+export async function readRoomKey(timeoutMs = 45000): Promise<{ payload: RoomKeyPayload }> {
   await NfcManager.start();
-  const result = await new Promise<any>((resolve, reject) => {
+  const result = await new Promise<{ payload: RoomKeyPayload }>((resolve, reject) => {
     let done = false;
-    const finish = (err: Error | null, val?: unknown) => {
+    const finish = (err: Error | null, val?: { payload: RoomKeyPayload }) => {
       if (done) return;
       done = true;
+      clearTimeout(timer);
       NfcManager.setEventListener(NfcEvents.DiscoverTag, null);
+      // unregisterTagEvent disables reader mode; there is no stop() in v3
       NfcManager.unregisterTagEvent().catch(() => {});
-      (NfcManager as any).stop().catch(() => {});
       if (err) reject(err);
-      else resolve(val);
+      else resolve(val!);
     };
 
+    const timer = setTimeout(() => {
+      finish(new Error('Timed out waiting for a room key tag'));
+    }, timeoutMs);
+
     NfcManager.setEventListener(NfcEvents.DiscoverTag, (tag: TagEvent) => {
-      try {
-        const uri = getUriFromTag(tag);
-        const jwt = extractJwtFromUri(uri);
-        if (!jwt) {
-          finish(new Error('Tag does not contain a room key'));
-          return;
+      (async () => {
+        try {
+          const uri = getUriFromTag(tag);
+          const payload = parseRoomKeyUri(uri);
+          if (!payload) {
+            finish(new Error('Tag does not contain a room key'));
+            return;
+          }
+          await verifyRoomKeyPayload(payload);
+          finish(null, { payload });
+        } catch (e) {
+          finish(e as Error);
         }
-        const claims = verifyRoomKeyCredential(jwt);
-        finish(null, { jwt, claims });
-      } catch (e) {
-        finish(e as Error);
-      }
+      })();
     });
 
     NfcManager.registerTagEvent({
       isReaderModeEnabled: true,
-      readerModeFlags:
-        NfcAdapter.FLAG_READER_NFC_A | NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK,
+      // No SKIP_NDEF_CHECK: the system must run full NDEF discovery so the
+      // emulated Type-4 tag is parsed and ndefMessage is populated.
+      readerModeFlags: NfcAdapter.FLAG_READER_NFC_A,
     }).catch((e: any) => finish(e instanceof Error ? e : new Error(String(e))));
   });
   return result;
@@ -218,7 +222,6 @@ export async function stopRoomKeyReader(): Promise<void> {
   try {
     NfcManager.setEventListener(NfcEvents.DiscoverTag, null);
     await NfcManager.unregisterTagEvent();
-    await (NfcManager as any).stop();
   } catch {
     // ignore teardown errors
   }

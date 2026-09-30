@@ -16,7 +16,7 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
-import { auth, db, listenForNotifications, markNotificationRead } from '../../services/firebase-services';
+import { auth, db, listenForNotifications, markNotificationRead, deriveBookingPaymentState } from '../../services/firebase-services';
 import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { getTheme } from '@/constants/theme';
 import { useTranslation } from '@/i18n/hooks';
@@ -255,7 +255,17 @@ export default function GuestPortal() {
     { title: 'My Orders', sub: 'Track Room Service & Spa', icon: 'receipt', color: '#f43f5e', route: '/(guest)/my-orders', locked: isVisitor },
     { title: 'Local Tours', sub: 'Guided Island Excursions', icon: 'boat', color: '#14b8a6', route: '/(guest)/tours', locked: false },
     { title: 'Live Complaint', sub: 'Maintenance & Service Requests', icon: 'warning', color: '#ef4444', route: '/(guest)/live-complaint', locked: isVisitor },
+    { title: 'Leave Review', sub: 'Rate Your Stay & Events', icon: 'star', color: '#f59e0b', route: '/(guest)/leave-review', locked: false },
   ];
+
+  // Increment 2 (UC37): NPO card only for linked NPO representatives —
+  // provisioned as users/{email} { role: 'npo_rep', npoId } on UC34 approval.
+  const profileAny = profile as any;
+  if (profileAny?.role === 'npo_rep' || profileAny?.npoId) {
+    featuresGrid.push(
+      { title: 'NPO Donations', sub: 'Claim allocated food batches', icon: 'gift', color: '#16a34a', route: '/(npo)/allocations', locked: false },
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -423,6 +433,42 @@ export default function GuestPortal() {
                       <Text style={styles.myBookingMeta}>
                         <Ionicons name="people-outline" size={12} color="#94a3b8" /> Guests: {guestNum}
                       </Text>
+
+                      {b.type === 'Event' && b.venueName && (
+                        (() => {
+                          const m = deriveBookingPaymentState(b);
+                          const nothingPaid = m.combinedTotal > 0 && m.balanceDue === m.combinedTotal;
+                          return (
+                            <View style={{ marginTop: 8, gap: 6 }}>
+                              <Text style={{ fontSize: 11, color: '#64748b' }}>
+                                Total <Text style={{ fontWeight: '800', color: '#0f172a' }}>R {m.combinedTotal.toLocaleString()}</Text>
+                                {' · '}Paid <Text style={{ fontWeight: '800', color: '#0f172a' }}>R {m.amountPaid.toLocaleString()}</Text>
+                                {' · '}Balance <Text style={{ fontWeight: '800', color: m.balanceDue > 0 ? '#d97706' : '#16a34a' }}>R {m.balanceDue.toLocaleString()}</Text>
+                              </Text>
+                              <View style={{ flexDirection: 'row', gap: 8 }}>
+                                {m.balanceDue > 0 && (
+                                  <TouchableOpacity
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: nothingPaid ? '#16a34a' : '#d97706', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}
+                                    onPress={() => router.push({ pathname: '/payment', params: { bookingId: b.id, payBalance: nothingPaid ? '' : '1' } } as any)}
+                                  >
+                                    <Ionicons name="card-outline" size={13} color="#fff" />
+                                    <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>{nothingPaid ? 'Pay Deposit' : 'Pay Balance'}</Text>
+                                  </TouchableOpacity>
+                                )}
+                                {m.cateringTotal === 0 && (
+                                  <TouchableOpacity
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#fee2e2', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}
+                                    onPress={() => router.push({ pathname: '/event-catering', params: { bookingId: b.id, expectedAttendance: String(guestNum || 30) } } as any)}
+                                  >
+                                    <Ionicons name="restaurant" size={13} color="#dc2626" />
+                                    <Text style={{ color: '#dc2626', fontSize: 11, fontWeight: '800' }}>Add Catering</Text>
+                                  </TouchableOpacity>
+                                )}
+                              </View>
+                            </View>
+                          );
+                        })()
+                      )}
                     </TouchableOpacity>
                   );
                 })}

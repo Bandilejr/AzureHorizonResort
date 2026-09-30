@@ -12,7 +12,7 @@ export default function StaffClockInOutScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Clock In / Out</Text>
-        <Text style={styles.subtitle}>📍 DUT Ritson Campus • 400m geofence • GPS-verified shifts</Text>
+        <Text style={styles.subtitle}>GPS-verified shifts • identity = signed-in account</Text>
       </View>
       <ClockInPanel />
     </View>

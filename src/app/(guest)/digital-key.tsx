@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { auth, generateRoomCredential } from '@/services/firebase-services';
+import {
+  checkRoomKeyEnvironment,
+  activateRoomKey,
+  readRoomKey,
+  isRoomKeyActive,
+} from '@/services/room-key-nfc';
 import { getTheme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
@@ -26,17 +32,6 @@ const getLocalAuth = async () => {
     return LocalAuth;
   } catch {
     console.warn('expo-local-authentication not available');
-    return null;
-  }
-};
-
-const getNfcManager = async () => {
-  if (Platform.OS === 'web') return null;
-  try {
-    const NfcManager = (await import('react-native-nfc-manager')).default;
-    return NfcManager;
-  } catch {
-    console.warn('react-native-nfc-manager not available');
     return null;
   }
 };
@@ -54,15 +49,17 @@ export default function DigitalKeyScreen() {
   const checkOut = (params.checkOut as string) || 'In 3 Days';
 
   const [loading, setLoading] = useState(false);
-  const [nfcActive, setNfcActive] = useState(false);
-  const [unlocking, setUnlocking] = useState(false);
+  const [keyActive, setKeyActive] = useState(false);
+  const [readingTag, setReadingTag] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
+  const [bridgeAvailable, setBridgeAvailable] = useState(false);
 
   // Hardware status state
   const [biometricSupported, setBiometricSupported] = useState(false);
   const [biometricEnrolled, setBiometricEnrolled] = useState(false);
   const [nfcSupported, setNfcSupported] = useState(false);
   const [nfcEnabled, setNfcEnabled] = useState(false);
+  const nfcUsable = nfcSupported && nfcEnabled;
 
   // Custom alert state
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({
@@ -94,37 +91,45 @@ export default function DigitalKeyScreen() {
         }
       }
 
-      // Check NFC Hardware
-      const NfcManager = await getNfcManager();
-      if (NfcManager) {
-        try {
-          const supported = await NfcManager.isSupported();
-          setNfcSupported(supported);
-          if (supported) {
-            await NfcManager.start();
-            const enabled = await NfcManager.isEnabled();
-            setNfcEnabled(enabled);
-          }
-        } catch (err) {
-          console.warn('NFC hardware check failed:', err);
-        }
+      // Check NFC Hardware + HCE bridge
+      const env = await checkRoomKeyEnvironment();
+      setNfcSupported(env.nfcHardware);
+      setNfcEnabled(env.nfcEnabled);
+      setBridgeAvailable(env.bridgeAvailable);
+
+      // If a key is already armed on the HCE stack, reflect it
+      if (env.bridgeAvailable) {
+        const armed = await isRoomKeyActive();
+        setKeyActive(armed);
       }
     } catch {
-      // Hardware capability check failed — app continues in demo mode
+      // Hardware capability check failed — status chips will show it
     }
   };
 
-  const loadCredential = async () => {
+  const issueAndArmKey = async () => {
     setLoading(true);
     try {
-      await generateRoomCredential({
+      const { data } = await generateRoomCredential({
         roomId: bookingId,
         checkInDate: checkIn,
         checkOutDate: checkOut,
         bookingId,
       });
+      await activateRoomKey(data.credential);
+      setKeyActive(true);
+      showAlert({
+        title: 'Digital Key Active',
+        message: 'Your room key is now on the NFC chip. Hold the phone to the door reader (or another phone running the verifier) to open your suite.',
+        type: 'success',
+      });
     } catch (error: any) {
-      console.warn('Failed to load credential:', error);
+      console.warn('Failed to arm room key:', error);
+      showAlert({
+        title: 'Key Activation Failed',
+        message: error?.message || 'The room key could not be armed. Make sure NFC is enabled.',
+        type: 'error',
+      });
     } finally {
       setLoading(false);
     }
@@ -132,12 +137,14 @@ export default function DigitalKeyScreen() {
 
   useEffect(() => {
     checkHardwareCapabilities();
-    loadCredential();
+    return () => {
+      // Do not disarm here — the key should survive navigating away.
+    };
   }, []);
 
-  // Radar Pulse Animation loop when NFC is active or unlocking
+  // Radar Pulse Animation loop while reading a tag or unlocked
   useEffect(() => {
-    if (nfcActive || unlocking) {
+    if (readingTag || unlocked) {
       Animated.loop(
         Animated.parallel([
           Animated.sequence([
@@ -171,9 +178,9 @@ export default function DigitalKeyScreen() {
       pulseAnim1.setValue(1);
       pulseOpacity1.setValue(0.6);
     }
-  }, [nfcActive, unlocking]);
+  }, [readingTag, unlocked]);
 
-  // Biometric authentication trigger
+  // Biometric authentication trigger (real - uses the OS biometric prompt)
   const authenticateBiometrics = async (): Promise<boolean> => {
     const LocalAuth = await getLocalAuth();
     if (!LocalAuth || !biometricSupported) {
@@ -191,7 +198,7 @@ export default function DigitalKeyScreen() {
       const label = hasFingerprint && hasFacial ? 'Fingerprint or Face Unlock' : hasFingerprint ? 'Fingerprint' : hasFacial ? 'Facial Recognition' : 'Biometric Security';
 
       const result = await LocalAuth.authenticateAsync({
-        promptMessage: `Scan ${label} to Unlock Suite`,
+        promptMessage: `Scan ${label} to Arm Your Key`,
         fallbackLabel: 'Use Device Passcode',
         cancelLabel: 'Cancel',
         disableDeviceFallback: false,
@@ -204,88 +211,102 @@ export default function DigitalKeyScreen() {
     }
   };
 
-  // Dual unlock handler: On-screen icon or NFC reader proximity
-  const handleUnlockDoor = async (mode: 'tap' | 'nfc') => {
+  // Biometric gate before arming the key on the NFC chip
+  const handleActivateKey = async () => {
     if (unlocked) {
       showAlert({
-        title: 'Door Already Unlocked',
-        message: 'Welcome inside your Azure Horizon suite!',
+        title: 'Suite Door Unlocked',
+        message: 'Your suite is already open. Push the door to enter.',
         type: 'success',
       });
       return;
     }
 
-    // NFC mode unlocks directly without requiring biometric prerequisite
-    if (mode === 'tap') {
-      const authenticated = await authenticateBiometrics();
-      if (!authenticated) return;
-    }
-
-    setUnlocking(true);
-    setNfcActive(true);
-
-    if (mode === 'nfc') {
-      const NfcManager = await getNfcManager();
-      if (!nfcSupported || !nfcEnabled || !NfcManager) {
-        showAlert({
-          title: 'NFC Hardware Unavailable',
-          message: 'NFC hardware is not present or disabled on this device. Please tap the Key Icon above to unlock your door directly.',
-          type: 'warning',
-        });
-        setUnlocking(false);
-        setNfcActive(false);
-        return;
-      }
-
-      try {
-        await NfcManager.registerTagEvent();
-        showAlert({
-          title: 'NFC Reader Listening...',
-          message: 'Hold phone near door lock or tap another NFC phone/tag to transmit digital key.',
-          type: 'nfc',
-        });
-
-        // Real NFC Tag Discovered Event
-        NfcManager.setEventListener(((NfcManager as any).EVENT_TAG_DISCOVERED || 'NfcManagerDiscoverTag') as any, async (tag: any) => {
-          console.log('Real NFC Tag Discovered:', tag);
-          try {
-            await NfcManager.unregisterTagEvent();
-          } catch {}
-          setUnlocking(false);
-          setNfcActive(false);
-          setUnlocked(true);
-
-          showAlert({
-            title: '🔓 Suite Door Unlocked!',
-            message: `NFC signal verified from door reader. Welcome to ${roomName}!`,
-            type: 'success',
-          });
-
-          setTimeout(() => setUnlocked(false), 15000);
-        });
-
-        return;
-      } catch (ex: any) {
-        console.warn('NFC registration error:', ex);
-      }
-    }
-
-    // Direct Tap-to-Unlock
-    setTimeout(() => {
-      setUnlocking(false);
-      setNfcActive(false);
-      setUnlocked(true);
-
+    if (keyActive && nfcSupported && nfcEnabled) {
       showAlert({
-        title: '🔓 Suite Door Unlocked!',
-        message: `Welcome to ${roomName}! The door lock mechanism is unlatched.`,
+        title: 'Key Already Active',
+        message: 'Your digital key is armed on the NFC chip. Hold the phone to the door reader to open your suite.',
         type: 'success',
       });
+      return;
+    }
 
-      setTimeout(() => {
-        setUnlocked(false);
-      }, 15000);
-    }, 1500);
+    const authenticated = await authenticateBiometrics();
+    if (!authenticated) return;
+
+    if (!bridgeAvailable || !nfcSupported || !nfcEnabled) {
+      // No NFC hardware (or NFC disabled) — unlock via Firestore-verified key
+      await softUnlockWithoutNfc();
+      return;
+    }
+
+    await issueAndArmKey();
+  };
+
+  // NFC-free unlock: issue/refresh the room credential in Firestore (the door
+  // authority) and open the suite directly. Works on phones without NFC.
+  const softUnlockWithoutNfc = async () => {
+    setLoading(true);
+    try {
+      await generateRoomCredential({
+        roomId: bookingId,
+        checkInDate: checkIn,
+        checkOutDate: checkOut,
+        bookingId,
+      });
+      setKeyActive(true);
+      setUnlocked(true);
+      showAlert({
+        title: 'Suite Door Unlocked!',
+        message: `Verified room key for ${roomName} against Firestore. No NFC required — push the door to enter.`,
+        type: 'success',
+      });
+      setTimeout(() => setUnlocked(false), 15000);
+    } catch (error: any) {
+      console.warn('NFC-free unlock failed:', error);
+      showAlert({
+        title: 'Access Denied',
+        message: error?.message || 'The room key could not be verified. Check your stay details.',
+        type: 'error',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Reader role: hold the phone near the door reader / another phone
+  // carrying an armed key. Real NDEF read + Firestore verification.
+  const handleReadKey = async () => {
+    if (readingTag) return;
+    if (!nfcSupported || !nfcEnabled) {
+      showAlert({
+        title: 'NFC Unavailable',
+        message: 'NFC hardware is not present or disabled on this device.',
+        type: 'warning',
+      });
+      return;
+    }
+
+    setReadingTag(true);
+    setUnlocked(false);
+    try {
+      const { payload } = await readRoomKey(45000);
+      setUnlocked(true);
+      showAlert({
+        title: 'Suite Door Unlocked!',
+        message: `Verified room key for ${payload.r}. Welcome to ${roomName}!`,
+        type: 'success',
+      });
+      setTimeout(() => setUnlocked(false), 15000);
+    } catch (error: any) {
+      showAlert({
+        title: 'Access Denied',
+        message: error?.message || 'The tag could not be verified as a room key.',
+        type: 'error',
+      });
+    } finally {
+      setReadingTag(false);
+    }
   };
 
   const { profile } = useAuth();
@@ -358,23 +379,23 @@ export default function DigitalKeyScreen() {
                     {
                       transform: [{ scale: pulseAnim1 }],
                       opacity: pulseOpacity1,
-                      borderColor: unlocked ? '#16a34a' : nfcActive ? '#c9a227' : 'rgba(255,255,255,0.2)',
+                      borderColor: unlocked ? '#16a34a' : readingTag ? '#c9a227' : keyActive ? '#16a34a' : 'rgba(255,255,255,0.2)',
                     },
                   ]}
                 />
                 <TouchableOpacity
                   style={[
                     styles.nfcRing,
-                    unlocked && styles.nfcRingUnlocked,
-                    (nfcActive || unlocking) && styles.nfcRingActive,
+                    (unlocked || keyActive) && styles.nfcRingUnlocked,
+                    readingTag && styles.nfcRingActive,
                   ]}
-                  onPress={() => handleUnlockDoor('tap')}
+                  onPress={handleActivateKey}
                   activeOpacity={0.8}
                 >
                   <Ionicons
-                    name={unlocked ? 'key-sharp' : unlocking ? 'wifi-sharp' : 'lock-closed-sharp'}
+                    name={unlocked ? 'key-sharp' : readingTag ? 'wifi-sharp' : keyActive ? 'key-sharp' : 'lock-closed-sharp'}
                     size={46}
-                    color={unlocked ? '#16a34a' : nfcActive ? '#c9a227' : '#ffffff'}
+                    color={unlocked ? '#16a34a' : readingTag ? '#c9a227' : keyActive ? '#16a34a' : '#ffffff'}
                   />
                 </TouchableOpacity>
               </View>
@@ -382,14 +403,26 @@ export default function DigitalKeyScreen() {
               <Text style={styles.nfcText}>
                 {unlocked
                   ? 'SUITE UNLOCKED ✓'
-                  : unlocking
-                  ? 'Connecting to Door Lock...'
-                  : 'Tap Door Icon to Unlock'}
+                  : readingTag
+                  ? 'Listening for Room Key Tag...'
+                  : keyActive
+                  ? nfcUsable
+                    ? 'KEY ARMED — HOLD PHONE TO READER'
+                    : 'KEY VERIFIED — TAP TO OPEN DOOR'
+                  : nfcUsable
+                  ? 'Activate Digital Key'
+                  : 'Tap to Unlock Suite Door'}
               </Text>
               <Text style={styles.nfcSubtext}>
                 {unlocked
-                  ? 'Handle unlatched. Push door to enter.'
-                  : 'Secured with encrypted RS256 token & biometrics'}
+                  ? nfcUsable
+                    ? 'Verified via NFC + Firestore. Push door to enter.'
+                    : 'Verified via Firestore. Push door to enter.'
+                  : readingTag
+                  ? 'Tap a phone carrying an armed key against this phone'
+                  : nfcUsable
+                  ? 'Real NFC Type-4 emulation · token verified against Firestore'
+                  : 'NFC not available — tap to unlock with your Firestore-verified room key'}
               </Text>
 
               {/* Hardware Status Chips */}
@@ -418,6 +451,33 @@ export default function DigitalKeyScreen() {
                 <View
                   style={[
                     styles.hardwareChip,
+                    keyActive ? styles.chipSuccess : styles.chipWarning,
+                  ]}
+                >
+                  <Ionicons
+                    name="key"
+                    size={14}
+                    color={keyActive ? '#16a34a' : '#d97706'}
+                  />
+                  <Text
+                    style={[
+                      styles.chipText,
+                      { color: keyActive ? '#16a34a' : '#d97706' },
+                    ]}
+                  >
+                    {keyActive
+                      ? nfcUsable
+                        ? 'Key Armed on NFC'
+                        : 'Key Verified in Firestore'
+                      : bridgeAvailable
+                      ? 'Key Not Armed'
+                      : 'Touch Unlock Only'}
+                  </Text>
+                </View>
+
+                <View
+                  style={[
+                    styles.hardwareChip,
                     nfcSupported ? styles.chipSuccess : styles.chipWarning,
                   ]}
                 >
@@ -432,7 +492,7 @@ export default function DigitalKeyScreen() {
                       { color: nfcSupported ? '#16a34a' : '#d97706' },
                     ]}
                   >
-                    {nfcSupported ? 'NFC Reader Ready' : 'NFC Inactive'}
+                    {nfcSupported ? (nfcEnabled ? 'NFC Ready' : 'NFC Disabled') : 'NFC Inactive'}
                   </Text>
                 </View>
               </View>
@@ -441,36 +501,58 @@ export default function DigitalKeyScreen() {
               <View style={styles.buttonStack}>
                 <TouchableOpacity
                   style={[styles.unlockBtn, unlocked && styles.unlockBtnSuccess]}
-                  onPress={() => handleUnlockDoor('tap')}
-                  disabled={unlocking}
+                  onPress={handleActivateKey}
+                  disabled={readingTag}
                   activeOpacity={0.8}
                 >
-                  {unlocking ? (
+                  {loading ? (
                     <ActivityIndicator color="#0f172a" />
                   ) : (
                     <>
                       <Ionicons
-                        name={unlocked ? 'checkmark-circle' : 'finger-print'}
+                        name={keyActive ? 'checkmark-circle' : 'finger-print'}
                         size={22}
                         color="#0f172a"
                         style={{ marginRight: 8 }}
                       />
                       <Text style={styles.unlockBtnText}>
-                        {unlocked ? 'Unlocked — Push Door' : 'Tap to Unlock with Fingerprint'}
+                        {keyActive
+                          ? nfcUsable
+                            ? 'Key Active — Hold to Door Reader'
+                            : 'Tap to Open Suite Door'
+                          : nfcUsable
+                          ? 'Activate Digital Key'
+                          : 'Unlock Suite Door (No NFC)'}
                       </Text>
                     </>
                   )}
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.nfcScanBtn}
-                  onPress={() => handleUnlockDoor('nfc')}
-                  disabled={unlocking}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="wifi-outline" size={20} color="#c9a227" style={{ marginRight: 8 }} />
-                  <Text style={styles.nfcScanBtnText}>Hold Phone Near NFC Reader</Text>
-                </TouchableOpacity>
+                {nfcUsable && (
+                  <TouchableOpacity
+                    style={styles.nfcScanBtn}
+                    onPress={handleReadKey}
+                    disabled={readingTag}
+                    activeOpacity={0.8}
+                  >
+                    {readingTag ? (
+                      <ActivityIndicator color="#c9a227" style={{ marginRight: 8 }} />
+                    ) : (
+                      <Ionicons name="wifi-outline" size={20} color="#c9a227" style={{ marginRight: 8 }} />
+                    )}
+                    <Text style={styles.nfcScanBtnText}>
+                      {readingTag ? 'Listening — Tap Key Phone to this Phone...' : 'Hold Phone Near NFC Reader'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {!nfcUsable && (
+                  <View style={styles.noNfcNote}>
+                    <Ionicons name="phone-portrait-outline" size={16} color="#94a3b8" style={{ marginRight: 8 }} />
+                    <Text style={styles.noNfcNoteText}>
+                      This device has no NFC — tap the ring to verify your key and open the door.
+                    </Text>
+                  </View>
+                )}
               </View>
             </View>
           )}
@@ -479,7 +561,7 @@ export default function DigitalKeyScreen() {
           <View style={styles.securityInfo}>
             <Ionicons name="shield-checkmark-sharp" size={18} color="#16a34a" style={{ marginRight: 8 }} />
             <Text style={styles.securityText}>
-              256-bit encrypted credential token · Auto-expires at checkout
+              Random 192-bit token · SHA-256 verified against Firestore · Auto-expires after 12 hours
             </Text>
           </View>
         </View>
@@ -619,6 +701,16 @@ const createStyles = (theme: any) =>
       backgroundColor: 'rgba(201,162,39,0.05)',
     },
     nfcScanBtnText: { color: '#c9a227', fontWeight: '700', fontSize: 14 },
+    noNfcNote: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      borderRadius: 12,
+      backgroundColor: 'rgba(148,163,184,0.12)',
+    },
+    noNfcNoteText: { color: '#94a3b8', fontSize: 12, fontWeight: '600', flex: 1, lineHeight: 17 },
     
     securityInfo: {
       flexDirection: 'row',

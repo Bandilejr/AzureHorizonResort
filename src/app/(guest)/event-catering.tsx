@@ -17,7 +17,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { getTheme } from '@/constants/theme';
-import { auth, db, saveEventCatering } from '@/services/firebase-services';
+import { auth, db, saveEventCatering, getCateringForBooking, updateEventBookingCateringTotals, deriveBookingPaymentState } from '@/services/firebase-services';
 import { doc, getDoc } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
@@ -187,7 +187,6 @@ const CATERING_OPTIONS: CateringItem[] = [
 
 export default function EventCateringScreen() {
   const params = useLocalSearchParams();
-  const expectedAttendance = Number(params.expectedAttendance) || 30;
   const bookingId = params.bookingId as string;
 
   const colorScheme = useColorScheme();
@@ -196,7 +195,8 @@ export default function EventCateringScreen() {
 
   const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
-  
+  const [isEditingExisting, setIsEditingExisting] = useState(false);
+
   // Modal States
   const [activeGalleryImages, setActiveGalleryImages] = useState<any[] | null>(null);
   const [activeInfoItem, setActiveInfoItem] = useState<CateringItem | null>(null);
@@ -207,6 +207,11 @@ export default function EventCateringScreen() {
       ...prev,
       [id]: !prev[id]
     }));
+  };
+
+  const [expectedAttendance, setExpectedAttendance] = useState(30);
+  const adjustAttendance = (delta: number) => {
+    setExpectedAttendance(prev => Math.max(10, Math.min(1000, prev + delta)));
   };
 
   const calculateTotal = () => {
@@ -232,7 +237,7 @@ export default function EventCateringScreen() {
         return;
       }
       if (!bookingId || bookingId === 'general') {
-        setBookingError('No valid venue booking linked. Please reserve an event venue space first (UC23).');
+        setBookingError('No valid venue booking linked. Please reserve an event venue space first.');
         setLoadingBooking(false);
         return;
       }
@@ -246,10 +251,31 @@ export default function EventCateringScreen() {
           const data = snap.data();
           if (data.guestId !== user.uid) {
             setBookingError('Unauthorized: You can only add catering to your own event booking.');
-          } else if (data.status !== 'Deposit Paid' && data.status !== 'confirmed') {
-            setBookingError(`Catering Locked: Linked venue booking status is "${data.status}". Venue deposit must be paid first (UC23).`);
           } else {
+            // Catering lock: only allowed while the event is still upcoming.
+            const day = String(data.eventDateStr || data.date || data.eventDate || '').slice(0, 10);
+            if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+              const endOfDay = new Date(`${day}T23:59:59`);
+              if (endOfDay.getTime() < Date.now()) {
+                setBookingError('This event has already ended — catering can no longer be arranged.');
+                setLoadingBooking(false);
+                return;
+              }
+            }
             setLinkedBooking(data);
+            if (data.expectedAttendance) setExpectedAttendance(Number(data.expectedAttendance));
+            // Pre-select the existing catering selection so guests can edit it
+            const existing = await getCateringForBooking(bookingId);
+            if (existing && Array.isArray(existing.items)) {
+              const ids = existing.items.map((i: any) => i.id);
+              setSelectedItems(prev => {
+                const next = { ...prev };
+                ids.forEach(id => { next[id] = true; });
+                return next;
+              });
+              if (existing.expectedAttendance) setExpectedAttendance(Number(existing.expectedAttendance));
+              setIsEditingExisting(true);
+            }
           }
         }
       } catch (err: any) {
@@ -262,7 +288,7 @@ export default function EventCateringScreen() {
     validateBooking();
   }, [bookingId]);
 
-  const handleFinalize = async () => {
+  const handleSaveSelection = async () => {
     if (bookingError) {
       Alert.alert('Booking Error', bookingError);
       return;
@@ -282,9 +308,11 @@ export default function EventCateringScreen() {
         setSubmitting(false);
         return;
       }
+
+      const cateringTotal = calculateTotal();
       await saveEventCatering({
         guestId,
-        bookingId: bookingId || 'general',
+        bookingId,
         expectedAttendance,
         items: selected.map((item) => ({
           id: item.id,
@@ -293,12 +321,65 @@ export default function EventCateringScreen() {
           quantity: Math.max(expectedAttendance, item.minPeople),
           total: item.pricePerPerson * Math.max(expectedAttendance, item.minPeople),
         })),
-        totalAmount: calculateTotal(),
+        totalAmount: cateringTotal,
       });
+
+      // Keep the booking totals (combined total, deposit, balance) in sync.
+      const totals = await updateEventBookingCateringTotals(bookingId, {
+        expectedAttendance,
+        cateringTotal,
+      });
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Catering Booked', 'Your catering selection has been saved. You can view it under My Activity.', [
-        { text: 'OK', onPress: () => router.replace('/guest-portal') },
-      ]);
+      setIsEditingExisting(true);
+
+      const venueCost = totals.combinedTotal - cateringTotal;
+      const payLater = (note?: string) =>
+        Alert.alert(
+          'Catering Saved',
+          `${note || ''}Your catering selection is confirmed and is included in your combined event total.\n\n` +
+          `Venue: R ${venueCost.toLocaleString()}\nCatering: R ${cateringTotal.toLocaleString()}\nCombined: R ${totals.combinedTotal.toLocaleString()}\n` +
+          `Already paid: R ${totals.amountPaid.toLocaleString()}\nBalance due: R ${totals.balanceDue.toLocaleString()}`,
+          [{ text: 'Continue', onPress: () => router.replace('/guest-portal') }]
+        );
+
+      if (totals.balanceDue <= 0) {
+        payLater('Total is fully covered by your previous payments. ');
+        return;
+      }
+
+      if (totals.amountPaid > 0) {
+        Alert.alert(
+          'Catering Saved — Balance Updated',
+          `Your revised combined total is R ${totals.combinedTotal.toLocaleString()}.\n\n` +
+          `Already paid: R ${totals.amountPaid.toLocaleString()}\nNew balance due: R ${totals.balanceDue.toLocaleString()}\n\n` +
+          'Pay the updated balance now, or settle it later from My Activity.',
+          [
+            {
+              text: 'Pay Now',
+              onPress: () =>
+                router.replace({
+                  pathname: '/payment',
+                  params: { bookingId, expectedAttendance: String(expectedAttendance) },
+                } as any),
+            },
+            { text: 'Later', onPress: () => router.replace('/guest-portal') },
+          ]
+        );
+        return;
+      }
+
+      Alert.alert(
+        'Catering Added to Your Event',
+        `Combined event total: R ${totals.combinedTotal.toLocaleString()}\n` +
+        `Deposit (50%): R ${totals.depositRequired.toLocaleString()}\n\n` +
+        'This one payment covers your venue AND catering together.',
+        [
+          { text: 'Pay Deposit Now', onPress: () => router.replace({ pathname: '/payment', params: { bookingId, expectedAttendance: String(expectedAttendance) } } as any) },
+          { text: 'Pay In Full', onPress: () => router.replace({ pathname: '/payment', params: { bookingId, expectedAttendance: String(expectedAttendance), mode: 'full' } } as any) },
+          { text: 'Later', onPress: () => router.replace('/guest-portal') },
+        ]
+      );
     } catch (error) {
       Alert.alert('Error', 'Failed to save catering booking. Please try again.');
     } finally {
@@ -344,14 +425,36 @@ export default function EventCateringScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {isEditingExisting && (
+          <View style={styles.editBanner}>
+            <Ionicons name="create-outline" size={16} color="#c9a227" />
+            <Text style={styles.editBannerText}>
+              You had {`${linkedBooking?.venueName || ''}`.trim() ? `a confirmed selection on ${linkedBooking.venueName}` : 'a confirmed catering selection'}. Adjust it freely — your combined total and balance are recalculated automatically.
+            </Text>
+          </View>
+        )}
+
         <View style={styles.guestCountBadge}>
           <Ionicons name="people" size={20} color={theme.colors.warning} />
-          <Text style={styles.guestCountText}>Catering for {expectedAttendance} Guests</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.guestCountText}>Catering for {expectedAttendance} Guests</Text>
+            <Text style={styles.guestCountSub}>Headcount for your event — pricing updates live</Text>
+          </View>
+          <View style={styles.stepperRow}>
+            <TouchableOpacity style={styles.stepperBtn} onPress={() => adjustAttendance(-10)}>
+              <Ionicons name="remove" size={16} color={theme.colors.warning} />
+            </TouchableOpacity>
+            <Text style={styles.stepperValue}>{expectedAttendance}</Text>
+            <TouchableOpacity style={styles.stepperBtn} onPress={() => adjustAttendance(10)}>
+              <Ionicons name="add" size={16} color={theme.colors.warning} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {CATERING_OPTIONS.map((item) => {
           const isSelected = selectedItems[item.id];
-          const itemTotal = item.pricePerPerson * Math.max(expectedAttendance, item.minPeople);
+          const qty = Math.max(expectedAttendance, item.minPeople);
+          const itemTotal = item.pricePerPerson * qty;
 
           return (
             <View key={item.id} style={[styles.card, isSelected && styles.cardSelected]}>
@@ -401,7 +504,10 @@ export default function EventCateringScreen() {
                 
                 {isSelected && (
                   <View style={styles.selectedFooter}>
-                    <Text style={styles.selectedFooterText}>Item Total:</Text>
+                    <Text style={styles.selectedFooterText}>
+                      R{item.pricePerPerson} × {qty} {qty === 1 ? 'guest' : 'guests'}
+                      {item.minPeople > expectedAttendance ? ` (min ${item.minPeople})` : ''}
+                    </Text>
                     <Text style={styles.selectedFooterPrice}>R {itemTotal.toLocaleString()}</Text>
                   </View>
                 )}
@@ -416,12 +522,15 @@ export default function EventCateringScreen() {
         <View>
           <Text style={styles.bottomTotalLabel}>Catering Total</Text>
           <Text style={styles.bottomTotalValue}>R {calculateTotal().toLocaleString()}</Text>
+          <Text style={styles.bottomTotalSub}>
+            Included in your event total · deposit = 50% of venue + catering
+          </Text>
         </View>
-        <TouchableOpacity style={[styles.checkoutBtn, submitting && { opacity: 0.6 }]} onPress={handleFinalize} disabled={submitting}>
+        <TouchableOpacity style={[styles.checkoutBtn, submitting && { opacity: 0.6 }]} onPress={handleSaveSelection} disabled={submitting}>
           {submitting ? (
             <ActivityIndicator color={theme.colors.textInverse} />
           ) : (
-            <Text style={styles.checkoutBtnText}>Complete Booking</Text>
+            <Text style={styles.checkoutBtnText}>{isEditingExisting ? 'Update Catering' : 'Confirm Catering'}</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -496,8 +605,15 @@ const createStyles = (theme: any) => StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: theme.colors.text },
   scrollContent: { padding: 20, paddingBottom: 100 },
   
-  guestCountBadge: { flexDirection: 'row', backgroundColor: theme.colors.warningLight, padding: 12, borderRadius: 12, alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 20, borderWidth: 1, borderColor: theme.colors.warning },
+  guestCountBadge: { flexDirection: 'row', backgroundColor: theme.colors.warningLight, padding: 12, borderRadius: 12, alignItems: 'center', gap: 8, marginBottom: 20, borderWidth: 1, borderColor: theme.colors.warning },
   guestCountText: { color: theme.colors.warning, fontWeight: 'bold', fontSize: 15 },
+  guestCountSub: { color: theme.colors.warning, fontSize: 11, marginTop: 2, opacity: 0.85 },
+  stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  stepperBtn: { width: 30, height: 30, borderRadius: 8, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.warning, alignItems: 'center', justifyContent: 'center' },
+  stepperValue: { fontSize: 15, fontWeight: '800', color: theme.colors.warning, minWidth: 34, textAlign: 'center' },
+  editBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(201,162,39,0.08)', borderWidth: 1, borderColor: '#c9a227', borderRadius: 12, padding: 10, marginBottom: 14 },
+  editBannerText: { flex: 1, color: theme.colors.textSecondary, fontSize: 11, lineHeight: 15 },
+  bottomTotalSub: { fontSize: 10, color: theme.colors.textMuted, marginTop: 2, maxWidth: 190 },
   
   card: { backgroundColor: theme.colors.surface, borderRadius: 20, overflow: 'hidden', marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3, borderWidth: 2, borderColor: 'transparent' },
   cardSelected: { borderColor: theme.colors.primary },

@@ -276,19 +276,39 @@ export default function EventBookingScreen() {
 
       setShowBookingModal(false);
 
-     // Route to our unified payment screen!
-      router.push({
-        pathname: '/payment',
-        params: { 
-          roomName: selectedVenue.name, 
-          total: selectedVenue.pricePerDay, 
-          depositAmount: depositAmount,
-          checkIn: formatDate(selectedDate), 
-          nights: 1, 
-          bookingId: bookingRef.id,
-          expectedAttendance: expectedAttendance // <--- THIS IS THE MAGIC KEY
-        }
-      } as any);
+      // Booking created → offer the full journey: pay now, select catering first,
+      // or do both later from My Activity.
+      const goPay = () =>
+        router.push({
+          pathname: '/payment',
+          params: {
+            roomName: selectedVenue.name,
+            total: selectedVenue.pricePerDay,
+            depositAmount: depositAmount,
+            checkIn: formatDate(selectedDate),
+            nights: 1,
+            bookingId: bookingRef.id,
+            expectedAttendance: expectedAttendance,
+          },
+        } as any);
+      const goCatering = () =>
+        router.push({
+          pathname: '/event-catering',
+          params: {
+            bookingId: bookingRef.id,
+            expectedAttendance: expectedAttendance,
+          },
+        } as any);
+
+      Alert.alert(
+        'Venue Booking Created',
+        `${selectedVenue.name} is reserved for ${formatDate(selectedDate)}.\n\nYour deposit (50% of the venue) locks in the date. You can add catering first and pay everything in one combined payment — your choice.`,
+        [
+          { text: 'Pay Deposit Now', onPress: goPay },
+          { text: 'Select Catering First', onPress: goCatering },
+          { text: 'Maybe Later', onPress: () => router.replace('/guest-portal'), style: 'cancel' as const },
+        ]
+      );
 
     } catch (err) {
       console.error("Venue Booking error:", err);

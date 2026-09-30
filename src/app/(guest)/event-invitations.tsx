@@ -6,7 +6,7 @@ import { auth, db , generateInvitationQR } from '@/services/firebase-services';
 
 import { sendInviteeQREmail } from '@/services/emailjs-service';
 import { getTheme } from '@/constants/theme';
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import QRCode from 'react-native-qrcode-svg';
 
 export default function EventInvitationsScreen() {
@@ -22,37 +22,47 @@ export default function EventInvitationsScreen() {
   const theme = getTheme(colorScheme as any);
   const styles = createStyles(theme);
 
-  const fetchInvitations = async () => {
-    try {
-      const user = auth.currentUser;
-      if (!user) {
-        Alert.alert('Authentication Required', 'Please sign in to manage event invitations.');
-        router.back();
-        return;
-      }
-      if (!eventId) {
-        Alert.alert('Missing Event ID', 'Invalid event selection.');
-        router.back();
-        return;
-      }
+  // Live subscription: loads invitations on mount and reflects RSVP changes instantly
+  useEffect(() => {
+    let unsub: (() => void) | null = null;
+    const subscribe = async () => {
+      try {
+        const user = auth.currentUser;
+        if (!user) {
+          Alert.alert('Authentication Required', 'Please sign in to manage event invitations.');
+          router.back();
+          return;
+        }
+        if (!eventId) {
+          Alert.alert('Missing Event ID', 'Invalid event selection.');
+          router.back();
+          return;
+        }
 
-      // Security check: verify logged-in user owns this event
-      const eventSnap = await getDoc(doc(db, 'event_bookings', eventId));
-      if (eventSnap.exists() && eventSnap.data().guestId !== user.uid) {
-        Alert.alert('🔒 Unauthorized', 'You do not have permission to view or manage invitations for this event.');
-        router.back();
-        return;
-      }
+        // Security check: verify logged-in user owns this event
+        const eventSnap = await getDoc(doc(db, 'event_bookings', eventId));
+        if (eventSnap.exists() && eventSnap.data().guestId !== user.uid) {
+          Alert.alert('🔒 Unauthorized', 'You do not have permission to view or manage invitations for this event.');
+          router.back();
+          return;
+        }
 
-      const q = query(collection(db, 'event_invitations'), where('eventId', '==', eventId));
-      const snapshot = await getDocs(q);
-      setSentInvitations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    } catch (error) {
-      console.error('Failed to fetch invitations:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+        const q = query(collection(db, 'event_invitations'), where('eventId', '==', eventId));
+        unsub = onSnapshot(q, (snapshot) => {
+          setSentInvitations(snapshot.docs.map(snapDoc => ({ id: snapDoc.id, ...snapDoc.data() })));
+          setLoading(false);
+        }, (error) => {
+          console.error('Failed to load invitations:', error);
+          setLoading(false);
+        });
+      } catch (error) {
+        console.error('Failed to load invitations:', error);
+        setLoading(false);
+      }
+    };
+    subscribe();
+    return () => { if (unsub) unsub(); };
+  }, [eventId]);
 
   const addInvitee = () => {
     setInvitees([...invitees, { email: '', name: '' }]);
@@ -66,6 +76,16 @@ export default function EventInvitationsScreen() {
     setInvitees(invitees.map((inv, i) => i === index ? { ...inv, [field]: value } : inv));
   };
 
+  const sendQrEmail = async (to_email: string, to_name: string, qr_code: string) =>
+    sendInviteeQREmail({
+      to_email,
+      to_name,
+      event_title: 'Resort Gala Event',
+      event_date: new Date().toLocaleDateString(),
+      venue_name: 'Azure Horizon Pavilion',
+      qr_code,
+    });
+
   const sendInvitations = async () => {
     const validInvitees = invitees.filter(i => i.email.trim() && i.name.trim());
     if (validInvitees.length === 0) {
@@ -78,21 +98,27 @@ export default function EventInvitationsScreen() {
       let sentCount = 0;
       let emailFailed = false;
       for (const invitee of validInvitees) {
+        const email = invitee.email.trim().toLowerCase();
+        const existing = sentInvitations.find(
+          (i: any) => String(i.inviteeEmail || '').toLowerCase() === email
+        );
+
+        // Already invited — reuse the existing QR pass instead of creating a duplicate
+        if (existing?.qrCode) {
+          const emailSent = await sendQrEmail(email, invitee.name.trim(), existing.qrCode);
+          if (!emailSent) emailFailed = true;
+          sentCount++;
+          continue;
+        }
+
         const res = await generateInvitationQR({
           eventId,
-          inviteeEmail: invitee.email.trim().toLowerCase(),
+          inviteeEmail: email,
           inviteeName: invitee.name.trim(),
         });
 
         if (res?.data?.qrCode) {
-          const emailSent = await sendInviteeQREmail({
-            to_email: invitee.email.trim().toLowerCase(),
-            to_name: invitee.name.trim(),
-            event_title: 'Resort Gala Event',
-            event_date: new Date().toLocaleDateString(),
-            venue_name: 'Azure Horizon Pavilion',
-            qr_code: res.data.qrCode,
-          });
+          const emailSent = await sendQrEmail(email, invitee.name.trim(), res.data.qrCode);
           if (!emailSent) {
             emailFailed = true;
           }
@@ -105,7 +131,6 @@ export default function EventInvitationsScreen() {
         Alert.alert('Success', `${sentCount} invitation(s) sent & QR Pass emails dispatched!`);
       }
       setInvitees([{ email: '', name: '' }]);
-      await fetchInvitations();
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to send invitations');
     } finally {
@@ -113,9 +138,33 @@ export default function EventInvitationsScreen() {
     }
   };
 
-  const invitedCount = sentInvitations.filter(i => i.rsvpStatus === 'invited' || !i.rsvpStatus).length;
-  const acceptedCount = sentInvitations.filter(i => i.rsvpStatus === 'accepted' || i.status === 'checked_in').length;
-  const declinedCount = sentInvitations.filter(i => i.rsvpStatus === 'declined').length;
+  const resendPass = async (inv: any) => {
+    if (!inv?.qrCode) {
+      Alert.alert('Error', 'No QR pass available for this invitee.');
+      return;
+    }
+    try {
+      const sent = await sendQrEmail(inv.inviteeEmail, inv.inviteeName || 'Guest', inv.qrCode);
+      Alert.alert(
+        sent ? 'QR Pass Resent' : 'Email Failed',
+        sent ? `Pass re-sent to ${inv.inviteeEmail}.` : 'EmailJS failed to send. Please check your configuration.'
+      );
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to resend pass.');
+    }
+  };
+
+  // One row per unique invitee email (latest invitation wins)
+  const uniqueInvitations = sentInvitations
+    .slice()
+    .sort((a: any, b: any) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+    .filter((inv: any, i: number, arr: any[]) =>
+      arr.findIndex((x: any) => String(x.inviteeEmail || '').toLowerCase() === String(inv.inviteeEmail || '').toLowerCase()) === i
+    );
+
+  const invitedCount = uniqueInvitations.filter(i => i.rsvpStatus === 'invited' || !i.rsvpStatus).length;
+  const acceptedCount = uniqueInvitations.filter(i => i.rsvpStatus === 'accepted' || i.status === 'checked_in').length;
+  const declinedCount = uniqueInvitations.filter(i => i.rsvpStatus === 'declined').length;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -186,18 +235,38 @@ export default function EventInvitationsScreen() {
         ) : sentInvitations.length === 0 ? (
           <Text style={styles.emptyText}>No invitations sent yet</Text>
         ) : (
-          sentInvitations.map((inv) => (
+          uniqueInvitations.map((inv) => (
             <View key={inv.id} style={styles.invitationCard}>
               <View style={styles.invitationInfo}>
                 <Text style={styles.invitationName}>{inv.inviteeName}</Text>
                 <Text style={styles.invitationEmail}>{inv.inviteeEmail}</Text>
-                <Text style={styles.invitationStatus}>
-                  Status: {inv.status === 'checked_in' ? '🟢 Checked-In' : (inv.rsvpStatus || inv.status || 'Invited')}
-                </Text>
+                {inv.status === 'checked_in' ? (
+                  <View style={[styles.rsvpBadge, { backgroundColor: '#dcfce7' }]}>
+                    <Text style={[styles.rsvpBadgeText, { color: '#16a34a' }]}>🟢 Checked-In</Text>
+                  </View>
+                ) : inv.rsvpStatus === 'accepted' ? (
+                  <View style={[styles.rsvpBadge, { backgroundColor: '#dcfce7' }]}>
+                    <Text style={[styles.rsvpBadgeText, { color: '#16a34a' }]}>✅ Accepted</Text>
+                  </View>
+                ) : inv.rsvpStatus === 'declined' ? (
+                  <View style={[styles.rsvpBadge, { backgroundColor: '#fee2e2' }]}>
+                    <Text style={[styles.rsvpBadgeText, { color: '#dc2626' }]}>❌ Declined</Text>
+                  </View>
+                ) : (
+                  <View style={[styles.rsvpBadge, { backgroundColor: '#f1f5f9' }]}>
+                    <Text style={[styles.rsvpBadgeText, { color: '#64748b' }]}>⏳ Invited — Awaiting RSVP</Text>
+                  </View>
+                )}
               </View>
-              <TouchableOpacity style={styles.viewQrBtn} onPress={() => setSelectedQrPass(inv)}>
-                <Text style={styles.viewQrBtnText}>View Pass</Text>
-              </TouchableOpacity>
+              <View style={{ gap: 8 }}>
+                <TouchableOpacity style={styles.resendBtn} onPress={() => resendPass(inv)}>
+                  <Ionicons name="mail-outline" size={16} color={theme.colors.primary} />
+                  <Text style={styles.resendBtnText}>Resend</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.viewQrBtn} onPress={() => setSelectedQrPass(inv)}>
+                  <Text style={styles.viewQrBtnText}>View Pass</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           ))
         )}
@@ -255,7 +324,10 @@ const createStyles = (theme: any) => StyleSheet.create({
   invitationInfo: { flex: 1 },
   invitationName: { fontSize: 16, fontWeight: '600', color: theme.colors.text },
   invitationEmail: { fontSize: 13, color: theme.colors.textMuted, marginTop: 2 },
-  invitationStatus: { fontSize: 12, color: theme.colors.primary, fontWeight: '600', marginTop: 4 },
+  rsvpBadge: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginTop: 6 },
+  rsvpBadgeText: { fontSize: 12, fontWeight: '700' },
   viewQrBtn: { backgroundColor: theme.colors.secondary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
   viewQrBtnText: { color: theme.colors.textInverse, fontWeight: '600' },
+  resendBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, borderWidth: 1, borderColor: theme.colors.primary, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 7 },
+  resendBtnText: { color: theme.colors.primary, fontWeight: '600', fontSize: 13 },
 });

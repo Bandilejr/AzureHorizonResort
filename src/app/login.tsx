@@ -5,6 +5,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import { Ionicons } from '@expo/vector-icons';
 import { loginMobileUser, logoutMobileUser } from '@/services/firebase-services';
+import { homeRouteFor } from '@/utils/role-home';
 import { getTheme } from '@/constants/theme';
 
 const REMEMBERED_CREDENTIALS_KEY = 'azure_remembered_credentials';
@@ -15,13 +16,7 @@ interface RememberedCredentials {
 }
 
 function navigateForRole(router: any, profile: any) {
-  if (profile.role === 'admin') {
-    router.replace('/(admin)/refund-management' as any);
-  } else if (profile.role === 'staff') {
-    router.replace('/(staff)/staff-dashboard' as any);
-  } else {
-    router.replace('/(guest)/guest-portal' as any);
-  }
+  router.replace(homeRouteFor(profile) as any);
 }
 
 export default function LoginScreen() {

@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { CameraView, Camera } from 'expo-camera';
 import { validateLoyaltyQR, redeemVoucherByStaff, awardLoyaltyPoints, auth } from '@/services/firebase-services';
 import { getTheme } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 import { useRouter } from 'expo-router';
 
@@ -20,6 +21,9 @@ export default function LoyaltyScannerScreen() {
   const colorScheme = useColorScheme();
   const theme = getTheme(colorScheme as any);
   const styles = createStyles(theme);
+  const { profile } = useAuth();
+  // Loyalty redemption is hotel-ops (event_manager / admin), not Increment-2 staff UCs.
+  const canScan = profile?.role === 'admin' || profile?.subRole === 'event_manager';
 
   const [hasPermission, setHasPermission] = useState<null | boolean>(null);
   const [scanned, setScanned] = useState(false);
@@ -40,10 +44,6 @@ export default function LoyaltyScannerScreen() {
     setAlertConfig({ ...config, visible: true });
   };
 
-  useEffect(() => {
-    checkEnvironment();
-  }, []);
-
   const checkEnvironment = async () => {
     try {
       const Constants = await import('expo-constants');
@@ -59,6 +59,25 @@ export default function LoyaltyScannerScreen() {
       setHasPermission(false);
     }
   };
+
+  useEffect(() => {
+    if (!canScan) return;
+    checkEnvironment();
+  }, [canScan]);
+
+  if (!canScan) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background, padding: 20, paddingTop: 80 }]}>
+        <Text style={{ fontSize: 22, fontWeight: '800', color: theme.colors.text }}>Loyalty Scanner</Text>
+        <Text style={{ fontSize: 14, color: theme.colors.textMuted, marginTop: 12 }}>
+          Loyalty redemption is for Admin / Event Manager roles. Not part of your staff tools.
+        </Text>
+        <TouchableOpacity style={{ marginTop: 20, alignSelf: 'flex-start' }} onPress={() => router.back()}>
+          <Text style={{ color: theme.colors.primary, fontWeight: '700' }}>Go back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   const handleBarCodeScanned = async ({ data }: { data: string }) => {
     if (scanned || loading) return;

@@ -16,7 +16,8 @@ import {
   serverTimestamp,
   Timestamp,
   setDoc,
-  runTransaction
+  runTransaction,
+  increment
 } from 'firebase/firestore';
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -27,6 +28,7 @@ import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getDatabase, ref as rtdbRef, onValue, off } from 'firebase/database';
 import { getFunctions } from 'firebase/functions';
 import * as Crypto from 'expo-crypto';
+import { RoomKeyPayload, buildRoomKeyUri } from './room-key-payload';
 
 // Paste the ACTUAL string values from your web app's .env file here.
 // Do not use import.meta.env!
@@ -82,7 +84,7 @@ if (__DEV__) {
 // The project runs on the free Spark plan where Cloud Functions cannot be
 // deployed, so every "cloud function" flow is implemented here in the app.
 
-const QR_SIGNING_SECRET = "azure-horizon-demo-signing-secret-2026";
+const QR_SIGNING_SECRET = process.env.EXPO_PUBLIC_QR_SIGNING_SECRET || "azure-horizon-demo-signing-secret-2026";
 
 async function hmacDigest(payload: any): Promise<string> {
   const digest = await Crypto.digestStringAsync(
@@ -113,18 +115,75 @@ function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number)
 
 // --- ROOM CREDENTIALS (Digital Key) ---
 
+/**
+ * Issues a real room-key credential directly in Firestore (Spark-plan
+ * compatible - no Cloud Function involved).
+ *
+ * The booking owner writes a `room_credentials/<bookingId>` document holding
+ * the SHA-256 hash of a random 192-bit token, the room id and an expiry.
+ * The token itself is ONLY returned to this device - it is what gets armed
+ * onto the NFC HCE tag. A reader verifies by hashing the token it reads and
+ * matching it against Firestore, so a captured tag cannot be replayed into
+ * another room or after checkout. Firestore rules gate who may write.
+ */
 export const generateRoomCredential = async (args: {
   roomId: string;
   checkInDate: string;
   checkOutDate: string;
   bookingId: string;
-}): Promise<{ data: { credential: string; expiresIn: number } }> => {
-  await requireAuthUser();
-  const token = `AZURE-KEY-${args.bookingId.slice(-6).toUpperCase()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+}): Promise<{
+  data: {
+    credential: string;
+    expiresIn: number;
+    token: string;
+    bookingId: string;
+    roomId: string;
+  };
+}> => {
+  const user = await requireAuthUser();
+  const { roomId, bookingId } = args;
+
+  const randomBytes = await Crypto.getRandomBytesAsync(24);
+  const token = Array.from(randomBytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  const tokenHash = await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    token
+  );
+  const expiresIn = 12 * 60 * 60; // 12 hours
+  const expiresAt = Date.now() + expiresIn * 1000;
+
+  const payload: RoomKeyPayload = {
+    v: 1,
+    b: bookingId,
+    r: roomId,
+    t: token,
+    e: expiresAt,
+  };
+  const uri = buildRoomKeyUri(payload);
+
+  await setDoc(
+    doc(db, "room_credentials", bookingId),
+    {
+      guestId: user.uid,
+      roomId,
+      bookingId,
+      tokenHash,
+      issuedAt: serverTimestamp(),
+      expiresAt,
+      revoked: false,
+    },
+    { merge: true }
+  );
+
   return {
     data: {
-      credential: token,
-      expiresIn: 12 * 60 * 60,
+      credential: uri,
+      expiresIn,
+      token,
+      bookingId,
+      roomId,
     },
   };
 };
@@ -475,15 +534,18 @@ export const processRefund = async (args: {
 
     // In-app Notification
     if (request.guestId) {
-      await addDoc(collection(db, 'notifications'), {
-        userId: request.guestId,
+        await addDoc(collection(db, 'notifications'), {
+          senderId: auth.currentUser?.uid || null,
+          userId: request.guestId,
         type: 'refund_update',
         title: args.action === 'approve' ? '✅ Refund Approved' : '❌ Refund Request Declined',
         message: args.action === 'approve'
           ? `Your refund request of R ${(request.requestedAmount || 0).toLocaleString()} has been approved and processed.`
           : `Your refund request was declined. Reason: ${args.rejectionReason || 'Policy criteria not met.'}`,
         referenceId: args.refundRequestId,
+        targetRoute: '/(guest)/my-bill',
         read: false,
+        readAt: null,
         createdAt: serverTimestamp(),
       });
     }
@@ -506,6 +568,9 @@ export const recordAttendancePunch = async (args: {
   staffName: string;
   staffRosterId?: string;
   deviceId?: string;
+  worksiteId?: string;
+  geofence?: { lat: number; lng: number; radiusM: number };
+  blockOffsite?: boolean;
   deviceMatchPassed?: boolean;
   isFirstTimeEnrollment?: boolean;
   biometricPassed?: boolean;
@@ -515,7 +580,8 @@ export const recordAttendancePunch = async (args: {
   const user = await requireAuthUser();
   const {
     punchType, lat, lng, accuracyM, staffName,
-    staffRosterId, deviceId, deviceMatchPassed, isFirstTimeEnrollment,
+    staffRosterId, deviceId, worksiteId, geofence, blockOffsite,
+    deviceMatchPassed, isFirstTimeEnrollment,
     biometricPassed, biometricMethod, overallStatus
   } = args;
 
@@ -526,26 +592,49 @@ export const recordAttendancePunch = async (args: {
     throw new Error("Invalid coordinates");
   }
 
-  const userSnap = await getDoc(doc(db, "users", user.email!.toLowerCase().trim()));
+  // Identity: Firebase Auth UID is sole source (no email-key identity).
+  const userSnap = await getDoc(doc(db, "users", user.uid));
   if (!userSnap.exists()) {
     throw new Error("User profile not found");
   }
   const userData = userSnap.data() as any;
-  if (userData.role !== "staff" && userData.role !== "admin") {
+  if (userData.role === 'guest' || userData.role === 'npo_rep' || !userData.role) {
     throw new Error("Only staff members can clock in/out");
   }
-
-  let geofence = DEFAULT_GEOFENCE;
-  const settingsSnap = await getDoc(doc(db, "settings", "attendance_geofence"));
-  if (settingsSnap.exists()) {
-    const s = settingsSnap.data() as any;
-    if (typeof s.lat === "number" && typeof s.lng === "number") {
-      geofence = { lat: s.lat, lng: s.lng, radiusM: Number(s.radiusM) || DEFAULT_GEOFENCE.radiusM };
-    }
+  if (userData.active === false) {
+    throw new Error("Your employee account is inactive. Contact your administrator.");
   }
 
-  const distanceM = Math.round(haversineMeters(lat, lng, geofence.lat, geofence.lng));
-  const withinRadius = distanceM <= geofence.radiusM;
+  let fence = geofence;
+  if (!fence || (typeof fence.lat !== "number" && !worksiteId)) {
+    if (worksiteId) {
+      const wsSnap = await getDoc(doc(db, "worksites", worksiteId));
+      if (wsSnap.exists()) {
+        const w = wsSnap.data() as any;
+        fence = { lat: w.lat, lng: w.lng, radiusM: Number(w.radiusM) || 400 };
+      }
+    }
+  }
+  if (!fence) {
+    const settingsSnap = await getDoc(doc(db, "settings", "attendance_geofence"));
+    if (settingsSnap.exists()) {
+      const s = settingsSnap.data() as any;
+      if (typeof s.lat === "number" && typeof s.lng === "number") {
+        fence = { lat: s.lat, lng: s.lng, radiusM: Number(s.radiusM) || DEFAULT_GEOFENCE.radiusM };
+      }
+    }
+  }
+  if (!fence) {
+    throw new Error("No worksite geofence configured. Contact your administrator.");
+  }
+
+  const distanceM = Math.round(haversineMeters(lat, lng, fence.lat, fence.lng));
+  const withinRadius = distanceM <= fence.radiusM;
+  if (blockOffsite && !withinRadius) {
+    throw new Error(
+      `You are ${distanceM}m from the worksite (max ${fence.radiusM}m). Off-site punches are blocked.`
+    );
+  }
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -575,9 +664,10 @@ export const recordAttendancePunch = async (args: {
     punchType,
     staffUid: user.uid,
     staffRosterId: staffRosterId || null,
-    staffName: staffName || userData.name || userData.displayName || user.uid,
+    staffName: staffName || userData.displayName || userData.name || user.uid,
     deviceId: deviceId || 'device_unknown',
-    deviceMatchPassed: deviceMatchPassed !== undefined ? deviceMatchPassed : true,
+    worksiteId: worksiteId || null,
+    deviceMatchPassed: deviceMatchPassed === true && !!deviceId,
     isFirstTimeEnrollment: !!isFirstTimeEnrollment,
     biometricPassed: !!biometricPassed,
     biometricMethod: biometricMethod || 'none',
@@ -586,7 +676,7 @@ export const recordAttendancePunch = async (args: {
     accuracyM: typeof accuracyM === "number" ? accuracyM : null,
     distanceM,
     withinRadius,
-    overallStatus: overallStatus || (withinRadius ? (punchType === 'in' ? 'clocked-in' : 'clocked-out') : 'flagged'),
+    overallStatus: overallStatus || (withinRadius ? (punchType === 'in' ? 'clocked-in' : 'clocked-out') : 'blocked'),
     source: "staff_mobile",
     timestamp: serverTimestamp(),
     isoTime: new Date().toISOString(),
@@ -745,32 +835,36 @@ export const uploadImage = async (uri: string, pathPrefix: string = 'uploads'): 
     const filename = `${pathPrefix}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
     const storageRef = ref(storage, filename);
 
-    // Try base64 upload via expo-file-system first (most reliable on native RN)
+    // Read the image once as base64 — it doubles as a universal fallback so we
+    // NEVER persist a device-local file:// path that other devices can't load.
+    let base64 = '';
     try {
       const FileSystem = require('expo-file-system');
-      const { uploadString } = require('firebase/storage');
-      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-      if (base64) {
-        try {
-          await uploadString(storageRef, `data:image/jpeg;base64,${base64}`, 'data_url');
-          return await getDownloadURL(storageRef);
-        } catch (stErr: any) {
-          console.warn('Firebase storage uploadString denied or offline, returning data URL:', stErr);
-          return `data:image/jpeg;base64,${base64}`;
-        }
-      }
+      base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
     } catch (fsErr) {
       console.warn('Base64 read failed, trying fetch blob:', fsErr);
     }
 
-    // Standard fetch blob fallback
+    if (base64) {
+      try {
+        const { uploadString } = require('firebase/storage');
+        await uploadString(storageRef, `data:image/jpeg;base64,${base64}`, 'data_url');
+        return await getDownloadURL(storageRef);
+      } catch (stErr: any) {
+        console.warn('Firebase storage uploadString denied or offline, returning data URL:', stErr);
+        return `data:image/jpeg;base64,${base64}`;
+      }
+    }
+
+    // Standard fetch blob fallback (e.g. web where readAsStringAsync may fail)
     try {
       const response = await fetch(uri);
       const blob = await response.blob();
       await uploadBytes(storageRef, blob);
       return await getDownloadURL(storageRef);
     } catch (blobErr: any) {
-      console.warn('Blob upload denied or offline, returning local URI:', blobErr);
+      console.warn('Blob upload denied or offline, returning data URL:', blobErr);
+      if (base64) return `data:image/jpeg;base64,${base64}`;
       return uri;
     }
   } catch (error: any) {
@@ -907,6 +1001,7 @@ export const listenForEventInvitations = (
 export const submitEventFeedback = async (feedbackData: {
   eventId: string;
   guestId: string;
+  guestName?: string;
   ratings: { venue: number; catering: number; staff: number; setup: number };
   comments: string;
 }) => {
@@ -914,6 +1009,25 @@ export const submitEventFeedback = async (feedbackData: {
     ...feedbackData,
     submittedAt: serverTimestamp(),
   });
+
+  const avg = Math.round(
+    (feedbackData.ratings.venue +
+      feedbackData.ratings.catering +
+      feedbackData.ratings.staff +
+      feedbackData.ratings.setup) /
+      4
+  );
+  await addDoc(collection(db, 'reviews'), {
+    guestId: feedbackData.guestId,
+    guestName: feedbackData.guestName || 'Anonymous Guest',
+    category: 'event',
+    rating: Math.min(5, Math.max(1, avg)),
+    comments: feedbackData.comments || `Event feedback (${docRef.id})`,
+    eventId: feedbackData.eventId,
+    helpful: 0,
+    createdAt: new Date().toISOString(),
+  });
+
   return docRef;
 };
 
@@ -1015,13 +1129,16 @@ export const updateLiveComplaintStatus = async (
       };
 
       if (titles[status]) {
-        await addDoc(collection(db, 'notifications'), {
-          userId: complaintData.guestId,
+          await addDoc(collection(db, 'notifications'), {
+            senderId: auth.currentUser?.uid || null,
+            userId: complaintData.guestId,
           type: `complaint_${status}`,
           title: titles[status],
           message: messages[status],
           referenceId: complaintId,
+          targetRoute: '/(guest)/guest-portal',
           read: false,
+          readAt: null,
           createdAt: serverTimestamp(),
         });
       }
@@ -1107,15 +1224,18 @@ export const createEventInspection = async (inspectionData: {
           inspectionData.overallStatus === 'approved' ? '✅' :
           inspectionData.overallStatus === 'needs_attention' ? '⚠️' : '❌';
         const statusLabel = inspectionData.overallStatus.replace('_', ' ');
-        await addDoc(collection(db, 'notifications'), {
-          userId: eventData.guestId,
+          await addDoc(collection(db, 'notifications'), {
+            senderId: auth.currentUser?.uid || null,
+            userId: eventData.guestId,
           type: 'inspection_update',
           title: `${statusEmoji} ${isPre ? 'Pre-Event' : 'Post-Event'} Inspection: ${statusLabel}`,
           message: isPre
             ? `Your event venue has been inspected. Result: ${statusLabel}. Our team will contact you if anything needs attention.`
             : `Post-event inspection for your booking is complete. Result: ${statusLabel}.`,
           referenceId: inspectionData.eventId,
+          targetRoute: '/(guest)/event-booking',
           read: false,
+          readAt: null,
           createdAt: serverTimestamp(),
         });
       }
@@ -1201,13 +1321,16 @@ export const createDamageRecord = async (damageData: {
   // Notify the resident about the damage claim filed against their booking
   if (damageData.guestId) {
     try {
-      await addDoc(collection(db, 'notifications'), {
-        userId: damageData.guestId,
+        await addDoc(collection(db, 'notifications'), {
+          senderId: auth.currentUser?.uid || null,
+          userId: damageData.guestId,
         type: 'damage_record',
         title: '⚠️ Damage Report Filed',
         message: `A damage report has been filed for your event booking. ${damageData.items.length} item(s) recorded. Estimated total: R ${damageData.totalCost.toLocaleString()}. Our team will contact you shortly.`,
         referenceId: docRef.id,
+        targetRoute: '/(guest)/event-booking',
         read: false,
+        readAt: null,
         createdAt: serverTimestamp(),
       });
     } catch (e) {
@@ -1238,7 +1361,7 @@ export const listenForDamageRecords = (
 
 export const updateDamageRecordStatus = async (
   recordId: string,
-  status: 'recorded' | 'in_repair' | 'resolved',
+  status: 'recorded' | 'reported' | 'in_repair' | 'resolved',
   assignedTechnicianId?: string
 ) => {
   const user = auth.currentUser;
@@ -1252,14 +1375,8 @@ export const updateDamageRecordStatus = async (
     ...(status === 'resolved' && { resolvedAt: serverTimestamp() }),
   });
 
-  if (status === 'resolved') {
-    try {
-      const { generateAndSendInvoice } = await import('./invoice-service');
-      await generateAndSendInvoice({ type: 'damage', recordId });
-    } catch (invErr) {
-      console.warn('Atomic damage invoice generation error:', invErr);
-    }
-  }
+  // NOTE: No invoice is generated here anymore. Once a claim is resolved it is
+  // sent to the Admin for adjudication, and the ADMIN issues the guest invoice.
 };
 
 // --- REFUND REQUESTS (UC34 / UC32 / UC33) ---
@@ -1381,15 +1498,18 @@ export const updateRefundRequestStatus = async (
     try {
       const isApproved = status === 'approved';
       const amount = requestData.requestedAmount || 0;
-      await addDoc(collection(db, 'notifications'), {
-        userId: requestData.guestId,
+        await addDoc(collection(db, 'notifications'), {
+          senderId: auth.currentUser?.uid || null,
+          userId: requestData.guestId,
         type: 'refund_update',
         title: isApproved ? '✅ Refund Approved' : '❌ Refund Declined',
         message: isApproved
           ? `Your refund of R ${Number(amount).toLocaleString()} has been approved and is being processed.`
           : `Your refund request was declined. ${rejectionReason ? `Reason: ${rejectionReason}` : 'Please contact reception for more details.'}`,
         referenceId: requestId,
+        targetRoute: '/(guest)/reservations',
         read: false,
+        readAt: null,
         createdAt: serverTimestamp(),
       });
 
@@ -1430,9 +1550,15 @@ export const createNotification = async (notificationData: {
   title: string;
   message: string;
   referenceId?: string;
+  targetRoute?: string;
 }) => {
+  // Sender-attributed (rules require senderId == auth.uid; recipients must be
+  // user-doc ids — never group literals or emails).
+  const senderId = auth.currentUser?.uid || null;
+  if (!senderId) throw new Error('You must be signed in to send notifications.');
   const docRef = await addDoc(collection(db, 'notifications'), {
     ...notificationData,
+    senderId,
     read: false,
     createdAt: serverTimestamp(),
   });
@@ -1441,19 +1567,20 @@ export const createNotification = async (notificationData: {
 
 export const listenForNotifications = (
   userId: string,
-  callback: (notifications: any[]) => void
+  callback: (notifications: any[]) => void,
+  onError?: (e: Error) => void
 ) => {
   const q = query(collection(db, 'notifications'), where('userId', '==', userId));
   const unsubscribe = onSnapshot(q, (snapshot) => {
     const notifications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     callback(notifications);
-  });
+  }, (err) => onError?.(err as Error));
   return unsubscribe;
 };
 
 export const markNotificationRead = async (notificationId: string) => {
   const notifRef = doc(db, 'notifications', notificationId);
-  await updateDoc(notifRef, { read: true });
+  await updateDoc(notifRef, { read: true, readAt: new Date().toISOString() });
 };
 
 export const redeemLoyaltyReward = async (
@@ -1632,11 +1759,14 @@ export const checkAndRefundExpiredVouchers = async (guestId: string) => {
         });
 
         // Add notification
-        await addDoc(collection(db, 'notifications'), {
-          userId: targetUserId,
+          await addDoc(collection(db, 'notifications'), {
+            senderId: auth.currentUser?.uid || null,
+            userId: targetUserId,
           type: 'loyalty_refund',
           title: '🎟️ Voucher Hold Released',
           message: `Your 24h unredeemed voucher for "${vData.rewardTitle}" expired. ${pointsHeld} held points have been released back to your available balance.`,
+          referenceId: vData.id,
+          targetRoute: '/(guest)/loyalty',
           read: false,
           createdAt: serverTimestamp(),
         });
@@ -1650,6 +1780,20 @@ export const checkAndRefundExpiredVouchers = async (guestId: string) => {
 
 // --- GUEST ACTIVITY AGGREGATION (single live source for "My Activity") ---
 
+export type CateringSelection = {
+  id?: string;
+  guestId: string;
+  bookingId: string;
+  expectedAttendance: number;
+  items: { id: string; name: string; pricePerPerson: number; quantity: number; total: number }[];
+  totalAmount: number;
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+// Upsert: a guest has exactly ONE catering selection per event booking.
+// Re-selecting after confirmation updates the existing doc instead of duplicating.
 export const saveEventCatering = async (data: {
   guestId: string;
   bookingId: string;
@@ -1657,15 +1801,130 @@ export const saveEventCatering = async (data: {
   items: { id: string; name: string; pricePerPerson: number; quantity: number; total: number }[];
   totalAmount: number;
 }) => {
-  await addDoc(collection(db, 'event_caterings'), {
+  const existing = await getDocs(
+    query(
+      collection(db, 'event_caterings'),
+      where('bookingId', '==', data.bookingId),
+      where('guestId', '==', data.guestId)
+    )
+  );
+  const payload = {
     guestId: data.guestId,
     bookingId: data.bookingId,
     expectedAttendance: data.expectedAttendance,
     items: data.items,
     totalAmount: data.totalAmount,
     status: 'confirmed',
+    updatedAt: new Date().toISOString(),
+  };
+  if (!existing.empty) {
+    await updateDoc(existing.docs[0].ref, payload);
+    return existing.docs[0].id;
+  }
+  const ref = await addDoc(collection(db, 'event_caterings'), {
+    ...payload,
     createdAt: new Date().toISOString(),
   });
+  return ref.id;
+};
+
+export const getCateringForBooking = async (bookingId: string): Promise<CateringSelection | null> => {
+  const snap = await getDocs(query(collection(db, 'event_caterings'), where('bookingId', '==', bookingId)));
+  if (snap.empty) return null;
+  return { id: snap.docs[0].id, ...(snap.docs[0].data() as CateringSelection) };
+};
+
+// Single source of truth for a booking's money state.
+// Always re-derives from the booking doc + the current catering selection,
+// so My Activity / payment / catering screens can never show stale totals.
+export const deriveBookingPaymentState = (
+  booking: any,
+  cateringSelectionTotal?: number
+) => {
+  const venueCost = Math.max(0, Number(booking.totalAmount || booking.venueCost || 0));
+  const cateringTotal = Math.max(
+    0,
+    Number(booking.cateringTotal || cateringSelectionTotal || 0)
+  );
+  const combinedTotal = venueCost + cateringTotal;
+  const depositRequired = Math.round(combinedTotal / 2);
+  const amountPaid = Math.max(0, Number(booking.amountPaid || booking.paidAmount || 0));
+  const balanceDue = Math.max(0, combinedTotal - amountPaid);
+  const paymentStatus: 'none' | 'deposit_paid' | 'paid_in_full' =
+    amountPaid >= combinedTotal ? 'paid_in_full' : amountPaid >= depositRequired ? 'deposit_paid' : 'none';
+  return {
+    venueCost,
+    cateringTotal,
+    combinedTotal,
+    depositRequired,
+    amountPaid,
+    balanceDue,
+    paymentStatus,
+  };
+};
+
+// Called after a catering selection is saved: keeps booking totals in sync
+// (headcount, combined total, deposit, remaining balance).
+export const updateEventBookingCateringTotals = async (
+  bookingId: string,
+  opts: { expectedAttendance: number; cateringTotal: number }
+) => {
+  const snap = await getDoc(doc(db, 'event_bookings', bookingId));
+  if (!snap.exists()) throw new Error('Booking not found');
+  const b = snap.data() as any;
+  const venueCost = Math.max(0, Number(b.totalAmount || b.venueCost || 0));
+  const combinedTotal = venueCost + Math.max(0, opts.cateringTotal);
+  const depositRequired = Math.round(combinedTotal / 2);
+  const amountPaid = Math.max(0, Number(b.amountPaid || b.paidAmount || 0));
+  const balanceDue = Math.max(0, combinedTotal - amountPaid);
+  const paymentStatus = amountPaid >= combinedTotal ? 'paid_in_full' : amountPaid >= depositRequired ? 'deposit_paid' : 'none';
+  await updateDoc(snap.ref, {
+    expectedAttendance: opts.expectedAttendance,
+    cateringTotal: Math.max(0, opts.cateringTotal),
+    combinedTotal,
+    depositRequired,
+    balanceDue,
+    paymentStatus,
+  });
+  return { combinedTotal, depositRequired, amountPaid, balanceDue, paymentStatus };
+};
+
+// Applied on every successful payment (deposit, balance, or full).
+// amountPaid accumulates; balanceDue/paymentStatus are re-derived and the
+// lifecycle status only ever moves forward (never downgrades an approved venue).
+export const applyEventPayment = async (
+  bookingId: string,
+  amountPaidNow: number,
+  opts: { paymentMethod: string; paymentReference: string; paymentMode: string }
+) => {
+  const bookingRef = doc(db, 'event_bookings', bookingId);
+  await updateDoc(bookingRef, {
+    amountPaid: increment(amountPaidNow),
+    lastPaymentAt: new Date().toISOString(),
+    lastPaymentAmountNow: amountPaidNow,
+  });
+  const snap = await getDoc(bookingRef);
+  if (!snap.exists()) throw new Error('Booking not found');
+  const b = snap.data() as any;
+  const venueCost = Math.max(0, Number(b.totalAmount || b.venueCost || 0));
+  const cateringTotal = Math.max(0, Number(b.cateringTotal || 0));
+  const combinedTotal = venueCost + cateringTotal;
+  const depositRequired = Math.round(combinedTotal / 2);
+  const amountPaid = Math.max(0, Number(b.amountPaid || 0));
+  const balanceDue = Math.max(0, combinedTotal - amountPaid);
+  const paymentStatus = amountPaid >= combinedTotal ? 'paid_in_full' : amountPaid >= depositRequired ? 'deposit_paid' : 'none';
+  const currentStatus = String(b.status || '').toLowerCase();
+  const status = ['pending_payment', 'pending'].includes(currentStatus) ? 'confirmed' : b.status;
+  await updateDoc(bookingRef, {
+    balanceDue,
+    paymentStatus,
+    status,
+    paymentMode: opts.paymentMode,
+    paymentReference: opts.paymentReference,
+    paymentMethod: opts.paymentMethod,
+    paidAt: new Date().toISOString(),
+  });
+  return { combinedTotal, depositRequired, amountPaid, balanceDue, paymentStatus, status };
 };
 
 export type GuestActivity = {

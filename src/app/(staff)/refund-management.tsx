@@ -6,6 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { getTheme } from '@/constants/theme';
+import { usePermissions } from '@/context/PermissionsContext';
 import { listenForRefundRequests, updateRefundRequestStatus } from '@/services/firebase-services';
 
 export default function RefundManagementScreen() {
@@ -13,6 +14,8 @@ export default function RefundManagementScreen() {
   const colorScheme = useColorScheme();
   const theme = getTheme(colorScheme as any);
   const styles = createStyles(theme);
+  const { hasPermission } = usePermissions();
+  const canApprove = hasPermission('refund_approve');
 
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,6 +27,7 @@ export default function RefundManagementScreen() {
   const [rejectionReason, setRejectionReason] = useState('');
 
   useEffect(() => {
+    if (!canApprove) return;
     const unsub = listenForRefundRequests((data) => {
       // Sort: pending first, then by createdAt desc
       const sorted = [...data].sort((a, b) => {
@@ -37,7 +41,28 @@ export default function RefundManagementScreen() {
       setLoading(false);
     });
     return unsub;
-  }, []);
+  }, [canApprove]);
+
+  // SRS: no staff refund UC — refunds are admin / event_manager only.
+  if (!canApprove) {
+    return (
+      <View style={styles.root}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={22} color={theme.colors.text} />
+          </TouchableOpacity>
+          <View>
+            <Text style={styles.title}>Refund Management</Text>
+            <Text style={styles.subtitle}>Not available for your role</Text>
+          </View>
+        </View>
+        <View style={styles.centered}>
+          <Ionicons name="lock-closed-outline" size={48} color={theme.colors.textMuted} />
+          <Text style={styles.emptyText}>Refunds are handled by Admin / Event Manager.</Text>
+        </View>
+      </View>
+    );
+  }
 
   const handleApprove = (request: any) => {
     Alert.alert(

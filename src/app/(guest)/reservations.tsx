@@ -16,9 +16,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { getTheme } from '@/constants/theme';
 import { useTranslation } from '@/i18n/hooks';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
+import { todayISO } from '@/utils/dates';
 
 // Firebase Imports
-import { auth, db, createRefundRequest } from '../../services/firebase-services';
+import { auth, db, createRefundRequest, deriveBookingPaymentState } from '../../services/firebase-services';
 import { listenForGuestActivity, GuestActivity } from '../../services/firebase-services';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
@@ -32,6 +33,11 @@ const STATUS_COLORS: Record<string, string> = {
   delivered: '#16a34a',
   preparing: '#d97706',
   ready: '#2563eb',
+  deposit_paid: '#d97706',
+  'Deposit Paid': '#d97706',
+  paid_in_full: '#16a34a',
+  'Paid In Full': '#16a34a',
+  'Venue Approved for Guests': '#16a34a',
 };
 
 const formatStatus = (status: string) =>
@@ -64,6 +70,22 @@ export default function ReservationsScreen() {
     return isNaN(d.getTime()) ? String(raw) : d.toLocaleDateString();
   };
 
+  // An event/amenity is "past" once its day (and time, where known) has passed.
+  const eventDayKey = (item: any) => String(item?.eventDateStr || item?.date || item?.eventDate || '').slice(0, 10);
+  const amenityDayKey = (item: any) => String(item?.date || item?.eventDate || '').slice(0, 10);
+
+  const isPastItem = (item: any) => {
+    const day = eventDayKey(item) || amenityDayKey(item);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+    const localDay = new Date(`${day}T23:59:59`);
+    const localToday = new Date();
+    localToday.setHours(0, 0, 0, 0);
+    return localDay.getTime() < localToday.getTime();
+  };
+
+  const isPastEvent = (booking: any) => isPastItem(booking);
+  const isPastAmenity = (item: any) => isPastItem(item);
+
   const ticketSummary = (tickets: any) => {
     if (!tickets) return '';
     const arr = Array.isArray(tickets) ? tickets : [tickets];
@@ -92,6 +114,14 @@ export default function ReservationsScreen() {
   };
 
   const openEventCatering = (booking: any) => {
+    if (isPastEvent(booking)) {
+      showAlert({
+        title: 'Event Has Ended',
+        message: 'Catering can only be arranged while the event is still upcoming.',
+        type: 'warning',
+      });
+      return;
+    }
     router.push({
       pathname: '/event-catering',
       params: { bookingId: booking.id, expectedAttendance: booking.expectedAttendance || 30 },
@@ -99,18 +129,15 @@ export default function ReservationsScreen() {
   };
 
   const openEventFeedback = (booking: any) => {
-    const eventDateVal = booking.eventDateStr || booking.eventDate || booking.date;
-    if (eventDateVal) {
-      const eventDateObj = new Date(eventDateVal);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      if (eventDateObj > today && booking.status !== 'completed') {
-        Alert.alert(
-          '🔒 Event Feedback Locked',
-          'Feedback can only be submitted after the event date has taken place.'
-        );
-        return;
-      }
+    const raw = booking.eventDateStr || booking.eventDate || booking.date || '';
+    const eventDay = String(raw).slice(0, 10);
+    const todayStr = todayISO();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(eventDay) && eventDay > todayStr) {
+      Alert.alert(
+        'Event Feedback Locked',
+        'Feedback can only be submitted on or after the event date.'
+      );
+      return;
     }
     router.push({ pathname: '/event-feedback', params: { eventId: booking.id } } as any);
   };
@@ -169,17 +196,27 @@ export default function ReservationsScreen() {
   };
 
   const handlePayNow = (booking: any) => {
-    const amount = booking.totalAmount || booking.depositAmount || booking.paidAmount || 0;
+    if (isPastEvent(booking)) {
+      showAlert({
+        title: 'Event Has Ended',
+        message: 'Payment is no longer available once the event date has passed. Contact the front desk for billing questions.',
+        type: 'warning',
+      });
+      return;
+    }
+    const money = deriveBookingPaymentState(booking);
+    const payingDeposit = money.balanceDue === money.combinedTotal;
     router.push({
       pathname: '/payment',
       params: {
         bookingId: booking.id,
         roomName: booking.venueName || 'Event Booking',
-        total: String(amount),
-        depositAmount: String(booking.depositAmount || Math.round(amount * 0.5)),
+        total: String(money.combinedTotal || booking.totalAmount || 0),
+        depositAmount: String(money.depositRequired || Math.round((booking.totalAmount || 0) * 0.5)),
         checkIn: booking.eventDateStr || booking.date || '',
         nights: String(1),
         expectedAttendance: booking.expectedAttendance ? String(booking.expectedAttendance) : undefined,
+        payBalance: payingDeposit ? '' : '1',
       }
     } as any);
   };
@@ -227,15 +264,15 @@ export default function ReservationsScreen() {
   });
 
   const filteredEventBookings = eventBookings.filter((b: any) => {
-    if (subTab === 'cancelled') return b.status === 'cancelled';
-    if (subTab === 'completed') return b.status === 'completed' || b.status === 'finished';
-    return b.status !== 'cancelled' && b.status !== 'completed' && b.status !== 'finished';
+    if (b.status === 'cancelled') return subTab === 'cancelled';
+    if (b.status === 'completed' || b.status === 'finished' || isPastEvent(b)) return subTab === 'completed';
+    return subTab === 'active';
   });
 
   const filteredAmenityBookings = amenityBookings.filter((b: any) => {
-    if (subTab === 'cancelled') return b.status === 'cancelled';
-    if (subTab === 'completed') return b.status === 'completed' || b.status === 'finished';
-    return b.status !== 'cancelled' && b.status !== 'completed' && b.status !== 'finished';
+    if (b.status === 'cancelled') return subTab === 'cancelled';
+    if (b.status === 'completed' || b.status === 'finished' || isPastAmenity(b)) return subTab === 'completed';
+    return subTab === 'active';
   });
 
   const iconFor = (kind: string) =>
@@ -349,14 +386,49 @@ export default function ReservationsScreen() {
                       </Text>
                     </View>
                   </View>
-                  {booking.totalAmount ? (
-                    <Text style={styles.eventAmount}>{formatMoney(booking.totalAmount)}</Text>
+                  {booking.totalAmount || booking.cateringTotal || booking.amountPaid ? (
+                    (() => {
+                      const money = deriveBookingPaymentState(booking);
+                      const nothingPaid = money.balanceDue === money.combinedTotal && money.combinedTotal > 0;
+                      return (
+                        <View style={styles.paymentBox}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.paymentMeta}>
+                              Total <Text style={styles.paymentStrong}>{formatMoney(money.combinedTotal)}</Text>
+                              {'  ·  '}Paid <Text style={styles.paymentStrong}>{formatMoney(money.amountPaid)}</Text>
+                              {'  ·  '}Balance <Text style={[styles.paymentStrong, { color: money.balanceDue > 0 ? '#d97706' : '#16a34a' }]}>{formatMoney(money.balanceDue)}</Text>
+                            </Text>
+                            {money.cateringTotal > 0 && (
+                              <Text style={styles.paymentCateringNote}>
+                                Includes catering R {money.cateringTotal.toLocaleString()}
+                              </Text>
+                            )}
+                          </View>
+                          {money.balanceDue > 0 && !isPastEvent(booking) ? (
+                            <TouchableOpacity style={[styles.payNowBtn, nothingPaid && { backgroundColor: '#16a34a' }]} onPress={() => handlePayNow(booking)}>
+                              <Ionicons name="card-outline" size={15} color="#fff" />
+                              <Text style={styles.payNowBtnText}>{nothingPaid ? 'Pay Deposit' : 'Pay Balance'}</Text>
+                            </TouchableOpacity>
+                          ) : money.balanceDue > 0 ? (
+                            <View style={[styles.statusBadge, { backgroundColor: '#6b728022' }]}>
+                              <Text style={[styles.statusText, { color: '#6b7280' }]}>Event Concluded</Text>
+                            </View>
+                          ) : (
+                            <View style={[styles.statusBadge, { backgroundColor: '#16a34a22' }]}>
+                              <Text style={[styles.statusText, { color: '#16a34a' }]}>Paid In Full</Text>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })()
                   ) : null}
                   <View style={styles.eventActions}>
-                    <TouchableOpacity style={styles.eventActionBtn} onPress={() => openEventCatering(booking)}>
-                      <Ionicons name="restaurant" size={16} color={theme.colors.secondary} />
-                      <Text style={styles.eventActionText}>{t('catering')}</Text>
-                    </TouchableOpacity>
+                    {!isPastEvent(booking) && (
+                      <TouchableOpacity style={styles.eventActionBtn} onPress={() => openEventCatering(booking)}>
+                        <Ionicons name="restaurant" size={16} color={theme.colors.secondary} />
+                        <Text style={styles.eventActionText}>{t('catering')}</Text>
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity style={styles.eventActionBtn} onPress={() => openEventActions(booking)}>
                       <Ionicons name="people" size={16} color={theme.colors.secondary} />
                       <Text style={styles.eventActionText}>{t('invitations')}</Text>
@@ -373,13 +445,7 @@ export default function ReservationsScreen() {
                       <Ionicons name="cash-outline" size={16} color="#dc2626" />
                       <Text style={[styles.eventActionText, { color: '#dc2626' }]}>{t('refund')}</Text>
                     </TouchableOpacity>
-                    {booking.status === 'pending_payment' && (
-                      <TouchableOpacity style={[styles.eventActionBtn, { backgroundColor: '#d9770615' }]} onPress={() => handlePayNow(booking)}>
-                        <Ionicons name="card-outline" size={16} color="#d97706" />
-                        <Text style={[styles.eventActionText, { color: '#d97706', fontWeight: '800' }]}>{t('payNow')}</Text>
-                      </TouchableOpacity>
-                    )}
-                    {booking.status !== 'cancelled' && (
+                    {booking.status !== 'cancelled' && !isPastEvent(booking) && (
                       <TouchableOpacity style={styles.eventActionBtn} onPress={() => handleCancelBooking(booking)}>
                         <Ionicons name="close-circle-outline" size={16} color="#64748b" />
                         <Text style={[styles.eventActionText, { color: '#64748b' }]}>{t('cancel')}</Text>
@@ -631,6 +697,18 @@ const createStyles = (theme: any) => StyleSheet.create({
   eventVenue: { fontSize: 16, fontWeight: 'bold', color: theme.colors.text, marginBottom: 4 },
   eventDate: { fontSize: 13, color: theme.colors.textSecondary },
   eventAmount: { fontSize: 15, fontWeight: '700', color: theme.colors.success, marginTop: 10 },
+  paymentBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12,
+    backgroundColor: theme.colors.surfaceVariant, borderRadius: 12, padding: 10,
+  },
+  paymentMeta: { fontSize: 12, color: theme.colors.textMuted },
+  paymentStrong: { fontWeight: '800', color: theme.colors.text },
+  paymentCateringNote: { fontSize: 10, color: theme.colors.textMuted, marginTop: 2 },
+  payNowBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#d97706', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
+  },
+  payNowBtnText: { color: '#fff', fontSize: 12, fontWeight: '800' },
   eventActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   eventActionBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,

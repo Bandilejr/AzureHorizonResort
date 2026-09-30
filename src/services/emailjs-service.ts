@@ -27,6 +27,19 @@ const EMAILJS_PRIVATE_KEY = 'MbOqjaY8NL-yqLuQFhBmX';
 const EMAILJS_SERVICE_ID = 'service_jdrtevg';
 export const DEFAULT_TEMPLATE_ID = 'template_yjx0xlw';
 
+import * as Crypto from 'expo-crypto';
+
+const RSVP_SIGNING_SECRET = 'azure-horizon-demo-signing-secret-2026';
+const RSVP_SITE_BASE = 'https://hotel-management-system-c3526.web.app/rsvp/';
+
+async function rsvpLink(invitationId: string, eventId: string, response: 'accepted' | 'declined'): Promise<string> {
+  const token = await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    RSVP_SIGNING_SECRET + invitationId + ':' + response
+  );
+  return `${RSVP_SITE_BASE}?invitationId=${encodeURIComponent(invitationId)}&eventId=${encodeURIComponent(eventId)}&response=${response}&token=${token}`;
+}
+
 const STATUS_COLOR_MAP: Record<string, string> = {
   APPROVED: '#16a34a',
   CONFIRMED: '#16a34a',
@@ -63,6 +76,7 @@ export const sendEmailJSNotification = async (params: EmailJSNotificationParams)
         status_color: statusColor,
         subject_line: params.subject_line,
         message: params.message,
+        message_html: params.message,
         detail_rows: cleanDetailRows,
         amount: params.amount || '',
         reference_id: params.reference_id,
@@ -94,7 +108,10 @@ export const sendEmailJSNotification = async (params: EmailJSNotificationParams)
   }
 };
 
-// Legacy helper compatibility for QR invitations
+// Dedicated RSVP invitation template (dashboard: template_poopd18)
+const RSVP_TEMPLATE_ID = 'template_poopd18';
+
+// QR Pass invitation email with RSVP buttons (uses dedicated RSVP template)
 export const sendInviteeQREmail = async (params: {
   to_email: string;
   to_name: string;
@@ -103,16 +120,64 @@ export const sendInviteeQREmail = async (params: {
   venue_name: string;
   qr_code: string;
 }): Promise<boolean> => {
-  return sendEmailJSNotification({
-    to_email: params.to_email,
-    name: params.to_name,
-    subject_line: `Invitation Pass: ${params.event_title}`,
-    status_label: 'CONFIRMED',
-    message: `You are cordially invited to ${params.event_title} at ${params.venue_name} on ${params.event_date}. Please present your unique QR Pass: ${params.qr_code} upon entry.`,
-    detail_rows: `Event: ${params.event_title} | Venue: ${params.venue_name} | Pass Code: ${params.qr_code}`,
-    reference_id: params.qr_code,
-    cta_text: 'View Pass in App',
-  });
+  // The QR payload is a signed JSON string. Render it as a scannable QR
+  // image inside the email instead of dumping the raw JSON as text.
+  let passCode = 'AZH-PASS';
+  let invitationId = '';
+  let eventId = '';
+  try {
+    const parsed = JSON.parse(params.qr_code);
+    if (parsed?.invitationId) {
+      passCode = `AZH-${parsed.invitationId.slice(0, 8).toUpperCase()}`;
+    }
+    invitationId = parsed?.invitationId || '';
+    eventId = parsed?.eventId || '';
+  } catch {
+    // keep fallback
+  }
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(params.qr_code)}`;
+  const acceptLink = invitationId && eventId ? await rsvpLink(invitationId, eventId, 'accepted') : '';
+  const declineLink = invitationId && eventId ? await rsvpLink(invitationId, eventId, 'declined') : '';
+
+  try {
+    const payload = {
+      service_id: EMAILJS_SERVICE_ID,
+      template_id: RSVP_TEMPLATE_ID,
+      user_id: EMAILJS_PUBLIC_KEY,
+      accessToken: EMAILJS_PRIVATE_KEY,
+      template_params: {
+        to_email: params.to_email,
+        email: params.to_email,
+        name: params.to_name,
+        event_title: params.event_title,
+        venue_name: params.venue_name,
+        event_date: params.event_date,
+        qr_image_url: qrImageUrl,
+        rsvp_accept_url: acceptLink,
+        rsvp_decline_url: declineLink,
+        reference_id: passCode,
+        time: new Date().toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' }),
+      },
+    };
+
+    const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.ok) {
+      console.log(`✅ EmailJS: RSVP invitation delivered to ${params.to_email}`);
+      return true;
+    } else {
+      const errText = await res.text();
+      console.warn(`⚠️ EmailJS RSVP response error (${res.status}):`, errText);
+      return false;
+    }
+  } catch (err) {
+    console.warn('⚠️ EmailJS RSVP send error:', err);
+    return false;
+  }
 };
 
 // Helper compatibility for invoice email dispatch

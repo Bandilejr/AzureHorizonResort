@@ -40,12 +40,14 @@ export default function BillingScreen() {
 
   // Paid Receipts & Invoices History State
   const [paidInvoices, setPaidInvoices] = useState<any[]>([]);
+  const [damageInvoices, setDamageInvoices] = useState<any[]>([]);
   const [paymentSuccessModal, setPaymentSuccessModal] = useState<{ visible: boolean; amount: number; points: number; invoiceNo: string }>({
     visible: false,
     amount: 0,
     points: 0,
     invoiceNo: '',
   });
+  const [selectedInvoiceModal, setSelectedInvoiceModal] = useState<any>(null);
 
   const user = auth.currentUser;
   const colorScheme = useColorScheme();
@@ -130,12 +132,24 @@ export default function BillingScreen() {
       (err) => console.warn('Tours snapshot permission error:', err)
     );
 
+    // 4. Live Listener for Official Damage/Liability Invoices (issued by Admin)
+    const invoicesQuery = query(collection(db, 'invoices'), where('guestId', '==', user.uid));
+    const unsubscribeInvoices = onSnapshot(
+      invoicesQuery,
+      (snap) => {
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setDamageInvoices(list);
+      },
+      (err) => console.warn('Invoices snapshot permission error:', err)
+    );
+
     fetchGuestCharges();
 
     return () => {
       unsubscribePayments();
       unsubscribeSpa();
       unsubscribeTours();
+      unsubscribeInvoices();
     };
   }, [user]);
 
@@ -441,14 +455,49 @@ export default function BillingScreen() {
         ) : (
           /* INVOICES & PAID HISTORY SUB-TAB */
           <View style={{ gap: 14, marginTop: 10 }}>
-            {paidInvoices.length === 0 ? (
+            {damageInvoices.length > 0 && (
+              <>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textMuted, textTransform: 'uppercase', letterSpacing: 1, marginTop: 6 }}>
+                  Official Damage Invoices
+                </Text>
+                {damageInvoices.map((inv) => (
+                  <TouchableOpacity 
+                    key={inv.id} 
+                    style={{ backgroundColor: theme.colors.surface, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: '#f59e0b', borderLeftWidth: 4, borderLeftColor: '#f59e0b' }}
+                    onPress={() => setSelectedInvoiceModal(inv)}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                        <Ionicons name="receipt" size={20} color="#f59e0b" />
+                        <Text style={{ fontSize: 15, fontWeight: '800', color: theme.colors.text }}>{inv.invoiceNumber}</Text>
+                      </View>
+                      <Text style={{ fontSize: 16, fontWeight: '900', color: '#f59e0b' }}>R {(inv.amount || inv.subtotal || 0).toLocaleString()}</Text>
+                    </View>
+
+                    <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginBottom: 8 }}>
+                      Issued {inv.sentAt ? new Date(inv.sentAt).toDateString() : 'Recently'} · Outstanding — Awaiting Payment
+                    </Text>
+
+                    <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                      {Array.isArray(inv.lineItems) && inv.lineItems.map((item: { name?: string }, idx: number) => (
+                        <View key={idx} style={{ backgroundColor: '#f59e0b18', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                          <Text style={{ fontSize: 11, fontWeight: '700', color: '#f59e0b', textTransform: 'capitalize' }}>{item.name || 'Damaged Asset'}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </>
+            )}
+
+            {paidInvoices.length === 0 && damageInvoices.length === 0 ? (
               <View style={{ alignItems: 'center', paddingVertical: 48, backgroundColor: theme.colors.surface, borderRadius: 20 }}>
                 <Ionicons name="receipt-outline" size={48} color={theme.colors.textMuted} />
                 <Text style={{ fontSize: 16, fontWeight: '700', color: theme.colors.text, marginTop: 12 }}>
-                  No Paid Invoices Yet
+                  No Invoices Yet
                 </Text>
                 <Text style={{ fontSize: 13, color: theme.colors.textMuted, marginTop: 4, textAlign: 'center', paddingHorizontal: 20 }}>
-                  Once you settle room or amenity charges, official paid receipts will be stored here live.
+                  Official damage invoices and settled receipts will be stored here live.
                 </Text>
               </View>
             ) : (
@@ -509,6 +558,72 @@ export default function BillingScreen() {
           </View>
         </View>
       </Modal>
+
+      {selectedInvoiceModal && (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setSelectedInvoiceModal(null)}>
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)', padding: 24 }}>
+            <View style={{ backgroundColor: theme.colors.surface, borderRadius: 20, padding: 24, width: '100%', maxWidth: 420 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                <Ionicons name="receipt" size={26} color="#16a34a" />
+                <Text style={{ fontSize: 20, fontWeight: '900', color: theme.colors.text, flex: 1 }}>
+                  {selectedInvoiceModal.invoiceNumber}
+                </Text>
+                <TouchableOpacity onPress={() => setSelectedInvoiceModal(null)}>
+                  <Ionicons name="close-circle" size={26} color={theme.colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ backgroundColor: selectedInvoiceModal.type === 'damage' ? '#f59e0b18' : '#16a34a10', borderRadius: 12, padding: 14, marginBottom: 14, alignItems: 'center' }}>
+                <Text style={{ fontSize: 12, color: selectedInvoiceModal.type === 'damage' ? '#f59e0b' : '#16a34a', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  {selectedInvoiceModal.type === 'damage' ? 'Invoice Outstanding' : 'Amount Paid'}
+                </Text>
+                <Text style={{ fontSize: 26, fontWeight: '900', color: selectedInvoiceModal.type === 'damage' ? '#f59e0b' : '#16a34a', marginTop: 2 }}>
+                  R {(selectedInvoiceModal.amount || selectedInvoiceModal.subtotal || 0).toLocaleString()}
+                </Text>
+              </View>
+
+              {Array.isArray(selectedInvoiceModal.items) && selectedInvoiceModal.items.length > 0 && (
+                <View style={{ marginBottom: 14 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: theme.colors.text, marginBottom: 6 }}>Charges Covered</Text>
+                  {selectedInvoiceModal.items.map((item: string, idx: number) => (
+                    <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 3 }}>
+                      <Ionicons name="checkmark-circle" size={14} color="#16a34a" />
+                      <Text style={{ fontSize: 13, color: theme.colors.textMuted, flex: 1 }}>{item}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: 12, gap: 6 }}>
+                {selectedInvoiceModal.type === 'damage' ? (
+                  <>
+                    <Text style={{ fontSize: 12, color: theme.colors.textMuted }}>
+                      Issued {selectedInvoiceModal.sentAt ? new Date(selectedInvoiceModal.sentAt).toDateString() : 'Recently'} · Awaiting payment
+                    </Text>
+                    {selectedInvoiceModal.guestEmail && (
+                      <Text style={{ fontSize: 12, color: theme.colors.textMuted }}>Sent to: {selectedInvoiceModal.guestEmail}</Text>
+                    )}
+                  </>
+                ) : (
+                  <Text style={{ fontSize: 12, color: theme.colors.textMuted }}>
+                    Paid on {selectedInvoiceModal.dateStr || 'Recent'} • +{selectedInvoiceModal.pointsEarned || 0} loyalty pts
+                  </Text>
+                )}
+                {selectedInvoiceModal.method && (
+                  <Text style={{ fontSize: 12, color: theme.colors.textMuted }}>Method: {selectedInvoiceModal.method}</Text>
+                )}
+              </View>
+
+              <TouchableOpacity
+                style={{ backgroundColor: theme.colors.primary, paddingVertical: 13, borderRadius: 12, marginTop: 18, alignItems: 'center' }}
+                onPress={() => setSelectedInvoiceModal(null)}
+              >
+                <Text style={{ color: theme.colors.textInverse, fontWeight: '800', fontSize: 15 }}>Close Receipt</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }

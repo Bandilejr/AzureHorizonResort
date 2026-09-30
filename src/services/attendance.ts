@@ -1,17 +1,12 @@
 /**
  * Phone-based clock-in / clock-out.
  *
- * Workers punch in/out from their phone; the server computes the distance
- * from the geofence centre (settings/attendance_geofence) - the client
- * cannot spoof `withinRadius`. Managers see punches live in the staff
- * dashboard via Firestore realtime listeners on `punch_records`.
- *
- * Business rule (decision B): off-site punches are NOT rejected - they are
- * recorded and flagged `withinRadius: false` so management can audit
- * exceptions instead of the system hiding them.
+ * Identity is ALWAYS auth.currentUser.uid (no staff picker).
+ * Off-site punches are BLOCKED (locked decision #1).
+ * GPS failure returns an explicit error — never fabricated campus coordinates.
  */
 import { Platform } from 'react-native';
-import { db, recordAttendancePunch } from '@/services/firebase-services';
+import { db } from '@/services/firebase-services';
 import {
   collection,
   query,
@@ -22,12 +17,11 @@ import {
   getDocs,
 } from 'firebase/firestore';
 
-/** Max distance from the hotel for a punch to count as on-site. */
+/** Max distance from the hotel for a punch to count as on-site (legacy hotel screens). */
 export const ATTENDANCE_RADIUS_METERS = 400;
 
-/** DUT Ritson Campus, Steve Biko Rd, Durban — client-side fallback if Firestore setting absent */
-export const DUT_RITSON_LAT = -29.8606;
-export const DUT_RITSON_LNG = 30.9803;
+// Phase 1 (§13): campus coordinates live ONLY in the worksites collection
+// (seeded by scripts/seed_workforce_identity.js) — never scattered in client code.
 
 export type PunchType = 'in' | 'out';
 
@@ -53,9 +47,15 @@ export interface PositionFix {
 
 async function getNativePosition(): Promise<PositionFix> {
   const { getCurrentPositionAsync, getLastKnownPositionAsync, Accuracy } = await import('expo-location');
+
+  // A cached "last known" fix can be hours old and miles away (e.g. the phone's
+  // fix from the previous day) — trusting it falsely reports the worker as
+  // off-site. Only use it if it is genuinely fresh (under 60 seconds).
+  const FRESH_MS = 60_000;
+  const now = Date.now();
   try {
     const lastKnown = await getLastKnownPositionAsync();
-    if (lastKnown) {
+    if (lastKnown && now - lastKnown.timestamp < FRESH_MS) {
       return {
         lat: lastKnown.coords.latitude,
         lng: lastKnown.coords.longitude,
@@ -65,9 +65,10 @@ async function getNativePosition(): Promise<PositionFix> {
   } catch {}
 
   try {
-    const posPromise = getCurrentPositionAsync({ accuracy: Accuracy.Balanced });
+    // Force a real fix with High accuracy; give GPS enough time to settle.
+    const posPromise = getCurrentPositionAsync({ accuracy: Accuracy.High });
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Location timeout')), 4000)
+      setTimeout(() => reject(new Error('Location timeout')), 12000)
     );
     const pos = await Promise.race([posPromise, timeoutPromise]);
     return {
@@ -75,13 +76,10 @@ async function getNativePosition(): Promise<PositionFix> {
       lng: pos.coords.longitude,
       accuracyM: pos.coords.accuracy ?? null,
     };
-  } catch {
-    // Fallback to DUT Ritson Campus coordinates if device GPS unavailable/times out
-    return {
-      lat: DUT_RITSON_LAT,
-      lng: DUT_RITSON_LNG,
-      accuracyM: 50,
-    };
+  } catch (e) {
+    throw new Error(
+      'Location unavailable. Enable GPS and try again — punches without a real fix are rejected.',
+    );
   }
 }
 
@@ -132,48 +130,6 @@ export function haversineMeters(
 export function formatDistance(meters: number): string {
   if (meters < 1000) return `${Math.round(meters)} m`;
   return `${(meters / 1000).toFixed(2)} km`;
-}
-
-/**
- * Records a punch for the authenticated user via the server.
- * The server verifies staff role, computes geofence distance and
- * enforces in/out pairing; `withinRadius` comes from the response.
- */
-export async function punchClock(
-  punchType: PunchType,
-  staff: { uid: string; displayName: string },
-  auditOptions?: {
-    staffRosterId?: string;
-    deviceId?: string;
-    deviceMatchPassed?: boolean;
-    isFirstTimeEnrollment?: boolean;
-    biometricPassed?: boolean;
-    biometricMethod?: string;
-    overallStatus?: 'clocked-in' | 'clocked-out' | 'flagged' | 'blocked';
-  }
-) {
-  const fix = await getCurrentPosition();
-  const res = await recordAttendancePunch({
-    punchType,
-    lat: fix.lat,
-    lng: fix.lng,
-    accuracyM: fix.accuracyM,
-    staffName: staff.displayName || staff.uid,
-    staffRosterId: auditOptions?.staffRosterId,
-    deviceId: auditOptions?.deviceId,
-    deviceMatchPassed: auditOptions?.deviceMatchPassed,
-    isFirstTimeEnrollment: auditOptions?.isFirstTimeEnrollment,
-    biometricPassed: auditOptions?.biometricPassed,
-    biometricMethod: auditOptions?.biometricMethod,
-    overallStatus: auditOptions?.overallStatus,
-  });
-
-  return {
-    id: res.data.id,
-    distanceM: res.data.distanceM,
-    withinRadius: res.data.withinRadius,
-    at: new Date(res.data.at),
-  };
 }
 
 /** Geofence centre used by the server (read for in-app display). */

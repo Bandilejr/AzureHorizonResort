@@ -1,0 +1,106 @@
+// (staff) UC42 — My Roster: view published shifts assigned to me.
+// REMEDIATED Phase C: shift cards tappable → SHIFT DETAIL → handoff into
+// Shift Swaps (UC43) prefilled, or Open Shifts (UC44).
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, useColorScheme, ScrollView, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { auth } from '@/services/firebase-services';
+import { listenPublishedRosters } from '@/services/increment2-services';
+import type { ShiftRoster } from '@/types/increment2';
+import { getTheme } from '@/constants/theme';
+import { DetailModal, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
+import { goBack } from '@/utils/navigation';
+import { useRouter } from 'expo-router';
+
+type MyShift = ShiftRoster['shifts'][number] & { rosterDocId: string; week: string; department: string };
+
+export default function MyRosterScreen() {
+  const router = useRouter();
+  const colorScheme = useColorScheme();
+  const theme = getTheme(colorScheme as any);
+  const styles = createStyles(theme);
+  const staffId = auth.currentUser?.uid || '';
+
+  const [rosters, setRosters] = useState<ShiftRoster[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [selected, setSelected] = useState<MyShift | null>(null);
+
+  useEffect(() => {
+    if (!staffId) { setLoading(false); return; }
+    setLoadError('');
+    return listenPublishedRosters((list) => { setRosters(list); setLoading(false); },
+      (e) => { setLoadError(e.message); setLoading(false); });
+  }, [staffId]);
+
+  const myShifts: MyShift[] = rosters.flatMap((r) =>
+    (r.shifts || []).filter((s) => s.staffId === staffId)
+      .map((s) => ({ ...s, rosterDocId: r.id, week: r.weekStart, department: r.department })));
+
+  if (loading) return <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 60 }} />;
+
+  return (
+    <ScrollView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => goBack(router, '/(staff)/staff-dashboard')}><Ionicons name="arrow-back" size={24} color={theme.colors.text} /></TouchableOpacity>
+        <Text style={styles.title}>My Roster</Text>
+      </View>
+      <LiveErrorBanner error={loadError} onRetry={() => setLoadError('')} />
+
+      <Text style={styles.section}>My shifts ({myShifts.length})</Text>
+      {myShifts.length === 0 && (
+        <View style={styles.empty}>
+          <Ionicons name={"calendar-outline" as any} size={40} color={theme.colors.textMuted} />
+          <Text style={styles.muted}>No published shifts assigned to you yet. Check Open Shifts to claim extra work.</Text>
+        </View>
+      )}
+      {myShifts.map((s) => (
+        <TouchableOpacity key={s.shiftId} style={styles.card} onPress={() => setSelected(s)} activeOpacity={0.7}>
+          <Text style={styles.cardTitle}>{s.date} {s.startTime}–{s.endTime}</Text>
+          <Text style={styles.muted}>{s.role}{s.requiredSkill ? ` · ${s.requiredSkill}` : ''} · week {s.week}</Text>
+          <Text style={styles.review}>Tap to inspect ›</Text>
+        </TouchableOpacity>
+      ))}
+
+      <DetailModal visible={selected !== null} title={selected ? `${selected.date} ${selected.startTime}–${selected.endTime}` : ''} onClose={() => setSelected(null)}>
+        {selected && (
+          <View>
+            <StatusBadge status="published" />
+            <SectionTitle>SHIFT</SectionTitle>
+            <KV label="Date" value={selected.date} />
+            <KV label="Time" value={`${selected.startTime}–${selected.endTime}`} />
+            <KV label="Role" value={selected.role} />
+            <KV label="Required skill" value={selected.requiredSkill || 'None'} />
+            <KV label="Department" value={selected.department} />
+            <KV label="Week" value={selected.week} />
+            <KV label="Shift ID" value={selected.shiftId} />
+            <View style={styles.btnRow}>
+              <ModalButton
+                label="Request swap" kind="secondary"
+                onPress={() => { const id = selected.shiftId; setSelected(null); router.push({ pathname: '/(staff)/shift-swaps', params: { myShiftId: id } } as any); }}
+              />
+              <ModalButton
+                label="Open shifts" kind="secondary"
+                onPress={() => { setSelected(null); router.push('/(staff)/open-shifts' as any); }}
+              />
+            </View>
+          </View>
+        )}
+      </DetailModal>
+      <View style={{ height: 40 }} />
+    </ScrollView>
+  );
+}
+
+const createStyles = (theme: any) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.colors.background, padding: 16 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  title: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
+  section: { fontSize: 16, fontWeight: '700', color: theme.colors.text, marginTop: 16, marginBottom: 8 },
+  card: { backgroundColor: theme.colors.surface, borderRadius: 10, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
+  cardTitle: { color: theme.colors.text, fontWeight: '700' },
+  muted: { color: theme.colors.textMuted, fontSize: 12, marginTop: 4 },
+  review: { color: theme.colors.primary, fontSize: 12, fontWeight: '700', marginTop: 6 },
+  empty: { alignItems: 'center', padding: 24, gap: 8 },
+  btnRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+});

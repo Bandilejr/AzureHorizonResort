@@ -3,6 +3,7 @@ import { Tabs } from 'expo-router';
 import { useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getTheme } from '@/constants/theme';
+import RouteGuard from '@/components/RouteGuard';
 
 const TAB_ICONS: Record<string, { label: string; icon: string }> = {
   'guest-portal': { label: 'Portal', icon: 'home' },
@@ -10,7 +11,7 @@ const TAB_ICONS: Record<string, { label: string; icon: string }> = {
   'event-booking': { label: 'Events', icon: 'calendar' },
   dining: { label: 'Dining', icon: 'restaurant' },
   spa: { label: 'Spa', icon: 'leaf' },
-  loyalty: { label: 'Rewards', icon: 'diamond' },
+  loyalty: { label: 'Loyalty', icon: 'diamond' },
   profile: { label: 'Profile', icon: 'person' },
 };
 
@@ -19,6 +20,7 @@ export default function GuestLayout() {
   const theme = getTheme(colorScheme as any);
 
   return (
+    <RouteGuard allow="guest">
     <Tabs
       screenOptions={({ route }) => {
         const config = TAB_ICONS[route.name] || { label: route.name, icon: 'help' };
@@ -51,13 +53,13 @@ export default function GuestLayout() {
       }}
     >
       <Tabs.Screen name="guest-portal" options={{ title: 'Portal' }} />
-      <Tabs.Screen name="digital-key" options={{ title: 'Digital Key' }} />
       <Tabs.Screen name="event-booking" options={{ title: 'Events' }} />
-      <Tabs.Screen name="dining" options={{ title: 'Dining' }} />
-      <Tabs.Screen name="spa" options={{ title: 'Spa' }} />
-      <Tabs.Screen name="loyalty" options={{ title: 'Rewards' }} />
+      <Tabs.Screen name="digital-key" options={{ title: 'Digital Key' }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
+      <Tabs.Screen name="loyalty" options={{ title: 'Loyalty' }} />
 
+      <Tabs.Screen name="dining" options={{ href: null }} />
+      <Tabs.Screen name="spa" options={{ href: null }} />
       <Tabs.Screen name="tours" options={{ href: null }} />
       <Tabs.Screen name="billing" options={{ href: null }} />
       <Tabs.Screen name="concierge" options={{ href: null }} />
@@ -66,11 +68,14 @@ export default function GuestLayout() {
       <Tabs.Screen name="event-invitations" options={{ href: null }} />
       <Tabs.Screen name="explore" options={{ href: null }} />
       <Tabs.Screen name="live-complaint" options={{ href: null }} />
+      <Tabs.Screen name="leave-review" options={{ href: null }} />
       <Tabs.Screen name="my-orders" options={{ href: null }} />
       <Tabs.Screen name="payment" options={{ href: null }} />
+      <Tabs.Screen name="refund-request" options={{ href: null }} />
       <Tabs.Screen name="reservations" options={{ href: null }} />
       <Tabs.Screen name="room-gallery" options={{ href: null }} />
       <Tabs.Screen name="room-service" options={{ href: null }} />
     </Tabs>
+    </RouteGuard>
   );
 }

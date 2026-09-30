@@ -4,8 +4,8 @@ import * as admin from "firebase-admin";
 const db = admin.firestore();
 
 const DEFAULT_GEOFENCE: { lat: number; lng: number; radiusM: number } = {
-  lat: 25.2048,
-  lng: 55.2708,
+  lat: -29.8606,
+  lng: 30.9803,
   radiusM: 400,
 };
 

@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, useColorScheme, ActivityIndicator, RefreshControl, Image,
+  Alert, useColorScheme, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { getTheme } from '@/constants/theme';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
+import PhotoThumb from '@/components/PhotoThumb';
 import {
   db, updateLiveComplaintStatus,
 } from '@/services/firebase-services';
@@ -298,20 +299,16 @@ export default function LiveComplaintsScreen() {
                         </Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                           <View style={{ flexDirection: 'row', gap: 6 }}>
-                            {rawList.map((uri: string, idx: number) => {
-                              const cleanUri = typeof uri === 'string' && !uri.startsWith('http') && !uri.startsWith('data:') && !uri.startsWith('file:')
-                                ? `data:image/jpeg;base64,${uri}`
-                                : uri;
-
-                              return (
-                                <Image
-                                  key={idx}
-                                  source={{ uri: cleanUri }}
-                                  style={{ width: 72, height: 72, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border }}
-                                  resizeMode="cover"
-                                />
-                              );
-                            })}
+                            {rawList.map((uri: string, idx: number) => (
+                              <PhotoThumb
+                                key={idx}
+                                uri={uri}
+                                size={72}
+                                borderRadius={8}
+                                borderColor={theme.colors.border}
+                                label="Unavailable"
+                              />
+                            ))}
                           </View>
                         </ScrollView>
                       </View>

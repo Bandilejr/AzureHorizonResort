@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView, SafeAreaView , useColorScheme } from 'react-native';
 import { useRouter } from 'expo-router';
 import { loginMobileUser } from '@/services/firebase-services';
+import { homeRouteFor } from '@/utils/role-home';
 import { Ionicons } from '@expo/vector-icons';
 
 import { getTheme } from '@/constants/theme';
@@ -25,8 +26,8 @@ export default function StaffLoginScreen() {
     try {
       const profile = (await loginMobileUser(email.trim(), password)) as { role?: string };
       setLoading(false);
-      if (profile.role === 'admin' || profile.role === 'staff') {
-        router.replace('/(staff)/staff-dashboard' as any);
+      if (profile.role === 'admin' || profile.role === 'staff' || (profile as any).role === 'kitchen_manager' || (profile as any).role === 'chef' || (profile as any).role === 'npo_rep') {
+        router.replace(homeRouteFor(profile as any) as any);
       } else {
         router.replace('/(guest)/guest-portal' as any);
       }

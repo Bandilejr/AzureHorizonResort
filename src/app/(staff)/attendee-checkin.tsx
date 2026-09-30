@@ -44,14 +44,20 @@ export default function AttendeeCheckinScreen() {
   const [checkingIn, setCheckingIn] = useState<any>(null);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
 
-  // Load events
+  // Load events — all active bookings so staff can check in any upcoming event
   useEffect(() => {
     const load = async () => {
       try {
         const snap = await getDocs(
-          query(collection(db, 'event_bookings'), where('status', 'in', ['confirmed', 'pending_payment']))
+          query(collection(db, 'event_bookings'), where('status', 'in', ['confirmed', 'paid', 'deposit_paid', 'Deposit Paid', 'pending_payment', 'Pending Payment', 'Venue Approved for Guests']))
         );
-        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const list = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a: any, b: any) => {
+            const aDate = String(a.eventDate || a.date || '');
+            const bDate = String(b.eventDate || b.date || '');
+            return bDate.localeCompare(aDate);
+          });
         setEvents(list);
         if (params.eventId) {
           const found = list.find((e: any) => e.id === params.eventId);
@@ -75,10 +81,12 @@ export default function AttendeeCheckinScreen() {
       where('eventId', '==', selectedEvent.id)
     );
     const unsub = onSnapshot(q, (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Sort: pending first
+      const list = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter((a: any) => a.status === 'accepted' || a.rsvpStatus === 'accepted' || a.status === 'checked_in');
+      // Sort: checked in first, then accepted
       list.sort((a: any, b: any) => {
-        const order: any = { pending: 0, checked_in: 1, declined: 2 };
+        const order: any = { checked_in: 0, accepted: 1 };
         return (order[a.status] ?? 9) - (order[b.status] ?? 9);
       });
       setAttendees(list);
@@ -96,7 +104,7 @@ export default function AttendeeCheckinScreen() {
   );
 
   const checkedInCount = attendees.filter(a => a.status === 'checked_in').length;
-  const pendingCount = attendees.filter(a => a.status === 'pending').length;
+  const acceptedCount = attendees.filter(a => a.status !== 'checked_in').length;
 
   // QR scan handler
   const handleBarCodeScanned = async ({ data }: { data: string }) => {
@@ -198,6 +206,10 @@ export default function AttendeeCheckinScreen() {
   };
 
   const openScanner = async () => {
+    if (!selectedEvent) {
+      Alert.alert('Select an Event First', 'Please choose an event before opening the QR scanner.');
+      return;
+    }
     if (!permission?.granted) {
       const result = await requestPermission();
       if (!result.granted) {
@@ -270,9 +282,9 @@ export default function AttendeeCheckinScreen() {
               <Ionicons name="checkmark-circle" size={16} color={theme.colors.success} />
               <Text style={[S.statChipText, { color: theme.colors.success }]}>{checkedInCount} In</Text>
             </View>
-            <View style={[S.statChip, { backgroundColor: theme.colors.warningLight }]}>
-              <Ionicons name="time-outline" size={16} color={theme.colors.warning} />
-              <Text style={[S.statChipText, { color: theme.colors.warning }]}>{pendingCount} Pending</Text>
+            <View style={[S.statChip, { backgroundColor: theme.colors.infoLight }]}>
+              <Ionicons name="checkmark-circle-outline" size={16} color={theme.colors.info} />
+              <Text style={[S.statChipText, { color: theme.colors.info }]}>{acceptedCount} Accepted</Text>
             </View>
             <View style={[S.statChip, { backgroundColor: theme.colors.infoLight }]}>
               <Ionicons name="people-outline" size={16} color={theme.colors.info} />
@@ -315,7 +327,7 @@ export default function AttendeeCheckinScreen() {
           <View style={S.emptyCard}>
             <Ionicons name="people-outline" size={40} color={theme.colors.textMuted} />
             <Text style={S.emptyText}>
-              {searchText ? 'No attendees match your search' : 'No invitations found for this event'}
+              {searchText ? 'No attendees match your search' : 'No invitees have accepted this event yet'}
             </Text>
           </View>
         ) : (
@@ -342,15 +354,15 @@ export default function AttendeeCheckinScreen() {
               </View>
               <View style={[
                 S.statusBadge,
-                { backgroundColor: attendee.status === 'checked_in' ? theme.colors.successLight : theme.colors.warningLight }
+                { backgroundColor: attendee.status === 'checked_in' ? theme.colors.successLight : theme.colors.infoLight }
               ]}>
                 <Ionicons
-                  name={attendee.status === 'checked_in' ? 'checkmark-circle' : 'time-outline'}
+                  name={attendee.status === 'checked_in' ? 'checkmark-circle' : 'checkmark-circle-outline'}
                   size={14}
-                  color={attendee.status === 'checked_in' ? theme.colors.success : theme.colors.warning}
+                  color={attendee.status === 'checked_in' ? theme.colors.success : theme.colors.info}
                 />
-                <Text style={[S.statusText, { color: attendee.status === 'checked_in' ? theme.colors.success : theme.colors.warning }]}>
-                  {attendee.status === 'checked_in' ? 'Checked In' : 'Pending'}
+                <Text style={[S.statusText, { color: attendee.status === 'checked_in' ? theme.colors.success : theme.colors.info }]}>
+                  {attendee.status === 'checked_in' ? 'Checked In' : 'Accepted'}
                 </Text>
               </View>
             </TouchableOpacity>

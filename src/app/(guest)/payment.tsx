@@ -13,8 +13,9 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { getTheme } from '@/constants/theme';
-import { auth, db } from '../../services/firebase-services';
-import { doc, updateDoc } from 'firebase/firestore';
+import { auth, db, awardLoyaltyPoints, deriveBookingPaymentState, applyEventPayment, getCateringForBooking } from '../../services/firebase-services';
+import { doc, addDoc, collection, getDoc, serverTimestamp } from 'firebase/firestore';
+import { generateAndSendInvoice } from '../../services/invoice-service';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 
 // Paystack brand colours
@@ -48,9 +49,73 @@ export default function PaymentScreen() {
   const expectedAttendance = params.expectedAttendance;
   const bookingId = params.bookingId as string | undefined;
 
+  // Live booking-derived money state (single source of truth).
+  const [liveBooking, setLiveBooking] = useState<any>(null);
+  const [liveCateringItems, setLiveCateringItems] = useState<any[]>([]);
+  const [loadingBooking, setLoadingBooking] = useState(!!bookingId);
+  const [invoiceSent, setInvoiceSent] = useState(false);
+
+  useEffect(() => {
+    if (!bookingId) {
+      setLoadingBooking(false);
+      return;
+    }
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'event_bookings', bookingId));
+        if (!snap.exists()) throw new Error('Booking not found');
+        const b: any = { id: snap.id, ...snap.data() };
+        const catering = await getCateringForBooking(bookingId);
+        // Payment lock: never accept payment for an event that has already happened.
+        const day = String(b.eventDateStr || b.date || b.eventDate || '').slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+          const endOfDay = new Date(`${day}T23:59:59`);
+          if (endOfDay.getTime() < Date.now()) {
+            showAlert({
+              title: 'Event Has Ended',
+              message: 'Payment is no longer available once the event date has passed. Please contact the front desk for billing assistance.',
+              type: 'warning',
+              onConfirm: () => router.back(),
+            });
+            setLoadingBooking(false);
+            return;
+          }
+        }
+        setLiveBooking(b);
+        setLiveCateringItems(catering?.items || []);
+      } catch (e) {
+        showAlert({ title: 'Booking Not Found', message: 'Could not load this booking. Please go back and try again.', type: 'error' });
+      } finally {
+        setLoadingBooking(false);
+      }
+    })();
+  }, [bookingId]);
+
+  const money = liveBooking
+    ? deriveBookingPaymentState(liveBooking, liveCateringItems.reduce((s, i) => s + Number(i.total || 0), 0))
+    : {
+        venueCost: total,
+        cateringTotal: 0,
+        combinedTotal: total,
+        depositRequired: depositAmount,
+        amountPaid: 0,
+        balanceDue: total - depositAmount,
+        paymentStatus: 'none' as const,
+      };
+
+  const hasBooking = !!bookingId && !!liveBooking;
+  const alreadyPaid = money.amountPaid > 0;
+  const payOptions: { key: 'deposit' | 'balance' | 'full'; label: string; amount: number }[] = [];
+  if (!hasBooking || !alreadyPaid) {
+    payOptions.push({ key: 'deposit', label: 'Pay Deposit (50%)', amount: money.depositRequired });
+    payOptions.push({ key: 'full', label: 'Pay In Full', amount: money.combinedTotal });
+  } else if (money.balanceDue > 0) {
+    payOptions.push({ key: 'balance', label: 'Pay Remaining Balance', amount: money.balanceDue });
+  }
+
   // State
   const [step, setStep] = useState<'disclaimer' | 'payment' | 'confirmation'>('disclaimer');
-  const [paymentMode, setPaymentMode] = useState<'deposit' | 'full'>('deposit');
+  const [paymentMode, setPaymentMode] = useState<'deposit' | 'full'>(params.mode === 'full' ? 'full' : 'deposit');
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'biometric'>('card');
   const [isProcessing, setIsProcessing] = useState(false);
   const [confirmationNumber, setConfirmationNumber] = useState('');
@@ -93,8 +158,16 @@ export default function PaymentScreen() {
     }
   };
 
-  const amountToPay = paymentMode === 'full' ? total : depositAmount;
-  const balanceDue = paymentMode === 'full' ? 0 : total - depositAmount;
+  const amountToPay = paymentMode === 'full' ? money.combinedTotal : payOptions.length > 0 ? payOptions[0].amount : 0;
+  const balanceDue = Math.max(0, money.combinedTotal - (hasBooking ? money.amountPaid : paymentMode === 'full' ? money.combinedTotal : money.depositRequired));
+
+  // When arriving to pay an existing balance ("Pay Balance" from My Activity),
+  // preselect the balance option once the live booking has loaded.
+  useEffect(() => {
+    if (params.payBalance === '1' && alreadyPaid && money.balanceDue > 0) {
+      setPaymentMode('balance' as any);
+    }
+  }, [hasBooking, alreadyPaid, money.balanceDue]);
 
   const formatCardNumber = (text: string) => {
     const clean = text.replace(/\D/g, '').slice(0, 16);
@@ -181,21 +254,91 @@ export default function PaymentScreen() {
     await new Promise(r => setTimeout(r, 1600));
 
     try {
+      // Payment lock (belt & braces): refuse if the event date has already passed.
+      if (liveBooking) {
+        const day = String(liveBooking.eventDateStr || liveBooking.date || liveBooking.eventDate || '').slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+          const endOfDay = new Date(`${day}T23:59:59`);
+          if (endOfDay.getTime() < Date.now()) {
+            setIsProcessing(false);
+            showAlert({
+              title: 'Event Has Ended',
+              message: 'Payment can no longer be processed after the event date. Please contact the front desk.',
+              type: 'warning',
+              onConfirm: () => router.back(),
+            });
+            return;
+          }
+        }
+      }
+
       const ref = `${methodPrefix}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
       setConfirmationNumber(ref);
 
+      // 1) Apply the payment to the event booking (accumulates amountPaid,
+      //    re-derives balanceDue/paymentStatus, never downgrades an approved status).
       if (bookingId) {
         try {
-          await updateDoc(doc(db, 'event_bookings', bookingId), {
-            status: 'confirmed',
+          await applyEventPayment(bookingId, amountToPay, {
+            paymentMethod: paymentMethod === 'biometric' ? 'biometric' : 'card',
             paymentReference: ref,
-            amountPaid: amountToPay,
-            paymentMode,
-            paymentMethod,
-            paidAt: new Date().toISOString(),
+            paymentMode: alreadyPaid ? 'balance' : paymentMode,
           });
         } catch (e) {
-          console.warn('Firestore booking update warning:', e);
+          console.warn('Firestore booking payment update warning:', e);
+        }
+      }
+
+      // 2) Record the charge on the guest folio (shows in Billing → Paid Invoices)
+      //    and award loyalty points (10 pts per R100 paid).
+      try {
+        const pointsEarned = Math.floor(amountToPay / 10);
+        const invoiceNo = `INV-AZR-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
+        const items: string[] = [];
+        if (hasBooking || isNewBooking) {
+          items.push(`Venue Reservation: ${roomName}`);
+          if (liveCateringItems.length > 0) {
+            liveCateringItems.forEach((i: any) => items.push(`Catering: ${i.name} (x${i.quantity})`));
+          }
+          if (alreadyPaid) items.push('Remaining Balance Settlement');
+        } else {
+          items.push(roomName);
+        }
+        await addDoc(collection(db, 'payments'), {
+          guestId: user?.uid,
+          guestEmail: user?.email,
+          guestName: user?.displayName || 'Guest',
+          amount: amountToPay,
+          items,
+          status: 'paid',
+          invoiceNumber: invoiceNo,
+          paymentReference: ref,
+          bookingId: bookingId || null,
+          paymentMode: alreadyPaid ? 'balance' : paymentMode,
+          pointsEarned,
+          createdAt: serverTimestamp(),
+          dateStr: new Date().toLocaleDateString(),
+        });
+        if (user?.uid && pointsEarned > 0) {
+          await awardLoyaltyPoints(
+            user.uid,
+            user.uid,
+            pointsEarned,
+            `Payment Reward for ${invoiceNo} (R ${amountToPay.toLocaleString()})`
+          );
+        }
+      } catch (e) {
+        console.warn('Folio payment record warning:', e);
+      }
+
+      // 3) Dispatch the combined venue + catering invoice to the guest's email
+      //    (reuses the existing invoice/EmailJS pipeline).
+      if (bookingId) {
+        try {
+          await generateAndSendInvoice({ type: 'booking_confirmation', recordId: bookingId });
+          setInvoiceSent(true);
+        } catch (e) {
+          console.warn('Invoice email dispatch warning:', e);
         }
       }
 
@@ -208,6 +351,30 @@ export default function PaymentScreen() {
   };
 
   const handleSimulateEmailReceipt = () => {
+    if (invoiceSent) {
+      showAlert({
+        title: 'Receipt Dispatched',
+        message: `Your combined venue & catering invoice has been emailed to ${user?.email || 'your account'}.`,
+        type: 'success',
+      });
+      return;
+    }
+    if (bookingId) {
+      (async () => {
+        try {
+          await generateAndSendInvoice({ type: 'booking_confirmation', recordId: bookingId });
+          setInvoiceSent(true);
+          showAlert({
+            title: 'Receipt Dispatched',
+            message: `Your combined venue & catering invoice has been emailed to ${user?.email || 'your account'}.`,
+            type: 'success',
+          });
+        } catch (e) {
+          showAlert({ title: 'Email Failed', message: 'The receipt could not be emailed right now. Please try again.', type: 'error' });
+        }
+      })();
+      return;
+    }
     showAlert({
       title: 'Receipt Dispatched',
       message: `A PDF receipt for transaction #${confirmationNumber} has been emailed to ${user?.email || 'your account'}.`,
@@ -269,6 +436,13 @@ export default function PaymentScreen() {
             </Text>
           </View>
 
+          {loadingBooking ? (
+            <View style={{ paddingVertical: 48, alignItems: 'center' }}>
+              <ActivityIndicator size="large" color={theme.colors.secondary} />
+              <Text style={{ marginTop: 12, color: theme.colors.textMuted }}>Loading your booking & totals...</Text>
+            </View>
+          ) : (
+          <>
           {/* Billing Summary */}
           <View style={S.breakdownCard}>
             <Text style={S.breakdownTitle}>Billing Summary</Text>
@@ -282,51 +456,90 @@ export default function PaymentScreen() {
                 <Text style={S.breakdownValue}>{checkIn}</Text>
               </View>
             )}
-            {nights && (
+            <View style={S.breakdownRow}>
+              <Text style={S.breakdownLabel}>Venue Cost:</Text>
+              <Text style={S.breakdownValue}>R {money.venueCost.toLocaleString()}</Text>
+            </View>
+            {money.cateringTotal > 0 && (
               <View style={S.breakdownRow}>
-                <Text style={S.breakdownLabel}>Duration:</Text>
-                <Text style={S.breakdownValue}>{nights} {nights === 1 ? 'Day' : 'Days'}</Text>
+                <Text style={S.breakdownLabel}>Catering:</Text>
+                <Text style={S.breakdownValue}>R {money.cateringTotal.toLocaleString()}</Text>
               </View>
             )}
             <View style={S.breakdownDivider} />
             <View style={S.breakdownRow}>
-              <Text style={S.breakdownLabel}>Total Charges (inc. VAT):</Text>
-              <Text style={S.breakdownValue}>R {total.toLocaleString()}</Text>
+              <Text style={S.breakdownLabel}>Combined Total (inc. VAT):</Text>
+              <Text style={S.breakdownValue}>R {money.combinedTotal.toLocaleString()}</Text>
             </View>
-            <View style={S.breakdownRow}>
-              <Text style={S.breakdownLabel}>Minimum Deposit (50%):</Text>
-              <Text style={S.breakdownValue}>R {depositAmount.toLocaleString()}</Text>
-            </View>
+            {alreadyPaid ? (
+              <>
+                <View style={S.breakdownRow}>
+                  <Text style={S.breakdownLabel}>Already Paid:</Text>
+                  <Text style={[S.breakdownValue, { color: theme.colors.success }]}>R {money.amountPaid.toLocaleString()}</Text>
+                </View>
+                <View style={S.breakdownRow}>
+                  <Text style={S.breakdownLabel}>Remaining Balance:</Text>
+                  <Text style={[S.breakdownValue, { color: theme.colors.warning, fontWeight: 'bold' }]}>R {money.balanceDue.toLocaleString()}</Text>
+                </View>
+              </>
+            ) : (
+              <View style={S.breakdownRow}>
+                <Text style={S.breakdownLabel}>Minimum Deposit (50%):</Text>
+                <Text style={S.breakdownValue}>R {money.depositRequired.toLocaleString()}</Text>
+              </View>
+            )}
           </View>
 
           {/* Payment Mode Selector */}
-          <View style={S.paymentSelectorBox}>
-            <Text style={S.paymentSelectorTitle}>Select Payment Amount</Text>
-            <View style={S.paymentToggleContainer}>
-              <TouchableOpacity
-                style={[S.toggleBtn, paymentMode === 'deposit' && S.toggleBtnActive]}
-                onPress={() => setPaymentMode('deposit')}
-              >
-                <Text style={[S.toggleBtnText, paymentMode === 'deposit' && S.toggleBtnTextActive]}>Pay Deposit</Text>
-                <Text style={[{ fontSize: 11, marginTop: 2 }, paymentMode === 'deposit' && { color: '#fff' }]}>
-                  R {depositAmount.toLocaleString()}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[S.toggleBtn, paymentMode === 'full' && S.toggleBtnActive]}
-                onPress={() => setPaymentMode('full')}
-              >
-                <Text style={[S.toggleBtnText, paymentMode === 'full' && S.toggleBtnTextActive]}>Pay Full Amount</Text>
-                <Text style={[{ fontSize: 11, marginTop: 2 }, paymentMode === 'full' && { color: '#fff' }]}>
-                  R {total.toLocaleString()}
-                </Text>
-              </TouchableOpacity>
+          {money.balanceDue > 0 ? (
+            <View style={S.paymentSelectorBox}>
+              <Text style={S.paymentSelectorTitle}>
+                {alreadyPaid ? 'Settle Outstanding Balance' : 'Select Payment Amount'}
+              </Text>
+              {payOptions.length > 1 ? (
+                <View style={S.paymentToggleContainer}>
+                  {payOptions.map((opt) => (
+                    <TouchableOpacity
+                      key={opt.key}
+                      style={[S.toggleBtn, paymentMode === opt.key && S.toggleBtnActive]}
+                      onPress={() => setPaymentMode(opt.key as any)}
+                    >
+                      <Text style={[S.toggleBtnText, paymentMode === opt.key && S.toggleBtnTextActive]}>{opt.label}</Text>
+                      <Text style={[{ fontSize: 11, marginTop: 2 }, paymentMode === opt.key && { color: '#fff' }]}>
+                        R {opt.amount.toLocaleString()}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : (
+                <View style={[S.paymentToggleContainer, { marginBottom: 0 }]}>
+                  <View style={[S.toggleBtn, S.toggleBtnActive]}>
+                    <Text style={[S.toggleBtnText, S.toggleBtnTextActive]}>Pay Remaining Balance</Text>
+                    <Text style={[{ fontSize: 11, marginTop: 2, color: '#fff' }]}>
+                      R {money.balanceDue.toLocaleString()}
+                    </Text>
+                  </View>
+                </View>
+              )}
+              {!alreadyPaid && (
+                <View style={S.balanceRow}>
+                  <Text style={S.balanceLabel}>Remaining Balance Due Later:</Text>
+                  <Text style={S.balanceValue}>R {balanceDue.toLocaleString()}</Text>
+                </View>
+              )}
             </View>
-            <View style={S.balanceRow}>
-              <Text style={S.balanceLabel}>Remaining Balance Due Later:</Text>
-              <Text style={S.balanceValue}>R {balanceDue.toLocaleString()}</Text>
+          ) : (
+            <View style={[S.paymentSelectorBox, { borderColor: theme.colors.success }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Ionicons name="checkmark-circle" size={22} color={theme.colors.success} />
+                <Text style={[S.paymentSelectorTitle, { color: theme.colors.success, marginBottom: 0 }]}>
+                  Paid In Full — R {money.combinedTotal.toLocaleString()}
+                </Text>
+              </View>
             </View>
-          </View>
+          )}
+          </>
+          )}
 
           {/* Secure Badge */}
           <View style={S.secureBadge}>
@@ -341,9 +554,15 @@ export default function PaymentScreen() {
             <TouchableOpacity style={S.cancelBtn} onPress={() => router.back()}>
               <Text style={S.cancelBtnText}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={S.payBtn} onPress={() => setStep('payment')}>
+            <TouchableOpacity
+              style={[S.payBtn, money.balanceDue <= 0 && { backgroundColor: theme.colors.borderStrong }]}
+              onPress={() => setStep('payment')}
+              disabled={loadingBooking || money.balanceDue <= 0}
+            >
               <Ionicons name="card-outline" size={18} color="#fff" style={{ marginRight: 6 }} />
-              <Text style={S.payBtnText}>Pay R {amountToPay.toLocaleString()}</Text>
+              <Text style={S.payBtnText}>
+                {alreadyPaid ? `Pay Balance R ${money.balanceDue.toLocaleString()}` : `Pay R ${amountToPay.toLocaleString()}`}
+              </Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -563,40 +782,52 @@ export default function PaymentScreen() {
           </View>
         </View>
 
-        <View style={S.receiptBox}>
-          <Text style={S.receiptHeader}>CONFIRMATION REF</Text>
-          <Text style={S.receiptRefText}>{confirmationNumber}</Text>
-          <View style={S.receiptDivider} />
-          <View style={S.breakdownRow}>
-            <Text style={S.breakdownLabel}>Space Booked:</Text>
-            <Text style={S.breakdownValue}>{roomName}</Text>
-          </View>
-          {isNewBooking && checkIn && (
+          <View style={S.receiptBox}>
+            <Text style={S.receiptHeader}>CONFIRMATION REF</Text>
+            <Text style={S.receiptRefText}>{confirmationNumber}</Text>
+            <View style={S.receiptDivider} />
             <View style={S.breakdownRow}>
-              <Text style={S.breakdownLabel}>Arrival Date:</Text>
-              <Text style={S.breakdownValue}>{checkIn}</Text>
+              <Text style={S.breakdownLabel}>Space Booked:</Text>
+              <Text style={S.breakdownValue}>{roomName}</Text>
             </View>
-          )}
-          <View style={S.breakdownRow}>
-            <Text style={S.breakdownLabel}>Amount Paid:</Text>
-            <Text style={[S.breakdownValue, { color: theme.colors.success }]}>R {amountToPay.toLocaleString()}</Text>
+            {isNewBooking && checkIn && (
+              <View style={S.breakdownRow}>
+                <Text style={S.breakdownLabel}>Arrival Date:</Text>
+                <Text style={S.breakdownValue}>{checkIn}</Text>
+              </View>
+            )}
+            {money.cateringTotal > 0 && (
+              <View style={S.breakdownRow}>
+                <Text style={S.breakdownLabel}>Catering Included:</Text>
+                <Text style={S.breakdownValue}>R {money.cateringTotal.toLocaleString()}</Text>
+              </View>
+            )}
+            <View style={S.breakdownRow}>
+              <Text style={S.breakdownLabel}>Combined Total:</Text>
+              <Text style={S.breakdownValue}>R {money.combinedTotal.toLocaleString()}</Text>
+            </View>
+            <View style={S.breakdownRow}>
+              <Text style={S.breakdownLabel}>Amount Paid:</Text>
+              <Text style={[S.breakdownValue, { color: theme.colors.success }]}>R {amountToPay.toLocaleString()}</Text>
+            </View>
+            <View style={S.breakdownRow}>
+              <Text style={S.breakdownLabel}>Remaining Balance:</Text>
+              <Text style={S.breakdownValue}>
+                R {Math.max(0, money.combinedTotal - money.amountPaid - amountToPay).toLocaleString()}
+              </Text>
+            </View>
           </View>
-          <View style={S.breakdownRow}>
-            <Text style={S.breakdownLabel}>Remaining Balance:</Text>
-            <Text style={S.breakdownValue}>R {balanceDue.toLocaleString()}</Text>
-          </View>
-        </View>
 
-        <View style={S.actionButtons}>
-          <TouchableOpacity style={S.cancelBtn} onPress={handleSimulateEmailReceipt}>
-            <Ionicons name="mail-outline" size={18} color={theme.colors.secondary} style={{ marginRight: 6 }} />
-            <Text style={S.cancelBtnText}>Email Receipt</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={S.payBtn} onPress={handleCompleteBooking}>
-            <Text style={S.payBtnText}>Continue</Text>
-            <Ionicons name="arrow-forward" size={18} color="#fff" style={{ marginLeft: 6 }} />
-          </TouchableOpacity>
-        </View>
+          <View style={S.actionButtons}>
+            <TouchableOpacity style={S.cancelBtn} onPress={handleSimulateEmailReceipt}>
+              <Ionicons name="mail-outline" size={18} color={theme.colors.secondary} style={{ marginRight: 6 }} />
+              <Text style={S.cancelBtnText}>Email Receipt</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={S.payBtn} onPress={handleCompleteBooking}>
+              <Text style={S.payBtnText}>Continue</Text>
+              <Ionicons name="arrow-forward" size={18} color="#fff" style={{ marginLeft: 6 }} />
+            </TouchableOpacity>
+          </View>
       </ScrollView>
 
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />

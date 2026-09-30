@@ -7,6 +7,7 @@ import { auth, db , submitEventFeedback } from '@/services/firebase-services';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { getTheme } from '@/constants/theme';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
+import { todayISO } from '@/utils/dates';
 
 interface RatingCategory {
   key: 'venue' | 'catering' | 'staff' | 'setup';
@@ -71,19 +72,16 @@ export default function EventFeedbackScreen() {
       if (eventDoc.exists()) {
         const eventData = eventDoc.data() as any;
         const eventDateVal = eventData.eventDateStr || eventData.eventDate;
-        if (eventDateVal) {
-          const eventDateObj = new Date(eventDateVal);
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          if (eventDateObj > today) {
-            showAlert({
-              title: '🔒 Event Not Yet Completed',
-              message: 'Feedback can only be submitted after the event date has taken place.',
-              type: 'warning',
-            });
-            setSubmitting(false);
-            return;
-          }
+        const eventDay = String(eventDateVal || '').slice(0, 10);
+        const todayStr = todayISO();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(eventDay) && eventDay > todayStr) {
+          showAlert({
+            title: 'Event Not Yet Completed',
+            message: 'Feedback can only be submitted on or after the event date.',
+            type: 'warning',
+          });
+          setSubmitting(false);
+          return;
         }
       }
 
@@ -110,9 +108,16 @@ export default function EventFeedbackScreen() {
         return;
       }
 
+      let guestName = user.displayName || 'Anonymous Guest';
+      try {
+        const userSnap = await getDoc(doc(db, 'users', (user.email || '').toLowerCase()));
+        guestName = userSnap.data()?.name || guestName;
+      } catch { /* keep fallback */ }
+
       await submitEventFeedback({
         eventId,
         guestId: user.uid,
+        guestName,
         ratings: ratings as any,
         comments,
       });

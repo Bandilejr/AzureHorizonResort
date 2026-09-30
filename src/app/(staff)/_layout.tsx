@@ -4,6 +4,7 @@ import { useColorScheme } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { usePermissions } from '@/context/PermissionsContext';
 import { getTheme } from '@/constants/theme';
+import RouteGuard from '@/components/RouteGuard';
 
 const STAFF_TABS_CONFIG = {
   'staff-dashboard': { title: 'Dashboard', icon: 'speedometer' },
@@ -12,21 +13,16 @@ const STAFF_TABS_CONFIG = {
   'live-complaints': { title: 'Complaints', icon: 'warning' },
 };
 
-const HIDDEN_SCREENS = [
-  'staff-checkin',
-  'post-event-inspection',
-  'damage-resolution',
-  'refund-management',
-  'today-events',
-  'event-ops',
-  'clock-in-out',
-  'loyalty-scanner',
-];
-
-export default function StaffLayout() {
+function StaffLayoutInner() {
   const { profile, loading } = useAuth();
+  const { hasPermission } = usePermissions();
   const colorScheme = useColorScheme();
   const theme = getTheme(colorScheme as any);
+
+  // SRS UC39–43 (staff) vs Increment-1 hotel ops: hide tabs the sub-role lacks.
+  const canEventOps = hasPermission('attendee_checkin') || hasPermission('staff_checkin');
+  const canInspect = hasPermission('pre_inspection') || hasPermission('post_inspection');
+  const canComplaints = hasPermission('live_complaints');
 
   if (loading) {
     return (
@@ -42,14 +38,6 @@ export default function StaffLayout() {
       </Tabs>
     );
   }
-
-  // 4 Core Main Tabs for Staff Navigation
-  const availableTabs = [
-    'staff-dashboard',
-    'attendee-checkin',
-    'pre-event-inspection',
-    'live-complaints',
-  ];
 
   return (
     <Tabs
@@ -76,18 +64,35 @@ export default function StaffLayout() {
       }}
     >
       <Tabs.Screen name="staff-dashboard" options={{ title: 'Dashboard' }} />
-      <Tabs.Screen name="attendee-checkin" options={{ title: 'Event Ops' }} />
-      <Tabs.Screen name="pre-event-inspection" options={{ title: 'Inspections' }} />
-      <Tabs.Screen name="live-complaints" options={{ title: 'Complaints' }} />
+      <Tabs.Screen name="attendee-checkin" options={canEventOps ? { title: 'Event Ops' } : { href: null, title: 'Event Ops' }} />
+      <Tabs.Screen name="pre-event-inspection" options={canInspect ? { title: 'Inspections' } : { href: null, title: 'Inspections' }} />
+      <Tabs.Screen name="live-complaints" options={canComplaints ? { title: 'Complaints' } : { href: null, title: 'Complaints' }} />
 
+      {/* Hidden stack screens — employment UCs (UC39–43) */}
       <Tabs.Screen name="staff-checkin" options={{ href: null }} />
       <Tabs.Screen name="post-event-inspection" options={{ href: null }} />
       <Tabs.Screen name="damage-resolution" options={{ href: null }} />
-      <Tabs.Screen name="refund-management" options={{ href: null }} />
       <Tabs.Screen name="today-events" options={{ href: null }} />
       <Tabs.Screen name="event-ops" options={{ href: null }} />
       <Tabs.Screen name="clock-in-out" options={{ href: null }} />
+      <Tabs.Screen name="notifications" options={{ href: null }} />
+      <Tabs.Screen name="availability-leave" options={{ href: null }} />
+      <Tabs.Screen name="my-roster" options={{ href: null }} />
+      <Tabs.Screen name="shift-swaps" options={{ href: null }} />
+      <Tabs.Screen name="open-shifts" options={{ href: null }} />
+      <Tabs.Screen name="sync-queue" options={{ href: null }} />
+
+      {/* Admin-only actors live under (admin); keep files routed but never linked from staff. */}
+      <Tabs.Screen name="refund-management" options={{ href: null }} />
       <Tabs.Screen name="loyalty-scanner" options={{ href: null }} />
     </Tabs>
+  );
+}
+
+export default function StaffLayout() {
+  return (
+    <RouteGuard allow={['staff', 'kitchen', 'admin', 'courier']}>
+      <StaffLayoutInner />
+    </RouteGuard>
   );
 }

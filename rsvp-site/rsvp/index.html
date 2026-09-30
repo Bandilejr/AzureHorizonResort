@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:," />
+  <title>Event Invitation — Azure Horizon</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 40px 32px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+    }
+    .badge {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      margin: 0 auto 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 34px;
+    }
+    .ok .badge { background: #dcfce7; }
+    .err .badge { background: #fee2e2; }
+    .pending .badge { background: #f1f5f9; }
+    h1 { font-size: 22px; color: #1e293b; margin-bottom: 10px; }
+    p { font-size: 15px; color: #64748b; line-height: 1.6; }
+    .sub { margin-top: 18px; font-size: 12px; color: #94a3b8; }
+    .spin {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: 4px solid #e2e8f0; border-top-color: #1e3a5f;
+      margin: 0 auto 16px; animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="card pending" id="card">
+    <div class="spin" id="spinner"></div>
+    <div id="icon" class="badge" style="display:none;"></div>
+    <h1 id="heading">Processing your response…</h1>
+    <p id="message">Connecting to Azure Horizon Resort.</p>
+    <p class="sub">Azure Horizon Resort &amp; Spa · Event Invitation</p>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js';
+    import { getFirestore, doc, updateDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
+
+    const SECRET = 'azure-horizon-demo-signing-secret-2026';
+
+    const firebaseConfig = {
+      apiKey: 'AIzaSyBRt04Rm3Ry9nW_DlTm3TsR8bCzkPvxvSA',
+      authDomain: 'hotel-management-system-c3526.firebaseapp.com',
+      projectId: 'hotel-management-system-c3526',
+      storageBucket: 'hotel-management-system-c3526.firebasestorage.app',
+      messagingSenderId: '7196606684',
+      appId: '1:7196606684:web:66cb6e026807b517f17419',
+    };
+
+    const card = document.getElementById('card');
+    const spinner = document.getElementById('spinner');
+    const icon = document.getElementById('icon');
+    const heading = document.getElementById('heading');
+    const message = document.getElementById('message');
+
+    const showResult = (ok, iconText, title, text) => {
+      card.className = 'card ' + (ok ? 'ok' : 'err');
+      spinner.style.display = 'none';
+      icon.style.display = 'flex';
+      icon.textContent = iconText;
+      heading.textContent = title;
+      message.innerHTML = text;
+    };
+
+    const sha256Hex = async (text) => {
+      const data = new TextEncoder().encode(text);
+      const digest = await crypto.subtle.digest('SHA-256', data);
+      return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+    };
+
+    const main = async () => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const invitationId = (params.get('invitationId') || '').trim();
+      const eventId = (params.get('eventId') || '').trim();
+      const response = (params.get('response') || '').trim().toLowerCase();
+      const token = (params.get('token') || '').trim();
+
+      if (!invitationId || !eventId || !['accepted', 'declined'].includes(response) || !token) {
+        showResult(false, '⚠️', 'Invalid RSVP link',
+          'This invitation link is missing required details. Please open the invitation email again and use the buttons inside it.');
+        return;
+      }
+
+      const expectedToken = await sha256Hex(SECRET + invitationId + ':' + response);
+      if (token !== expectedToken) {
+        showResult(false, '🔒', 'Invalid link signature',
+          'This RSVP link could not be verified. Please use the buttons from your invitation email.');
+        return;
+      }
+
+      const app = initializeApp(firebaseConfig);
+      const db = getFirestore(app);
+
+      const invitationRef = doc(db, 'event_invitations', invitationId);
+      try {
+        await updateDoc(invitationRef, {
+          rsvpStatus: response,
+          respondedAt: serverTimestamp(),
+        });
+      } catch (err) {
+        if (err && err.code === 'not-found') {
+          showResult(false, '🔍', 'Invitation not found',
+            'We could not find this invitation. The link may be outdated or the invitation was removed.');
+        } else {
+          console.error('RSVP update error:', err);
+          showResult(false, '⚠️', 'Something went wrong',
+            'We could not save your response right now. Please try again in a few minutes.');
+        }
+        return;
+      }
+
+      showResult(true, response === 'accepted' ? '✅' : '✋',
+        response === 'accepted' ? `You're going! 🎉` : `Thanks for letting us know`,
+        response === 'accepted'
+          ? `Your RSVP has been recorded as <strong>Accepted</strong>. Please present your unique QR Pass upon entry on the day of the event.`
+          : `Your RSVP has been recorded as <strong>Declined</strong>. We hope to host you at another Azure Horizon event soon.`);
+    } catch (err) {
+      console.error('RSVP error:', err);
+      showResult(false, '⚠️', 'Something went wrong',
+        'We could not save your response right now. Please try again in a few minutes.');
+    }
+    };
+
+    main();
+  </script>
+</body>
+</html>

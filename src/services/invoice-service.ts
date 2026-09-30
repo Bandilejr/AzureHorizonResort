@@ -308,17 +308,19 @@ async function sendInvoiceEmail(args: {
   invoiceNumber: string;
   subject: string;
   htmlContent: string;
+  amount?: number;
 }): Promise<{ messageId: string; previewUrl?: string }> {
   try {
     const { sendInvoiceEmailViaEmailJS } = await import('./emailjs-service');
+    const realAmount = Number(args.amount) || 0;
     const success = await sendInvoiceEmailViaEmailJS({
       to_email: args.toEmail,
       to_name: args.guestName,
       subject: args.subject,
       invoice_number: args.invoiceNumber,
-      amount: 0,
+      amount: realAmount,
       type: 'Invoice',
-      message: `Dear ${args.guestName},\n\nYour official invoice #${args.invoiceNumber} from Azure Horizon Resort is ready.\n\nThank you for choosing Azure Horizon.`,
+      message: `Dear ${args.guestName},\n\nYour official invoice #${args.invoiceNumber} from Azure Horizon Resort is ready.\n\nTotal Amount: R ${realAmount.toLocaleString()}${realAmount > 0 ? `\n\nThis amount has been processed on your Azure Horizon account.` : ''}\n\nThank you for choosing Azure Horizon.`,
     });
 
     const messageId = `<msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}@azurehorizon.com>`;
@@ -424,35 +426,59 @@ export async function generateAndSendInvoice(params: {
     }
     const bookingData = bookingSnap.data() as any;
     guestId = bookingData.guestId || bookingData.userId || '';
-    amount = Number(bookingData.totalCost || bookingData.totalPaidAmount || bookingData.totalAmount) || 0;
+
+    const combinedTotal = Number(bookingData.combinedTotal || 0);
+    const venueCost = Number(bookingData.totalAmount || bookingData.venueCost || 0);
+    const cateringTotal = Number(bookingData.cateringTotal || 0);
+    const amountPaid = Number(bookingData.amountPaid || bookingData.paidAmount || 0);
+    const balanceDue = Number(bookingData.balanceDue ?? Math.max(0, combinedTotal - amountPaid));
+
+    amount = combinedTotal || venueCost + cateringTotal || Number(bookingData.totalCost || bookingData.totalPaidAmount || 0);
 
     lineItems = [
       {
-        name: `Venue Reservation: ${bookingData.venueName || 'Resort Hall'} (${bookingData.eventDate || 'Confirmed Date'})`,
+        name: `Venue Reservation: ${bookingData.venueName || 'Resort Hall'} (${bookingData.eventDate || bookingData.eventDateStr || 'Confirmed Date'})`,
         quantity: 1,
-        price: Number(bookingData.venueCost || amount * 0.7) || amount,
-        subtotal: Number(bookingData.venueCost || amount * 0.7) || amount,
+        price: venueCost,
+        subtotal: venueCost,
       },
     ];
 
-    if (bookingData.cateringOption || bookingData.cateringCost) {
-      const catCost = Number(bookingData.cateringCost || amount * 0.3) || 0;
-      lineItems.push({
-        name: `Catering Package: ${bookingData.cateringOption || 'Standard Package'}`,
-        quantity: bookingData.guestCount || 1,
-        price: Math.round(catCost / (bookingData.guestCount || 1)),
-        subtotal: catCost,
-      });
+    const catItems: any[] = bookingData.cateringItems || [];
+    if (cateringTotal > 0) {
+      if (catItems.length > 0) {
+        catItems.forEach((ci: any) => {
+          lineItems.push({
+            name: `Catering: ${ci.name || 'Package'} @ R${Number(ci.pricePerPerson || 0).toLocaleString()} pp`,
+            quantity: Number(ci.quantity || 1),
+            price: Number(ci.pricePerPerson || 0),
+            subtotal: Number(ci.total || 0),
+          });
+        });
+      } else {
+        lineItems.push({
+          name: `Catering Package (${bookingData.expectedAttendance || 30} guests)`,
+          quantity: Number(bookingData.expectedAttendance || 1),
+          price: Math.round(cateringTotal / Number(bookingData.expectedAttendance || 1)),
+          subtotal: cateringTotal,
+        });
+      }
     }
 
-    subtotal = Math.round((amount / 1.15) * 100) / 100;
-    tax = Math.round((amount - subtotal) * 100) / 100;
+    const paidNow = Number(bookingData.lastPaymentAmountNow || 0) || amountPaid;
+    subtotal = combinedTotal || amount;
+    tax = 0;
+    amount = paidNow > 0 ? paidNow : combinedTotal || amount;
 
     details = [
       { label: 'Booking Reference', value: recordId },
-      { label: 'Event Date', value: bookingData.eventDate || 'N/A' },
+      { label: 'Event Date', value: bookingData.eventDateStr || bookingData.eventDate || 'N/A' },
       { label: 'Time Slot', value: bookingData.timeSlot || 'Full Day' },
-      { label: 'Payment Status', value: 'CONFIRMED & PAID' },
+      { label: 'Headcount', value: `${bookingData.expectedAttendance || 30} guests` },
+      { label: 'Total (Venue + Catering)', value: `R ${(combinedTotal || amount).toLocaleString()}` },
+      { label: 'Amount Paid', value: `R ${paidNow.toLocaleString()}` },
+      { label: 'Balance Due', value: `R ${balanceDue.toLocaleString()}` },
+      { label: 'Payment Status', value: String(bookingData.paymentStatus || 'deposit_paid').split('_').join(' ').toUpperCase() },
     ];
   }
 
@@ -503,6 +529,7 @@ export async function generateAndSendInvoice(params: {
       invoiceNumber,
       subject: `🧾 Azure Horizon Invoice #${invoiceNumber} — ${title}`,
       htmlContent,
+      amount,
     });
     messageId = mailResult.messageId;
     previewUrl = mailResult.previewUrl;
@@ -595,6 +622,7 @@ export async function generateAndSendRefundRejectionEmail(options: {
     invoiceNumber: outcomeRef,
     subject: `❌ Refund Request Outcome #${outcomeRef} — Request Declined`,
     htmlContent,
+    amount: requestedAmount,
   });
 
   return {

@@ -1,15 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
-  ScrollView,
   useColorScheme,
-  Modal,
-  FlatList,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,736 +14,338 @@ import { getTheme } from '@/constants/theme';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 import {
   PunchRecord,
-  PunchType,
-  punchClock,
-  getHotelGeofence,
   getCurrentPosition,
-  latestClockState,
-  listenTodaysPunches,
   haversineMeters,
   formatDistance,
-  punchTimeLabel,
-  ATTENDANCE_RADIUS_METERS,
+  listenTodaysPunches,
+  type PositionFix,
 } from '@/services/attendance';
-import { db } from '@/services/firebase-services';
-import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-interface RosterMember {
-  id: string;
-  name: string;
-  role: string;
-  subRole: string;
-  active: boolean;
-  registeredDeviceId?: string;
-}
-
-// ─── DUT Ritson Campus anchor (client-side fallback if Firestore setting absent) ──
-// Precise coordinates — Steve Biko Rd, Durban, 4001
-export const DUT_RITSON_LAT = -29.8606;
-export const DUT_RITSON_LNG = 30.9803;
-
-// Off-site punches are FLAGGED not blocked (Business Rule Decision B — confirmed in attendance.ts comments)
-// If you want to change this to a hard block, reply and I'll flip it.
+import {
+  clockIn,
+  clockOut,
+  getTodaysSession,
+  autoCloseOverdueSessions,
+} from '@/services/attendance-sessions';
+import { ensureDeviceEnrollment, requestDeviceReset } from '@/services/device';
+import { getDefaultWorksite, getAttendanceConfig, evaluateGeofence } from '@/services/worksites';
+import { DEFAULT_ATTENDANCE_CONFIG, type AttendanceSession, type Worksite, type AttendanceConfig } from '@/types/workforce';
+import { WorksiteMap } from '@/components/WorksiteMap';
 
 export default function ClockInPanel() {
-  const { user, profile } = useAuth();
+  const { user, profile, signOut } = useAuth();
   const colorScheme = useColorScheme();
   const theme = getTheme(colorScheme as any);
   const S = createStyles(theme);
 
-  // ── State ────────────────────────────────────────────────────────────────
-  const [roster, setRoster] = useState<RosterMember[]>([]);
-  const [rosterLoading, setRosterLoading] = useState(true);
-  const [selectedMember, setSelectedMember] = useState<RosterMember | null>(null);
-  const [showRosterPicker, setShowRosterPicker] = useState(false);
-
   const [punches, setPunches] = useState<PunchRecord[]>([]);
+  const [session, setSession] = useState<AttendanceSession | null>(null);
+  const [worksite, setWorksite] = useState<Worksite | null>(null);
+  const [config, setConfig] = useState<AttendanceConfig | null>(null);
   const [busy, setBusy] = useState(false);
-  const [locating, setLocating] = useState(true);
+  const [booting, setBooting] = useState(true);
   const [myDistance, setMyDistance] = useState<number | null>(null);
-  const [geofenceCenter, setGeofenceCenter] = useState<{ lat: number; lng: number; radiusM: number } | null>(null);
-
-  // ── Load Staff Roster from Firestore ────────────────────────────────────
-  useEffect(() => {
-    const loadRoster = async () => {
-      try {
-        const snap = await getDocs(
-          query(collection(db, 'staff_roster'), where('active', '==', true))
-        );
-        const members: RosterMember[] = snap.docs.map(d => ({
-          id: d.id,
-          ...(d.data() as Omit<RosterMember, 'id'>),
-        }));
-        members.sort((a, b) => a.name.localeCompare(b.name));
-        setRoster(members);
-      } catch (err) {
-        console.warn('Could not load staff roster:', err);
-        // Fallback to hard-coded roster so the UI is never empty
-        setRoster([
-          { id: 'staff_001', name: 'Sipho Dlamini', role: 'Events Coordinator', subRole: 'event_ops', active: true },
-          { id: 'staff_002', name: 'Ayanda Mthembu', role: 'Front Desk Officer', subRole: 'staff_checkin', active: true },
-          { id: 'staff_003', name: 'Thabo Nkosi', role: 'Venue Inspector', subRole: 'pre_inspection', active: true },
-          { id: 'staff_004', name: 'Nomvula Zulu', role: 'Guest Relations', subRole: 'live_complaints', active: true },
-          { id: 'staff_005', name: 'Lungelo Mthethwa', role: 'Damage Resolution Technician', subRole: 'damage_resolution', active: true },
-          { id: 'staff_006', name: 'Zanele Khumalo', role: 'Catering Coordinator', subRole: 'event_ops', active: true },
-          { id: 'staff_007', name: 'Mpho Mokoena', role: 'Refund & Finance Officer', subRole: 'refund_approve', active: true },
-          { id: 'staff_008', name: 'Bongani Cele', role: 'Security & Access Control', subRole: 'attendee_checkin', active: true },
-        ]);
-      } finally {
-        setRosterLoading(false);
-      }
-    };
-    loadRoster();
-  }, []);
-
-  // ── Today's Punches (live) ───────────────────────────────────────────────
-  useEffect(() => {
-    const unsub = listenTodaysPunches(
-      (all) => setPunches(all),
-      (err) => console.warn('punch subscription error:', err)
-    );
-    return unsub;
-  }, []);
+  const [myFix, setMyFix] = useState<PositionFix | null>(null);
+  const [myFixAt, setMyFixAt] = useState<number | null>(null);
+  const [deviceNote, setDeviceNote] = useState('');
 
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({
     visible: false,
     title: '',
     message: '',
   });
+  const showAlert = (c: Omit<AlertConfig, 'visible'>) =>
+    setAlertConfig({ ...c, visible: true });
 
-  const showAlert = (config: Omit<AlertConfig, 'visible'>) => {
-    setAlertConfig({ ...config, visible: true });
-  };
+  const identityName = profile?.displayName || user?.displayName || 'Staff Member';
+  const employeeId = profile?.employeeId || '—';
 
-  // ── Geolocate on mount ───────────────────────────────────────────────────
-  const locateMe = useCallback(async () => {
+  const bootstrap = useCallback(async () => {
+    setBooting(true);
     try {
-      // Request permission first (graceful denial handling)
-      if (Platform.OS !== 'web') {
-        const { requestForegroundPermissionsAsync } = await import('expo-location');
-        const { status } = await requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          showAlert({
-            title: '📍 Location Permission Required',
-            message: 'Clock-in requires your device location to verify on-site presence at DUT Ritson Campus. Please allow location access in your device settings to continue.',
-            type: 'warning',
-          });
-          setLocating(false);
-          return;
+      const [ws, cfg, sess] = await Promise.all([
+        getDefaultWorksite(),
+        getAttendanceConfig(),
+        getTodaysSession().catch(() => null),
+      ]);
+      setWorksite(ws);
+      setConfig(cfg);
+      setSession(sess);
+      autoCloseOverdueSessions().catch(() => {});
+      try {
+        const enr = await ensureDeviceEnrollment();
+        setDeviceNote(
+          enr.isFirstEnrollment
+            ? 'Device registered for this account.'
+            : 'This device is authorized.',
+        );
+      } catch (e: any) {
+        setDeviceNote(e?.message || 'Device not authorized.');
+      }
+      if (ws) {
+        // Phase 1 (§15/§17): capture the REAL fix (never substituted) for the
+        // schematic map; punches re-validate with a fresh fix in the session service.
+        try {
+          if (Platform.OS !== 'web') {
+            const { requestForegroundPermissionsAsync } = await import('expo-location');
+            const { status } = await requestForegroundPermissionsAsync();
+            if (status !== 'granted') throw new Error('Location permission not granted.');
+          }
+          const pos = await getCurrentPosition();
+          setMyFix(pos);
+          setMyFixAt(Date.now());
+          setMyDistance(haversineMeters(pos.lat, pos.lng, ws.lat, ws.lng));
+        } catch {
+          setMyFix(null);
+          setMyFixAt(null);
+          setMyDistance(null);
         }
       }
-
-      // Get geofence centre (from Firestore, fallback to DUT Ritson hardcoded)
-      let center = await getHotelGeofence();
-      if (!center) {
-        center = { lat: DUT_RITSON_LAT, lng: DUT_RITSON_LNG, radiusM: ATTENDANCE_RADIUS_METERS };
-      }
-      setGeofenceCenter(center);
-
-      const pos = await getCurrentPosition();
-      setMyDistance(haversineMeters(pos.lat, pos.lng, center.lat, center.lng));
-    } catch (err) {
-      console.warn('Could not determine location:', err);
-      setMyDistance(null);
+    } catch (e: any) {
+      showAlert({
+        title: 'Attendance unavailable',
+        message: e?.message || 'Could not load attendance data.',
+        type: 'error',
+      });
     } finally {
-      setLocating(false);
+      setBooting(false);
     }
   }, []);
 
   useEffect(() => {
-    locateMe();
-  }, [locateMe]);
+    bootstrap();
+  }, [bootstrap]);
 
-  // ── Computed values ──────────────────────────────────────────────────────
-  const onSite = myDistance != null && myDistance <= (geofenceCenter?.radiusM ?? ATTENDANCE_RADIUS_METERS);
+  useEffect(() => {
+    if (!user?.uid) return;
+    return listenTodaysPunches(
+      (all) => setPunches(all.filter((p) => p.staffUid === user.uid)),
+      () => {},
+    );
+  }, [user?.uid]);
 
-  // Filter punches for selected member (by rosterId stored in staffRosterId field, or by name)
-  const memberPunches = selectedMember
-    ? punches.filter(p => p.staffName === selectedMember.name || (p as any).staffRosterId === selectedMember.id)
-    : punches;
-  const state = latestClockState(memberPunches);
+  const clockedIn = session?.status === 'clocked_in';
 
-  // ── Clock-in / Clock-out punch ───────────────────────────────────────────
-  const doPunch = async (type: PunchType) => {
+  // Phase 1 (§17): indicative client-side geofence state for the map display.
+  // The session service re-validates with a fresh fix — transaction is authoritative.
+  const geofenceResult = useMemo(() => {
+    if (!worksite || !myFix || myFixAt == null) return null;
+    return evaluateGeofence(
+      { lat: worksite.lat, lng: worksite.lng, radiusM: worksite.radiusM },
+      { lat: myFix.lat, lng: myFix.lng, accuracyM: myFix.accuracyM, ageMs: Date.now() - myFixAt },
+      config || DEFAULT_ATTENDANCE_CONFIG,
+    );
+  }, [worksite, myFix, myFixAt, config]);
+
+  const doPunch = async (type: 'in' | 'out') => {
     if (busy) return;
-
-    if (!selectedMember) {
-      Alert.alert('Select Staff Member', 'Please select your name from the staff roster before clocking in/out.');
+    if (!user) {
+      showAlert({ title: 'Not signed in', message: 'Sign in to clock in/out.', type: 'error' });
       return;
     }
-
-    // Validate clock-out has an open clock-in
-    if (type === 'out') {
-      const hasOpenClockIn = memberPunches.length > 0 && memberPunches[0].punchType === 'in';
-      if (!hasOpenClockIn) {
-        Alert.alert(
-          '⚠️ No Open Clock-In',
-          `${selectedMember.name} has no open clock-in for today. Please clock in first.`
-        );
-        return;
-      }
-    }
-
     setBusy(true);
-
     try {
-      // ── FACTOR 2: POSSESSION (Device ID Binding Check) ──
-      const Constants = await import('expo-constants');
-      const currentDeviceId = Constants.default.installationId || `${Platform.OS}-${selectedMember.id}`;
-
-      let isFirstTimeEnrollment = false;
-      let deviceMatchPassed = true;
-
-      try {
-        const { doc: firestoreDoc, getDoc, setDoc } = await import('firebase/firestore');
-        const memberRef = firestoreDoc(db, 'staff_roster', selectedMember.id);
-        const memberSnap = await getDoc(memberRef);
-
-        if (memberSnap.exists()) {
-          const data = memberSnap.data() as any;
-          if (!data.registeredDeviceId) {
-            isFirstTimeEnrollment = true;
-            await setDoc(memberRef, {
-              registeredDeviceId: currentDeviceId,
-              registeredAt: new Date().toISOString(),
-              registeredDeviceModel: Platform.OS,
-            }, { merge: true });
-          } else if (data.registeredDeviceId !== currentDeviceId) {
-            deviceMatchPassed = false;
-            showAlert({
-              title: '🔒 Device Binding Mismatch',
-              message: `This name (${selectedMember.name}) is registered to a different device.\n\nIf this is your device, contact an admin to reset your registration.`,
-              type: 'error',
-            });
-            setBusy(false);
-            return;
-          }
-        }
-      } catch (bindErr) {
-        console.warn('Device binding lookup error:', bindErr);
-      }
-
-      // ── FACTOR 3: INHERENCE (Device Biometric Authentication) ──
-      let biometricPassed = false;
-      let biometricMethod = 'none_enrolled';
-
-      if (Platform.OS !== 'web') {
-        try {
-          const LocalAuthentication = await import('expo-local-authentication');
-          const hasHardware = await LocalAuthentication.hasHardwareAsync();
-          const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-
-          if (hasHardware && isEnrolled) {
-            const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
-            if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
-              biometricMethod = 'facial_recognition';
-            } else if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
-              biometricMethod = 'fingerprint';
-            } else {
-              biometricMethod = 'biometric_generic';
-            }
-
-            const bioRes = await LocalAuthentication.authenticateAsync({
-              promptMessage: `Confirm it's you — ${selectedMember.name}`,
-              cancelLabel: 'Cancel',
-              disableDeviceFallback: false,
-            });
-
-            if (!bioRes.success) {
-              showAlert({
-                title: '⚠️ Biometric Verification Failed',
-                message: `Biometric identity confirmation failed or was canceled. Clock ${type === 'in' ? 'in' : 'out'} aborted.`,
-                type: 'warning',
-              });
-              setBusy(false);
-              return;
-            }
-            biometricPassed = true;
-          }
-        } catch (bioErr) {
-          console.warn('Biometrics check error:', bioErr);
-        }
-
-        // ── FACTOR 4 (Location Guard Check) ──
-        const { requestForegroundPermissionsAsync } = await import('expo-location');
-        const { status } = await requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          showAlert({
-            title: '📍 Location Required',
-            message: 'Location permission is needed to record your clock-in. Please enable it in Settings.',
-            type: 'warning',
-          });
-          setBusy(false);
-          return;
-        }
-      }
-
-      // ── FACTOR 4: LOCATION & PUNCH RECORD EXECUTION ──
-      const wasOnSite = onSite;
-      const overallStatus = wasOnSite ? (type === 'in' ? 'clocked-in' : 'clocked-out') : 'flagged';
-
-      const res = await punchClock(
-        type,
-        {
-          uid: user?.uid || 'shared_staff',
-          displayName: selectedMember.name,
-        },
-        {
-          staffRosterId: selectedMember.id,
-          deviceId: currentDeviceId,
-          deviceMatchPassed,
-          isFirstTimeEnrollment,
-          biometricPassed,
-          biometricMethod,
-          overallStatus,
-        }
-      );
-
-      setMyDistance(res.distanceM);
-      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const distLabel = formatDistance(res.distanceM);
-      const campusLabel = 'DUT Ritson Campus';
-
-      const enrollmentText = isFirstTimeEnrollment ? '\n📱 Device Registered: First-time device enrollment bound to identity.' : '';
-      const bioText = biometricPassed ? `\n👤 Biometric Verified: ${biometricMethod}` : '\n⚠️ Biometrics: No enrolled hardware on device';
-
-      if (wasOnSite) {
+      if (type === 'in') {
+        const res = await clockIn();
+        setSession(res.session);
+        setMyDistance(res.distanceM);
         showAlert({
-          title: `✅ ${selectedMember.name} — Clocked ${type === 'in' ? 'In' : 'Out'}`,
-          message: `Punched ${type === 'in' ? 'in' : 'out'} at ${timeStr}\n📍 ${distLabel} from ${campusLabel} (On-site ✓)${enrollmentText}${bioText}\n🔒 All 4 Authentication Factors Passed`,
+          title: 'Clocked In',
+          message: `You're clocking in as ${identityName} (${employeeId}).\nDistance: ${formatDistance(res.distanceM)} from ${worksite?.name || 'worksite'}.`,
           type: 'success',
         });
       } else {
+        const res = await clockOut();
+        setSession(res.session);
+        setMyDistance(res.distanceM);
         showAlert({
-          title: `⚠️ ${selectedMember.name} — Off-Site Punch`,
-          message: `Punched ${type === 'in' ? 'in' : 'out'} at ${timeStr}\n📍 ${distLabel} from ${campusLabel}\n⚠️ Flagged as off-site — manager will be notified for review.${enrollmentText}${bioText}`,
-          type: 'warning',
+          title: 'Clocked Out',
+          message: `Clocked out at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.\nDistance: ${formatDistance(res.distanceM)}.`,
+          type: 'success',
         });
       }
+      const sess = await getTodaysSession().catch(() => null);
+      setSession(sess);
     } catch (e: any) {
-      showAlert({ title: 'Clock Failed', message: e.message || 'Could not record punch. Please try again.', type: 'error' });
+      const msg = e?.message || 'Punch failed.';
+      if (/device is not authorized|different device|reset/i.test(msg)) {
+        showAlert({
+          title: 'Device not authorized',
+          message: `${msg}\n\nRequest a device reset?`,
+          type: 'warning',
+        });
+        setDeviceNote(msg);
+      } else {
+        showAlert({ title: type === 'in' ? 'Clock-in blocked' : 'Clock-out blocked', message: msg, type: 'error' });
+      }
     } finally {
       setBusy(false);
     }
   };
 
-  // ── Render ───────────────────────────────────────────────────────────────
-  const distLabel = myDistance != null ? formatDistance(myDistance) : null;
-  const radiusM = geofenceCenter?.radiusM ?? ATTENDANCE_RADIUS_METERS;
-  const statusCardColor = locating
-    ? theme.colors.secondary
-    : onSite
-    ? '#16a34a'   // green
-    : '#dc2626';  // red
-
-  const handleResetDevice = async (member: any) => {
-    showAlert({
-      title: '🔄 Reset Device Registration',
-      message: `Reset device binding for ${member.name}?\n\nThis will allow ${member.name} to register a new phone on their next clock-in.`,
-      type: 'warning',
-      confirmText: 'Reset Device',
-      cancelText: 'Cancel',
-      onConfirm: async () => {
-        try {
-          const { doc: firestoreDoc, updateDoc } = await import('firebase/firestore');
-          await updateDoc(firestoreDoc(db, 'staff_roster', member.id), {
-            registeredDeviceId: null,
-            registeredAt: null,
-          });
-          setRoster(prev => prev.map(m => m.id === member.id ? { ...m, registeredDeviceId: undefined } : m));
-          showAlert({ title: '✅ Device Reset', message: `Device registration reset for ${member.name}.`, type: 'success' });
-        } catch (err: any) {
-          showAlert({ title: 'Error', message: err.message || 'Could not reset device.', type: 'error' });
-        }
-      },
-    });
+  const onRequestReset = async () => {
+    try {
+      await requestDeviceReset('Employee requested reset from clock-in panel');
+      setDeviceNote('Device reset requested — waiting for administrator approval.');
+      showAlert({
+        title: 'Reset requested',
+        message: 'Your administrator must approve the reset before a new device can enroll.',
+        type: 'info',
+      });
+    } catch (e: any) {
+      showAlert({ title: 'Request failed', message: e?.message || 'Could not submit request.', type: 'error' });
+    }
   };
 
+  if (booting) {
+    return (
+      <View style={S.wrap}>
+        <ActivityIndicator color={theme.colors.primary} size="large" />
+        <Text style={S.muted}>Preparing attendance…</Text>
+      </View>
+    );
+  }
+
   return (
-    <ScrollView style={S.container} contentContainerStyle={S.content}>
-
-      {/* ── Status Card (Green = on-site, Red = off-site) ── */}
-      <View style={[S.statusCard, { backgroundColor: statusCardColor }]}>
-        <Ionicons
-          name={locating ? 'location' : onSite ? 'checkmark-circle' : 'warning'}
-          size={44}
-          color="#fff"
-        />
-        <Text style={S.statusTitle}>
-          {locating
-            ? 'Locating…'
-            : onSite
-            ? '🟢 On-Site — DUT Ritson Campus'
-            : '🔴 Off-Site — Not at Campus'}
-        </Text>
-        {locating ? (
-          <ActivityIndicator color="#fff" style={{ marginTop: 10 }} />
-        ) : distLabel != null ? (
-          <Text style={S.distText}>
-            {`📍 ${distLabel} from campus  •  Geofence: ${radiusM}m`}
+    <View style={S.wrap}>
+      <View style={S.identityCard}>
+        <Ionicons name="person-circle" size={28} color={theme.colors.primary} />
+        <View style={{ flex: 1, marginLeft: 10 }}>
+          <Text style={S.identityLabel}>{`You're clocking in as`}</Text>
+          <Text style={S.identityName}>{identityName}</Text>
+          <Text style={S.identityMeta}>
+            Employee ID {employeeId} • {profile?.employmentType || 'Staff'} • {profile?.department || '—'}
           </Text>
-        ) : (
-          <Text style={S.distText}>Location unavailable</Text>
-        )}
-        <TouchableOpacity onPress={locateMe} style={S.refreshBtn}>
-          <Ionicons name="refresh" size={14} color="#fff" />
-          <Text style={S.refreshBtnText}>Refresh Location</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* ── Legend / Key ── */}
-      <View style={S.legendCard}>
-        <Text style={S.legendTitle}>📖 4-Factor Punch Authentication Key</Text>
-        <View style={S.legendRow}>
-          <View style={[S.legendDot, { backgroundColor: '#16a34a' }]} />
-          <Text style={S.legendText}>1. Roster Selection • 2. Bound Device Hardware ID • 3. Biometric Pass • 4. DUT Ritson Geofence</Text>
-        </View>
-        <View style={S.legendRow}>
-          <View style={[S.legendDot, { backgroundColor: '#d97706' }]} />
-          <Text style={S.legendText}>Off-site Clock In — location flagged for manager review</Text>
-        </View>
-        <View style={S.legendRow}>
-          <View style={[S.legendDot, { backgroundColor: '#dc2626' }]} />
-          <Text style={S.legendText}>Device Mismatch / Biometric Cancel — punch strictly blocked</Text>
         </View>
       </View>
 
-      {/* ── Staff Roster Picker ── */}
-      <View style={S.card}>
-        <Text style={S.cardTitle}>👤 Select Your Name</Text>
-        <Text style={S.cardSubtext}>All staff share one login — tap your name to identify yourself for this punch.</Text>
-
-        <TouchableOpacity
-          style={[S.pickerBtn, selectedMember ? S.pickerBtnSelected : {}]}
-          onPress={() => setShowRosterPicker(true)}
-          disabled={rosterLoading}
-        >
-          {rosterLoading ? (
-            <ActivityIndicator color={theme.colors.primary} />
-          ) : (
-            <>
-              <Ionicons name="people" size={20} color={selectedMember ? '#fff' : theme.colors.primary} />
-              <View style={{ flex: 1, marginLeft: 10 }}>
-                <Text style={[S.pickerText, selectedMember ? { color: '#fff' } : {}]}>
-                  {selectedMember ? selectedMember.name : 'Tap to select staff member…'}
-                </Text>
-                {selectedMember && (
-                  <Text style={[S.pickerRole, { color: 'rgba(255,255,255,0.85)' }]}>
-                    {selectedMember.role}
-                  </Text>
-                )}
-              </View>
-              <Ionicons name="chevron-down" size={18} color={selectedMember ? '#fff' : theme.colors.textMuted} />
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      {/* ── Clock In / Out Buttons ── */}
-      <View style={S.punchRow}>
-        <TouchableOpacity
-          style={[S.punchBtn, S.inBtn, (!selectedMember || busy) && S.punchDisabled]}
-          disabled={!selectedMember || busy}
-          onPress={() => doPunch('in')}
-        >
-          {busy ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Ionicons name="log-in" size={22} color="#fff" style={{ marginRight: 8 }} />
-          )}
-          <Text style={S.punchBtnText}>Clock In</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[S.punchBtn, S.outBtn, (!selectedMember || busy) && S.punchDisabled]}
-          disabled={!selectedMember || busy}
-          onPress={() => doPunch('out')}
-        >
-          {busy ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Ionicons name="log-out" size={22} color="#fff" style={{ marginRight: 8 }} />
-          )}
-          <Text style={S.punchBtnText}>Clock Out</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* ── Today's Punches ── */}
-      <View style={S.card}>
-        <Text style={S.cardTitle}>📋 Today&apos;s Punches (4-Factor Audit)</Text>
-        {punches.length === 0 ? (
-          <Text style={S.emptyText}>No punches recorded today.</Text>
-        ) : (
-          punches.slice(0, 30).map((p) => {
-            const isOnSite = p.withinRadius;
-            const isClockIn = p.punchType === 'in';
-            const dotColor = isOnSite
-              ? '#16a34a'
-              : isClockIn
-              ? '#d97706'
-              : '#dc2626';
-            const statusLabel = isOnSite
-              ? (isClockIn ? '🟢 On-site In' : '🟢 On-site Out')
-              : (isClockIn ? '🟡 Off-site In' : '🔴 Off-site Out');
-
-            return (
-              <View key={p.id} style={[S.punchItem, { borderLeftWidth: 3, borderLeftColor: dotColor, paddingLeft: 10 }]}>
-                <Ionicons
-                  name={isClockIn ? 'log-in' : 'log-out'}
-                  size={16}
-                  color={dotColor}
-                />
-                <View style={{ flex: 1, marginLeft: 8 }}>
-                  <Text style={S.punchItemText}>
-                    <Text style={{ fontWeight: '700' }}>{p.staffName}</Text>
-                    {` — ${isClockIn ? 'Clock In' : 'Clock Out'} at ${punchTimeLabel(p)}`}
-                  </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2, gap: 8, flexWrap: 'wrap' }}>
-                    <View style={[S.punchStatusBadge, { backgroundColor: dotColor + '22', borderColor: dotColor }]}>
-                      <Text style={[S.punchStatusText, { color: dotColor }]}>{statusLabel}</Text>
-                    </View>
-                    <Text style={S.punchItemMeta}>{formatDistance(p.distanceM)} from campus</Text>
-                    {(p as any).biometricPassed && (
-                      <Text style={[S.punchItemMeta, { color: theme.colors.primary }]}>👤 Bio ✓</Text>
-                    )}
-                    {(p as any).deviceMatchPassed && (
-                      <Text style={[S.punchItemMeta, { color: '#16a34a' }]}>📱 Device ✓</Text>
-                    )}
-                  </View>
-                </View>
-              </View>
-            );
-          })
+      <View style={S.metaCard}>
+        <Text style={S.metaTitle}>{worksite?.name || 'Worksite not configured'}</Text>
+        <Text style={S.metaLine}>
+          {worksite
+            ? `Geofence ${worksite.radiusM}m • ${config?.timezone || 'Africa/Johannesburg'}`
+            : 'Contact your administrator to assign a worksite.'}
+        </Text>
+        <Text style={S.metaLine}>
+          Clock window: {config?.clockInBeforeMinutes ?? 15}m before → {config?.clockInAfterMinutes ?? 30}m after shift start
+        </Text>
+        <Text style={S.deviceNote}>{deviceNote}</Text>
+        {deviceNote && /not authorized|reset|different device/i.test(deviceNote) && (
+          <TouchableOpacity style={S.resetBtn} onPress={onRequestReset}>
+            <Text style={S.resetBtnText}>Request device reset</Text>
+          </TouchableOpacity>
         )}
       </View>
 
-      {/* ── Staff Roster Picker Modal ── */}
-      <Modal
-        visible={showRosterPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowRosterPicker(false)}
+      {worksite && (
+        <WorksiteMap
+          worksite={{ name: worksite.name, lat: worksite.lat, lng: worksite.lng, radiusM: worksite.radiusM }}
+          fix={myFix ? { lat: myFix.lat, lng: myFix.lng, accuracyM: myFix.accuracyM, ageMs: myFixAt != null ? Date.now() - myFixAt : 0 } : null}
+          result={geofenceResult}
+          fixAgeMs={myFixAt != null ? Date.now() - myFixAt : undefined}
+        />
+      )}
+
+      <TouchableOpacity
+        style={[S.punchBtn, clockedIn ? S.punchOut : S.punchIn, busy ? S.punchDisabled : null]}
+        onPress={() => doPunch(clockedIn ? 'out' : 'in')}
+        disabled={busy}
       >
-        <View style={S.modalOverlay}>
-          <View style={S.modalSheet}>
-            <View style={S.modalHeader}>
-              <Text style={S.modalTitle}>Select Staff Member</Text>
-              <TouchableOpacity onPress={() => setShowRosterPicker(false)}>
-                <Ionicons name="close" size={24} color={theme.colors.text} />
-              </TouchableOpacity>
-            </View>
-            <Text style={S.modalSubtitle}>Tap your name from the roster below</Text>
-            <FlatList
-              data={roster}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => {
-                const isBound = !!item.registeredDeviceId;
-                return (
-                  <View style={[
-                    S.rosterItem,
-                    selectedMember?.id === item.id && S.rosterItemSelected,
-                  ]}>
-                    <TouchableOpacity
-                      style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
-                      onPress={() => {
-                        setSelectedMember(item);
-                        setShowRosterPicker(false);
-                      }}
-                    >
-                      <View style={S.rosterAvatar}>
-                        <Text style={S.rosterAvatarText}>{item.name.charAt(0)}</Text>
-                      </View>
-                      <View style={{ flex: 1, marginLeft: 12 }}>
-                        <Text style={[S.rosterName, selectedMember?.id === item.id && { color: theme.colors.primary }]}>
-                          {item.name}
-                        </Text>
-                        <Text style={S.rosterRole}>
-                          {item.role} {isBound ? '• 📱 Phone Bound' : '• 🆕 Unregistered'}
-                        </Text>
-                      </View>
-                      {selectedMember?.id === item.id && (
-                        <Ionicons name="checkmark-circle" size={22} color={theme.colors.primary} style={{ marginRight: 8 }} />
-                      )}
-                    </TouchableOpacity>
+        {busy ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <>
+            <Ionicons name={clockedIn ? 'log-out-outline' : 'log-in-outline'} size={22} color="#fff" />
+            <Text style={S.punchBtnText}>{clockedIn ? 'Clock Out' : 'Clock In'}</Text>
+          </>
+        )}
+      </TouchableOpacity>
 
-                    {/* Admin Reset Device Registration button */}
-                    {isBound && (
-                      <TouchableOpacity
-                        style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fca5a5' }}
-                        onPress={() => handleResetDevice(item)}
-                      >
-                        <Text style={{ fontSize: 10, fontWeight: '700', color: '#dc2626' }}>🔄 Reset Device</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                );
-              }}
-              ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: theme.colors.border }} />}
-              ListEmptyComponent={
-                <Text style={S.emptyText}>No staff members found. Contact admin to seed roster.</Text>
-              }
-            />
-          </View>
+      {session?.status === 'clocked_in' && session.clockInAt && (
+        <Text style={S.sessionLine}>
+          Clocked in at {new Date(session.clockInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {session.clockInDistanceM != null ? ` • ${formatDistance(session.clockInDistanceM)}` : ''}
+        </Text>
+      )}
+
+      {punches.length > 0 && (
+        <View style={S.history}>
+          <Text style={S.historyTitle}>{`Today's punches`}</Text>
+          {punches.slice(0, 6).map((p) => (
+            <Text key={p.id} style={S.historyRow}>
+              {p.punchType === 'in' ? 'IN ' : 'OUT'}
+              {'  '}
+              {p.isoTime ? new Date(p.isoTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+              {typeof p.distanceM === 'number' ? `  • ${formatDistance(p.distanceM)}` : ''}
+            </Text>
+          ))}
         </View>
-      </Modal>
+      )}
 
-      {/* Custom Themed Alert Modal */}
-      <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </ScrollView>
+      <CustomAlertModal
+        config={alertConfig}
+        onClose={() => setAlertConfig((c) => ({ ...c, visible: false }))}
+      />
+    </View>
   );
 }
 
-const createStyles = (theme: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
-  content: { padding: 20, paddingBottom: 60 },
-
-  // Status card
-  statusCard: {
-    borderRadius: 20,
-    padding: 24,
-    alignItems: 'center',
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  statusTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginTop: 10, textAlign: 'center' },
-  distText: { color: 'rgba(255,255,255,0.9)', fontSize: 13, marginTop: 6, textAlign: 'center' },
-  refreshBtn: { flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 4, opacity: 0.8 },
-  refreshBtnText: { color: '#fff', fontSize: 12 },
-
-  // Card
-  card: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  cardTitle: { fontSize: 15, fontWeight: 'bold', color: theme.colors.text, marginBottom: 6 },
-  cardSubtext: { fontSize: 12, color: theme.colors.textMuted, marginBottom: 14, lineHeight: 17 },
-
-  // Picker button
-  pickerBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: theme.colors.primary,
-    borderRadius: 12,
-    padding: 14,
-    backgroundColor: 'transparent',
-  },
-  pickerBtnSelected: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
-  },
-  pickerText: { fontSize: 15, fontWeight: '600', color: theme.colors.primary },
-  pickerRole: { fontSize: 12, marginTop: 2 },
-
-  // Punch buttons
-  punchRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
-  punchBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 18,
-    borderRadius: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  inBtn: { backgroundColor: '#16a34a' },
-  outBtn: { backgroundColor: theme.colors.secondary },
-  punchDisabled: { opacity: 0.4 },
-  punchBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-
-  // Punch list
-  emptyText: { fontSize: 13, color: theme.colors.textMuted },
-  punchItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  punchItemText: { fontSize: 13, color: theme.colors.text, lineHeight: 18 },
-  punchItemMeta: { fontSize: 11, color: theme.colors.textMuted, marginTop: 2 },
-  offSiteBadge: { color: '#dc2626', fontWeight: '700' },
-  punchStatusBadge: {
-    borderRadius: 6,
-    borderWidth: 1,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-  },
-  punchStatusText: { fontSize: 10, fontWeight: '700' },
-
-  // Legend / Key
-  legendCard: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  legendTitle: { fontSize: 13, fontWeight: '700', color: theme.colors.text, marginBottom: 10 },
-  legendRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  legendDot: { width: 12, height: 12, borderRadius: 6, marginRight: 10 },
-  legendText: { fontSize: 12, color: theme.colors.textMuted, flex: 1 },
-
-  // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: theme.colors.background,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-    maxHeight: '80%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', color: theme.colors.text },
-  modalSubtitle: { fontSize: 13, color: theme.colors.textMuted, marginBottom: 16 },
-  rosterItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 4,
-  },
-  rosterItemSelected: {
-    backgroundColor: theme.colors.primary + '18',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    marginHorizontal: -6,
-  },
-  rosterAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: theme.colors.primary + '22',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rosterAvatarText: { fontSize: 18, fontWeight: 'bold', color: theme.colors.primary },
-  rosterName: { fontSize: 15, fontWeight: '600', color: theme.colors.text },
-  rosterRole: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
-});
+const createStyles = (theme: any) =>
+  StyleSheet.create({
+    wrap: { padding: 16, gap: 12 },
+    muted: { color: theme.colors.textMuted, textAlign: 'center', marginTop: 8 },
+    identityCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.colors.surface,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      padding: 14,
+    },
+    identityLabel: { fontSize: 11, color: theme.colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
+    identityName: { fontSize: 18, fontWeight: '700', color: theme.colors.text, marginTop: 2 },
+    identityMeta: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
+    metaCard: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      padding: 14,
+      gap: 4,
+    },
+    metaTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
+    metaLine: { fontSize: 12, color: theme.colors.textMuted },
+    deviceNote: { fontSize: 12, color: theme.colors.textMuted, marginTop: 4 },
+    resetBtn: {
+      marginTop: 8,
+      alignSelf: 'flex-start',
+      backgroundColor: theme.colors.errorLight || '#fee2e2',
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 8,
+    },
+    resetBtnText: { color: theme.colors.error, fontWeight: '600', fontSize: 13 },
+    punchBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 16,
+      borderRadius: 14,
+    },
+    punchIn: { backgroundColor: '#15803d' },
+    punchOut: { backgroundColor: '#b91c1c' },
+    punchDisabled: { opacity: 0.6 },
+    punchBtnText: { color: '#fff', fontSize: 17, fontWeight: '700' },
+    sessionLine: { textAlign: 'center', fontSize: 13, color: theme.colors.textMuted },
+    history: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      padding: 14,
+      gap: 4,
+    },
+    historyTitle: { fontSize: 12, fontWeight: '700', color: theme.colors.textMuted, textTransform: 'uppercase', marginBottom: 4 },
+    historyRow: { fontSize: 13, color: theme.colors.text, fontVariant: ['tabular-nums'] },
+  });

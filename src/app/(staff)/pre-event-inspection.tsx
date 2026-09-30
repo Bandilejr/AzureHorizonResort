@@ -49,6 +49,28 @@ export default function PreEventInspectionScreen() {
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const [showEventPicker, setShowEventPicker] = useState(false);
   const [loadingEvents, setLoadingEvents] = useState(true);
+  const [pickerTab, setPickerTab] = useState(0);
+
+  // Day tabs: 0 = today, 1 = 1 day upcoming, 2 = 2 days upcoming, 3 = all upcoming
+  const eventDayKeys = ['today', 'oneDayUpcoming', 'twoDaysUpcoming', 'allUpcoming'];
+  const eventDayKey = (raw: string) => {
+    const datePart = String(raw || '').slice(0, 10);
+    if (datePart.length !== 10) return '';
+    const d = new Date(datePart + 'T00:00:00');
+    if (isNaN(d.getTime())) return '';
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
+    if (diff === 0) return 'today';
+    if (diff === 1) return 'oneDayUpcoming';
+    if (diff === 2) return 'twoDaysUpcoming';
+    if (diff > 2) return 'upcoming';
+    return '';
+  };
+  const eventDayLabel = ['Today', '1 Day Upcoming', '2 Days Upcoming', 'All Upcoming'];
+  const filteredEvents = pickerTab === 3
+    ? events.filter(ev => eventDayKey(ev.eventDate || ev.date) !== '')
+    : events.filter(ev => eventDayKey(ev.eventDate || ev.date) === eventDayKeys[pickerTab]);
 
   const [checklist, setChecklist] = useState<CheckItem[]>(
     DEFAULT_CHECKLIST.map(item => ({ item, status: 'pending', notes: '' }))
@@ -61,14 +83,12 @@ export default function PreEventInspectionScreen() {
 
   // Real-time Firestore listener for event bookings
   useEffect(() => {
-    const todayISO = new Date().toISOString().split('T')[0];
     const q = query(
       collection(db, 'event_bookings'),
-      where('status', 'in', ['confirmed', 'pending_payment', 'paid']),
-      where('eventDateStr', '>=', todayISO)
+      where('status', 'in', ['confirmed', 'pending_payment', 'paid', 'deposit_paid', 'Deposit Paid', 'pending', 'Venue Approved for Guests'])
     );
     const unsub = onSnapshot(q, (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter((e: any) => eventDayKey(e.eventDate || e.date));
       setEvents(list);
       if (params.eventId) {
         const found = list.find((e: any) => e.id === params.eventId);
@@ -361,11 +381,27 @@ export default function PreEventInspectionScreen() {
         <View style={S.modalOverlay}>
           <View style={S.modalSheet}>
             <Text style={S.modalTitle}>Select Event</Text>
-            {events.length === 0 ? (
-              <Text style={S.modalEmpty}>No upcoming events found</Text>
+            <View style={S.dayTabsRow}>
+              {eventDayKeys.map((key, i) => (
+                <TouchableOpacity
+                  key={key}
+                  onPress={() => setPickerTab(i)}
+                  style={[
+                    S.dayTab,
+                    pickerTab === i && { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+                  ]}
+                >
+                  <Text style={[S.dayTabText, pickerTab === i && { color: '#fff', fontWeight: '700' }]}>
+                    {eventDayLabel[i]}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {filteredEvents.length === 0 ? (
+              <Text style={S.modalEmpty}>No events for {eventDayLabel[pickerTab].toLowerCase()}</Text>
             ) : (
               <ScrollView>
-                {events.map(ev => (
+                {filteredEvents.map(ev => (
                   <TouchableOpacity
                     key={ev.id}
                     style={[S.modalItem, selectedEvent?.id === ev.id && { backgroundColor: theme.colors.primaryLight }]}
@@ -374,7 +410,7 @@ export default function PreEventInspectionScreen() {
                     <Ionicons name="calendar-outline" size={18} color={theme.colors.primary} style={{ marginRight: 10 }} />
                     <View style={{ flex: 1 }}>
                       <Text style={S.modalItemTitle}>{ev.venueName || 'Venue'}</Text>
-                      <Text style={S.modalItemSub}>{ev.eventType || 'Event'} · {ev.eventDateStr || ''}</Text>
+                      <Text style={S.modalItemSub}>{ev.eventType || 'Event'} · {ev.eventDate || ev.date || ''}</Text>
                     </View>
                     {selectedEvent?.id === ev.id && <Ionicons name="checkmark" size={18} color={theme.colors.primary} />}
                   </TouchableOpacity>
@@ -482,6 +518,9 @@ const createStyles = (theme: any) => StyleSheet.create({
     padding: 20, maxHeight: '80%',
   },
   modalTitle: { fontSize: 18, fontWeight: '800', color: theme.colors.text, marginBottom: 16 },
+  dayTabsRow: { flexDirection: 'row', gap: 6, marginBottom: 12 },
+  dayTab: { flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1.5, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, alignItems: 'center' },
+  dayTabText: { fontSize: 12, fontWeight: '600', color: theme.colors.textMuted },
   modalEmpty: { fontSize: 14, color: theme.colors.textMuted, textAlign: 'center', padding: 20 },
   modalItem: {
     flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 12, marginBottom: 8,

@@ -48,6 +48,72 @@ service cloud.firestore {
     function isHousekeeping() {
       return getUserSubRole() == 'housekeeping';
     }
+
+    // INCREMENT 2 BRIDGE — web role model (role field) vs mobile role model
+    // (role='staff' + subRole). New helpers only; Increment 1 helpers above untouched.
+    function isChefRole() {
+      return getUserRole() == 'chef' || getUserRole() == 'kitchen_manager';
+    }
+    function isCateringAny() {
+      return isCateringStaff() || isChefRole();
+    }
+    function isEventManagerAny() {
+      return isEventManager() || getUserRole() == 'event_manager';
+    }
+    function isFrontDeskAny() {
+      return isFrontDesk() || getUserRole() == 'front_desk';
+    }
+    function isMaintenanceAny() {
+      return isMaintenance() || getUserRole() == 'maintenance';
+    }
+    function isNpoRep() {
+      return getUserRole() == 'npo_rep';
+    }
+    function ownNpoAllocation(orgNpoId) {
+      return isNpoRep() && getUserData().npoId == orgNpoId;
+    }
+
+    // ---- REMEDIATION (Phase A): explicit kitchen authority model ----
+    // kitchen_manager (role) owns food-rescue + workforce management.
+    // catering_staff (subRole) are authorized collectors/operators only.
+    function isKitchenManager() {
+      return getUserRole() == 'kitchen_manager';
+    }
+    function isCollector() {
+      return getUserSubRole() == 'catering_staff';
+    }
+    // Food-rescue decisions (allocate/schedule/verify-as-manager/NPO review).
+    function isFoodManager() {
+      return isAdmin() || isKitchenManager() || isChefRole();
+    }
+    // Food-rescue operations incl. logging + collection scanning.
+    function isFoodOperator() {
+      return isFoodManager() || isCollector();
+    }
+    // Workforce/attendance management (excludes collectors).
+    function isManagerAny() {
+      return isAdmin() || isEventManagerAny() || isKitchenManager();
+    }
+    // May punch the clock / claim surge shifts: every staff-like role,
+    // never guests or NPO representatives.
+    function isWorkforce() {
+      return isSignedIn() && getUserRole() != 'guest' && getUserRole() != 'npo_rep'
+        && getUserRole() != null;
+    }
+    function isShiftClaimant() {
+      return isWorkforce();
+    }
+    // Central notification type allowlist (Increment 1 + 2).
+    function isKnownNotificationType(t) {
+      return t in ['npo_approved', 'npo_rejected', 'donation_allocated',
+        'donation_claimed', 'collection_scheduled', 'collection_completed',
+        'leave_submitted', 'leave_approved', 'leave_rejected',
+        'shift_swap_requested', 'shift_swap_accepted', 'shift_swap_rejected',
+        'shift_swap_approved', 'roster_published', 'open_shift_claimed',
+        'attendance_verified', 'attendance_flagged', 'refund_update',
+        'inspection_update', 'damage_record', 'loyalty_refund',
+        'complaint_assigned', 'complaint_in_progress', 'complaint_resolved'];
+    }
     
     function isOwner(userId) {
       return request.auth.uid == userId;
@@ -62,11 +128,93 @@ service cloud.firestore {
       return isEventManager() || isFrontDesk() || isAdmin();
     }
 
-    // USERS COLLECTION
+    // USERS COLLECTION — Phase 1: self-service cannot change role/identity
+    // fields; employees may edit display preferences only.
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && (isOwner(userId) || request.auth.token.email == userId || isAdmin());
+      allow update: if isSignedIn() && (
+        isOwner(userId) ||
+        request.auth.token.email == userId ||
+        isAdmin() ||
+        (isStaff() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['loyaltyPoints', 'loyaltyTier', 'heldPoints', 'updatedAt']) &&
+          (request.resource.data.loyaltyPoints is int || request.resource.data.loyaltyPoints is float) &&
+          request.resource.data.loyaltyPoints >= 0)
+      ) && (
+        // Privileged workforce fields: admin only (or unchanged).
+        (
+          isAdmin()
+          || (
+            resource.data.diff(request.resource.data).affectedKeys()
+              .hasAny(['role', 'subRole', 'employmentType', 'active', 'employeeId', 'deviceBinding', 'department', 'position', 'skills', 'worksiteId']) == false
+          )
+        )
+      );
       allow create: if isSignedIn() && (isOwner(userId) || request.auth.token.email == userId);
+      allow create: if isSignedIn() && isAdmin();
+    }
+
+    // WORKSITES — signed-in read; admin write.
+    match /worksites/{worksiteId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isAdmin();
+    }
+
+    // DEVICES — employee manages own device doc id; admin can revoke/list.
+    match /devices/{deviceId} {
+      allow read: if isSignedIn()
+        && (resource.data.employeeUid == request.auth.uid || isAdmin() || isManagerAny());
+      allow create: if isSignedIn() && isWorkforce()
+        && request.resource.data.employeeUid == request.auth.uid
+        && request.resource.data.status in ['active', 'pending_reset'];
+      allow update: if isSignedIn() && (
+        (resource.data.employeeUid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeenAt', 'platform', 'model', 'status', 'revokedAt', 'revokedBy'])
+          && (resource.data.status != 'revoked' || request.resource.data.status == 'revoked'))
+        || isAdmin()
+      );
+      allow delete: if isSignedIn() && isAdmin();
+    }
+
+    // DEVICE RESET REQUESTS — employee creates; admin decides.
+    match /deviceResetRequests/{requestId} {
+      allow read: if isSignedIn()
+        && (resource.data.employeeUid == request.auth.uid || isAdmin() || isManagerAny());
+      allow create: if isSignedIn() && isWorkforce()
+        && request.resource.data.employeeUid == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow update: if isSignedIn() && (isAdmin() || isManagerAny())
+        && resource.data.status == 'pending'
+        && request.resource.data.status in ['approved', 'rejected']
+        && request.resource.data.decidedBy == request.auth.uid;
+      allow delete: if isSignedIn() && isAdmin();
+    }
+
+    // ATTENDANCE SESSIONS — employee writes own open/closed states; managers read.
+    match /attendance_sessions/{sessionId} {
+      allow read: if isSignedIn()
+        && (resource.data.employeeUid == request.auth.uid || isManagerAny());
+      allow create: if isSignedIn() && isWorkforce()
+        && request.resource.data.employeeUid == request.auth.uid
+        && request.resource.data.status in ['scheduled', 'clocked_in'];
+      allow update: if isSignedIn() && (
+        (isWorkforce()
+          && resource.data.employeeUid == request.auth.uid
+          && request.resource.data.status in ['clocked_in', 'clocked_out', 'auto_closed', 'cancelled']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+            ['status', 'clockInAt', 'clockOutAt', 'autoClosedAt', 'clockInDistanceM',
+             'clockOutDistanceM', 'deviceId', 'deviceMatchPassed', 'exceptionTypes',
+             'lastPunchType', 'updatedAt', 'worksiteId', 'employeeId']))
+        || (isManagerAny()
+          && request.resource.data.status in ['auto_closed', 'clocked_out', 'cancelled'])
+      );
+      allow delete: if isSignedIn() && isAdmin();
+    }
+
+    // ATTENDANCE CONFIG — read signed-in; admin write.
+    match /attendance_config/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isAdmin();
     }
 
     // EVENT BOOKINGS
@@ -95,6 +243,11 @@ service cloud.firestore {
         isEventStaff(resource.data.eventId) ||
         (resource.data.inviteeEmail == request.auth.token.email && request.resource.data.status == 'declined')
       );
+      // RSVP email link page (unauthenticated, static hosting) may only record the response
+      allow update: if request.auth == null &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rsvpStatus', 'respondedAt']) &&
+        request.resource.data.rsvpStatus in ['accepted', 'declined'];
+      allow delete: if isAdmin();
     }
 
     // EVENT FEEDBACK (UC32)
@@ -160,38 +313,72 @@ service cloud.firestore {
       );
     }
 
-    // REFUND REQUESTS (UC32, UC33)
+    // REFUND REQUESTS (UC32, UC33) — guests file own pending claims;
+    // admin/event_manager review (SRS: no staff refund UC).
     match /refund_requests/{requestId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
+      // Guest files own request: pending, positive amount, self-attributed.
+      allow create: if isSignedIn()
+        && request.resource.data.guestId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.requestedAmount is number
+        && request.resource.data.requestedAmount > 0;
+      // Review: admin/event_manager only, pending -> approved|rejected only,
+      // reject requires a reason. Guests can never decide their own claim.
+      allow update: if isSignedIn()
+        && (isAdmin() || isEventManagerAny())
+        && resource.data.status == 'pending'
+        && request.resource.data.status in ['approved', 'rejected']
+        && (request.resource.data.status == 'approved'
+          || (request.resource.data.rejectionReason is string
+            && request.resource.data.rejectionReason.size() > 0));
     }
 
     // ROOM CREDENTIALS (Digital Key)
+    // Guests issue their own credential after check-in (Spark-plan client-side
+    // issuance - no Cloud Function). The reader verifies via read access.
     match /room_credentials/{credentialId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && (isEventManager() || isAdmin());
+      allow create: if isSignedIn() &&
+        request.resource.data.guestId == request.auth.uid;
+      allow update: if isSignedIn() && (
+        (resource.data.guestId == request.auth.uid) ||
+        isEventManager() ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
     }
 
-    // NOTIFICATIONS
+    // NOTIFICATIONS — REMEDIATED: sender-attributed creation to real users
+    // only, owner-only reads, owner-only read-state. Group literals and
+    // emails-as-uids are rejected (fan-out writes per-user docs instead).
     match /notifications/{notificationId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && (isOwner(resource.data.userId) || isStaff() || isAdmin());
+      allow read: if isSignedIn()
+        && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && request.resource.data.senderId == request.auth.uid
+        && request.resource.data.userId is string
+        && request.resource.data.userId.size() > 0
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.userId))
+        && isKnownNotificationType(request.resource.data.type)
+        && request.resource.data.read == false;
+      allow update: if isSignedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt', 'updatedAt']);
     }
 
     // LOYALTY LOGS
     match /loyalty_logs/{logId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && isOwner(request.resource.data.guestId);
-      allow update: if isSignedIn() && isOwner(request.resource.data.guestId);
+      allow create: if isSignedIn() && (isOwner(request.resource.data.guestId) || isStaff() || isAdmin());
+      allow update: if isSignedIn() && (isOwner(request.resource.data.guestId) || isStaff() || isAdmin());
     }
 
     // LOYALTY VOUCHERS
     match /loyalty_vouchers/{voucherId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && (request.resource.data.guestId == request.auth.uid || isOwner(request.resource.data.guestId));
-      allow update: if isSignedIn() && (isFrontDesk() || isEventManager() || isAdmin() || request.resource.data.guestId == request.auth.uid);
+      allow update: if isSignedIn() && (isFrontDesk() || isEventManager() || isAdmin() || isStaff() || request.resource.data.guestId == request.auth.uid);
     }
 
     // MAINTENANCE WORK ORDERS
@@ -212,6 +399,13 @@ service cloud.firestore {
       allow update: if isSignedIn() && (isStaff() || isEventManager() || isAdmin());
     }
 
+    // RECEIPTS (restaurant delivery receipts written on order delivery)
+    match /receipts/{receiptId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (isStaff() || isCateringAny() || isAdmin() || isEventManagerAny());
+      allow update: if isSignedIn() && isAdmin();
+    }
+
     // REFUND TRANSACTIONS
     match /refund_transactions/{transactionId} {
       allow read: if isSignedIn();
@@ -221,7 +415,7 @@ service cloud.firestore {
     // LOYALTY SCAN LOGS
     match /loyalty_scan_logs/{logId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && (isFrontDesk() || isEventManager() || isAdmin());
+      allow create: if isSignedIn() && (isFrontDesk() || isEventManager() || isAdmin() || isStaff());
     }
 
     // STAFF CHECKINS
@@ -230,11 +424,16 @@ service cloud.firestore {
       allow create: if isSignedIn() && (isFrontDesk() || isEventManager() || isAdmin());
     }
 
-    // PUNCH RECORDS (staff clock in/out - client-side replacement for recordAttendancePunch)
+    // PUNCH RECORDS — REMEDIATED: subject-bound creation (kills shared-login
+    // collision at the rule layer), manager-legible reads, immutable punches
+    // (clock-out is a new doc, never an edit).
     match /punch_records/{punchId} {
-      allow read: if isSignedIn() && (isStaff() || isAdmin());
-      allow create: if isSignedIn() && (isStaff() || isAdmin());
-      allow update: if isSignedIn() && (isOwner(resource.data.staffUid) || isAdmin());
+      allow read: if isSignedIn()
+        && (resource.data.staffUid == request.auth.uid || isManagerAny());
+      allow create: if isSignedIn() && isWorkforce()
+        && request.resource.data.staffUid == request.auth.uid
+        && request.resource.data.punchType in ['in', 'out'];
+      allow update: if isSignedIn() && isAdmin();
     }
 
     // SETTINGS (geofence centre read for client-side attendance calc)
@@ -278,6 +477,370 @@ service cloud.firestore {
 
     // STAFF ROSTER (identity source for shared-login clock-in)
     match /staff_roster/{memberId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isAdmin();
+    }
+
+    // INCREMENT 2 (UC34–UC45) — REMEDIATED Phase A.
+    // Every mutation below enforces: authorized actor + legal old→new
+    // transition + required fields + forbidden fields. Services and UI
+    // repeat these checks for UX, but rules are authoritative.
+    // NPO: reps see own org only; admin verifies.
+    match /npo_partners/{npoId} {
+      allow read: if isSignedIn();
+      // Admin-only creation (F-P0-4). No self-application UI exists;
+      // createNpoApplication service is unmounted dead code.
+      allow create: if isSignedIn() && isAdmin()
+        && request.resource.data.verificationStatus == 'pending'
+        && request.resource.data.organisationName is string
+        && request.resource.data.email is string;
+      // Admin review: pending|under_review -> approved|rejected|under_review.
+      allow update: if isSignedIn() && isAdmin()
+        && resource.data.verificationStatus in ['pending', 'under_review']
+        && request.resource.data.verificationStatus in ['approved', 'rejected', 'under_review']
+        && (request.resource.data.verificationStatus != 'rejected'
+          || (request.resource.data.rejectionReason is string
+            && request.resource.data.rejectionReason.size() > 0))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['verificationStatus', 'rejectionReason', 'verifiedBy', 'verifiedAt',
+           'updatedAt', 'lastDecision']);
+      // Self-service profile edit (never status/npoId/email). Facilities are
+      // owned sub-objects (§30): rep may add/edit their own receiving facilities.
+      allow update: if isSignedIn()
+        && (resource.data.email == request.auth.token.email
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['organisationName','contactName','phone','serviceAreas','beneficiaryCapacity','transportType','refrigerationAvailable','complianceDocuments','facilities','updatedAt'])
+          && request.resource.data.verificationStatus == resource.data.verificationStatus);
+    }
+
+    // Donation batches: collectors log + scan; managers decide.
+    // Canonical machine:
+    // draft -> safety_verified_unassigned -> allocated_awaiting_claim
+    //   -> claimed_ready_for_scheduling -> collection_scheduled -> collected_completed
+    // + safety_verified_unassigned|allocated_awaiting_claim|collection_scheduled -> cancelled (manager).
+    match /donation_batches/{batchId} {
+      allow read: if isSignedIn();
+      // UC35 log (operator). Draft needs item only; verified needs full gate.
+      allow create: if isSignedIn() && isFoodOperator()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.itemName is string
+        && request.resource.data.itemName.size() > 0
+        && (request.resource.data.status == 'draft'
+          || (request.resource.data.status == 'safety_verified_unassigned'
+            && request.resource.data.portionCount is number
+            && request.resource.data.portionCount > 0
+            && request.resource.data.estimatedWeightKg is number
+            && request.resource.data.estimatedWeightKg > 0
+            && request.resource.data.safetyPhotoUrl is string));
+      // T1 draft -> safety_verified_unassigned (submit for allocation).
+      allow update: if isSignedIn() && isFoodManager()
+        && resource.data.status == 'draft'
+        && request.resource.data.status == 'safety_verified_unassigned'
+        && request.resource.data.portionCount is number
+        && request.resource.data.portionCount > 0
+        && request.resource.data.estimatedWeightKg is number
+        && request.resource.data.estimatedWeightKg > 0
+        && request.resource.data.safetyPhotoUrl is string;
+      // T2 safety_verified_unassigned -> allocated_awaiting_claim (UC36).
+      allow update: if isSignedIn() && isFoodManager()
+        && resource.data.status == 'safety_verified_unassigned'
+        && request.resource.data.status == 'allocated_awaiting_claim'
+        && request.resource.data.allocatedNpoId is string
+        && request.resource.data.allocatedNpoId.size() > 0
+        && request.resource.data.allocatedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status', 'allocatedNpoId', 'allocatedBy', 'allocatedAt',
+           'updatedAt', 'lastDecision']);
+      // T3 cancel from pre-collection states (manager).
+      allow update: if isSignedIn() && isFoodManager()
+        && resource.data.status in ['draft', 'safety_verified_unassigned',
+             'allocated_awaiting_claim', 'claimed_ready_for_scheduling',
+             'collection_scheduled']
+        && request.resource.data.status == 'cancelled'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status', 'updatedAt', 'lastDecision', 'cancelledReason']);
+      // T4 allocated_awaiting_claim -> claimed_ready_for_scheduling (UC37, NPO only).
+      allow update: if isSignedIn() && ownNpoAllocation(resource.data.allocatedNpoId)
+        && resource.data.status == 'allocated_awaiting_claim'
+        && request.resource.data.status == 'claimed_ready_for_scheduling'
+        && request.resource.data.claimedBy == request.auth.uid
+        && request.resource.data.receivingFacility is string
+        && request.resource.data.receivingFacility.size() > 0
+        && request.resource.data.distributionTermsAccepted == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status', 'claimedBy', 'claimedAt', 'receivingFacility',
+           'distributionTermsAccepted', 'updatedAt', 'lastDecision']);
+      // T5 claimed|scheduled -> collection_scheduled (UC38 schedule/re-schedule).
+      allow update: if isSignedIn() && isFoodManager()
+        && resource.data.status in ['claimed_ready_for_scheduling', 'collection_scheduled']
+        && request.resource.data.status == 'collection_scheduled'
+        && request.resource.data.pickupWindowStart is string
+        && request.resource.data.pickupWindowEnd is string
+        && request.resource.data.loadingBay is string
+        && request.resource.data.loadingBay.size() > 0
+        && request.resource.data.collectionNonce is string
+        && request.resource.data.collectionQr is string
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status', 'pickupDate', 'pickupWindowStart', 'pickupWindowEnd',
+           'loadingBay', 'courierName', 'collectionQr', 'collectionNonce',
+           'qrConsumed', 'updatedAt', 'lastDecision']);
+      // T6 collection_scheduled -> collected_completed (UC39 verify).
+      allow update: if isSignedIn() && isFoodOperator()
+        && resource.data.status == 'collection_scheduled'
+        && request.resource.data.status == 'collected_completed'
+        && request.resource.data.verifiedBy == request.auth.uid
+        && request.resource.data.qrConsumed == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status', 'collectedAt', 'verifiedBy', 'qrConsumed',
+           'updatedAt', 'lastDecision']);
+    }
+
+    match /donation_checkins/{checkinId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isFoodOperator()
+        && request.resource.data.verifiedBy == request.auth.uid;
+    }
+
+    // Scheduling: staff own availability/leave; managers review (no self-approval).
+    match /staff_availability/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.staffId == request.auth.uid;
+      allow update: if isSignedIn() && (
+        (resource.data.staffId == request.auth.uid
+          && request.resource.data.staffId == resource.data.staffId)
+        || isAdmin() || isKitchenManager() || isEventManagerAny());
+    }
+
+    match /leave_requests/{requestId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.staffId == request.auth.uid
+        && request.resource.data.status == 'pending';
+      // Owner may edit content but never the decision.
+      allow update: if isSignedIn()
+        && resource.data.staffId == request.auth.uid
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.staffId == resource.data.staffId;
+      // Manager decision: terminal, reasoned, never self-approved.
+      allow update: if isSignedIn()
+        && (isAdmin() || isKitchenManager() || isEventManagerAny())
+        && request.auth.uid != resource.data.staffId
+        && resource.data.status == 'pending'
+        && request.resource.data.status in ['approved', 'rejected']
+        && request.resource.data.reviewedBy == request.auth.uid
+        && (request.resource.data.status == 'approved'
+          || (request.resource.data.rejectionReason is string
+            && request.resource.data.rejectionReason.size() > 0))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status', 'reviewedBy', 'reviewedAt', 'rejectionReason', 'updatedAt', 'lastDecision']);
+    }
+
+    // Published rosters lock content; privileged swap-approval and
+    // open-shift claim appends may still update the shifts array.
+    match /shift_rosters/{rosterId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && (isAdmin() || isKitchenManager() || isEventManagerAny())
+        && request.resource.data.published == false
+        && request.resource.data.validationStatus in ['draft', 'validated']
+        && request.resource.data.weekStart is string
+        && request.resource.data.department is string;
+      // Pre-publish edits (never flipping published here).
+      allow update: if isSignedIn()
+        && (isAdmin() || isKitchenManager() || isEventManagerAny())
+        && resource.data.published != true
+        && request.resource.data.published == false;
+      // Publish: one-way, stamped, attributed.
+      allow update: if isSignedIn()
+        && (isAdmin() || isKitchenManager() || isEventManagerAny())
+        && resource.data.published == false
+        && request.resource.data.published == true
+        && request.resource.data.validationStatus == 'published'
+        && request.resource.data.publishedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['validationStatus', 'published', 'publishedAt', 'publishedBy', 'updatedAt', 'validationWarnings']);
+      // Post-publish shifts-only mutation (manager swap approvals).
+      allow update: if isSignedIn()
+        && (isAdmin() || isKitchenManager() || isEventManagerAny())
+        && resource.data.published == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['shifts','updatedAt']);
+      // Staff append exactly one self-assigned shift (own open-shift claim).
+      allow update: if isSignedIn() && resource.data.published == true &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['shifts','updatedAt']) &&
+        request.resource.data.shifts.size() == resource.data.shifts.size() + 1 &&
+        request.resource.data.shifts.hasAll(resource.data.shifts) &&
+        request.resource.data.shifts[request.resource.data.shifts.size() - 1].staffId == request.auth.uid;
+    }
+
+    // Swaps: pending_peer -> pending_manager|rejected (peer) -> approved|rejected (manager).
+    match /shift_swaps/{swapId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.requesterStaffId == request.auth.uid
+        && request.resource.data.targetStaffId != request.auth.uid
+        && request.resource.data.status == 'pending_peer'
+        && request.resource.data.rosterId is string
+        && request.resource.data.rosterId.size() > 0;
+      // Peer decision: only the intended target.
+      allow update: if isSignedIn()
+        && resource.data.targetStaffId == request.auth.uid
+        && resource.data.status == 'pending_peer'
+        && request.resource.data.status in ['pending_manager', 'rejected']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status', 'updatedAt']);
+      // Manager decision: attributed, reasoned, never self-dealing.
+      allow update: if isSignedIn()
+        && (isAdmin() || isKitchenManager() || isEventManagerAny())
+        && request.auth.uid != resource.data.requesterStaffId
+        && request.auth.uid != resource.data.targetStaffId
+        && resource.data.status in ['pending_manager', 'peer_accepted']
+        && request.resource.data.status in ['approved', 'rejected']
+        && request.resource.data.reviewedBy == request.auth.uid
+        && (request.resource.data.status == 'approved'
+          || (request.resource.data.rejectionReason is string
+            && request.resource.data.rejectionReason.size() > 0))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status', 'reviewedBy', 'reviewedAt', 'rejectionReason', 'updatedAt', 'lastDecision']);
+    }
+
+    match /open_shifts/{shiftId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && (isAdmin() || isKitchenManager() || isEventManagerAny())
+        && request.resource.data.status == 'open';
+      // Manager edit/cancel (never reopen, never impersonate a claim).
+      allow update: if isSignedIn()
+        && (isAdmin() || isKitchenManager() || isEventManagerAny())
+        && (request.resource.data.status == resource.data.status
+          || (resource.data.status == 'open'
+            && request.resource.data.status == 'cancelled')
+          || (resource.data.status == 'filled'
+            && request.resource.data.status == 'cancelled'))
+        && request.resource.data.claimedBy == resource.data.claimedBy;
+      // Claim: workforce only (never guests/NPOs), self-attributed.
+      allow update: if isSignedIn() && isShiftClaimant()
+        && resource.data.status == 'open'
+        && request.resource.data.status == 'filled'
+        && request.resource.data.claimedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status', 'claimedBy', 'claimedAt', 'updatedAt', 'lastDecision']);
+    }
+
+    // Attendance: staff punch own; managers review; no self-approval, no forgery.
+    match /attendance_exceptions/{exceptionId} {
+      allow read: if isSignedIn()
+        && (resource.data.staffId == request.auth.uid || isManagerAny());
+      allow create: if isSignedIn() && isManagerAny();
+      allow update: if isSignedIn() && isManagerAny()
+        && resource.data.reviewStatus == 'exception_review'
+        && request.resource.data.reviewStatus == 'verified'
+        && request.resource.data.adjustedBy == request.auth.uid
+        && request.resource.data.adjustedBy != resource.data.staffId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['reviewStatus', 'hoursWorked', 'adjustedBy', 'adjustedAt',
+           'adjustmentReason', 'originalValue', 'newValue', 'updatedAt']);
+    }
+
+    // INCREMENT 1 READ SURFACE — these collections predate the rules file and
+    // previously had no rules at all (default deny: dashboards read empty).
+    // Catalogue data is public; personal/operational data is signed-in least-privilege.
+
+    // Public catalogue (no PII): rooms, tours.
+    match /rooms/{roomId} {
+      allow read: if true;
+      allow write: if isSignedIn() && isAdmin();
+    }
+    match /tours/{tourId} {
+      allow read: if true;
+      allow write: if isSignedIn() && isAdmin();
+    }
+
+    // Room bookings: guests see own (uid or email key), staff/admin see all.
+    match /bookings/{bookingId} {
+      allow read: if isSignedIn() && (isStaff() || isAdmin() || isEventManagerAny() ||
+        resource.data.guestId == request.auth.uid ||
+        resource.data.guestEmail == request.auth.token.email);
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (isStaff() || isAdmin() || isEventManagerAny() ||
+        resource.data.guestId == request.auth.uid);
+      allow delete: if isSignedIn() && isAdmin();
+    }
+
+    // Guest reviews: signed-in read (dashboards/landing), owner+staff/admin write.
+    match /reviews/{reviewId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (isStaff() || isAdmin() ||
+        resource.data.guestId == request.auth.uid);
+      allow delete: if isSignedIn() && isAdmin();
+    }
+
+    // Guest profiles: owner, staff, admin.
+    match /guests/{guestId} {
+      allow read: if isSignedIn() && (isOwner(guestId) || isStaff() || isAdmin());
+      allow create: if isSignedIn() && (isOwner(guestId) || isStaff() || isAdmin());
+      allow update: if isSignedIn() && (isOwner(guestId) || isStaff() || isAdmin());
+    }
+
+    // Social activity board.
+    match /activity_posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (isOwner(resource.data.guestId) || isAdmin());
+      allow delete: if isSignedIn() && isAdmin();
+    }
+
+    // Incidental charges (front-desk billing).
+    match /incidental_charges/{chargeId} {
+      allow read: if isSignedIn() && (isStaff() || isAdmin() || isEventManagerAny() ||
+        resource.data.guestId == request.auth.uid);
+      allow create: if isSignedIn() && (isStaff() || isAdmin() || isEventManagerAny());
+      allow update: if isSignedIn() && (isStaff() || isAdmin() || isEventManagerAny());
+    }
+
+    // Payments and order confirmations.
+    match /payments/{paymentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (isStaff() || isAdmin());
+    }
+    match /order_confirmations/{confirmationId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (isStaff() || isAdmin());
+    }
+    match /room_bookings/{bookingId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (isStaff() || isAdmin());
+    }
+
+    // Restaurant tables (floor plan + reservations state).
+    match /restaurant_tables/{tableId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (isStaff() || isAdmin() || isCateringAny());
+      allow update: if isSignedIn() && (isStaff() || isAdmin() || isCateringAny());
+    }
+
+    // Legacy duplicates kept readable so old screens keep working.
+    match /loyalty_log/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (isOwner(request.resource.data.guestId) || isStaff() || isAdmin());
+      allow update: if isSignedIn() && (isOwner(request.resource.data.guestId) || isStaff() || isAdmin());
+    }
+    match /damageClaims/{recordId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (isStaff() || isAdmin());
+      allow update: if isSignedIn() && (isStaff() || isAdmin());
+    }
+
+    // Mail queue (Trigger Email extension pattern): anyone signed in may enqueue.
+    match /mail/{mailId} {
+      allow read: if isSignedIn() && isAdmin();
+      allow create: if isSignedIn();
+    }
+
+    // Seed marker: readable for auto-seed freshness checks, admin-written.
+    match /meta/{docId} {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && isAdmin();
     }
