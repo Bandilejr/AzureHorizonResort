@@ -11,7 +11,7 @@ export interface MetricCardProps {
   value: string | number;
   label: string;
   icon?: React.ComponentProps<typeof Ionicons>['name'];
-  tone?: 'default' | 'primary' | 'success' | 'warning' | 'error' | 'info';
+  tone?: 'default' | 'primary' | 'success' | 'warning' | 'error' | 'info' | 'accent';
   onPress?: () => void;
   loading?: boolean;
 }
@@ -32,6 +32,7 @@ export function MetricCard({
     warning: theme.colors.warning,
     error: theme.colors.error,
     info: theme.colors.info,
+    accent: theme.colors.accentStrong,
   }[tone];
 
   const body = (

@@ -1,101 +1,86 @@
 // (kitchen) UC42 — Roster builder.
-// REMEDIATED Phase C (§23): week → department → build → inspect shifts →
-// conflicts inline → validate → review result → PUBLISH → CONFIRM → locked.
-// Publish re-validates live server-side; week+department upserts (no dupes).
+// Layer 8: pickers for week/date/times, searchable staff sheet (no manual UID),
+// cached names. saveRosterMobile / publishRosterMobile payloads unchanged.
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, useColorScheme, TextInput, ScrollView } from 'react-native';
+import { View, TouchableOpacity } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { listenAllAvailability, listenLeaveRequests, listenShiftRosters, saveRosterMobile, publishRosterMobile } from '@/services/increment2-services';
-import { db } from '@/services/firebase-services';
-import { collection, getDocs, query, where } from 'firebase/firestore';
 import { todayISO } from '@/utils/dates';
+import { dateToStored, timeToStored, storedDateToDate, storedTimeToDate } from '@/utils/datetime-input';
 import { usePermissions } from '@/context/PermissionsContext';
 import type { RosterShift, ShiftRoster, StaffAvailability, LeaveRequest } from '@/types/increment2';
-import { getTheme } from '@/constants/theme';
-import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
+import { useAppTheme } from '@/design/use-app-theme';
+import { useStaffNames, staffNameOf } from '@/hooks/use-staff-names';
+import { Screen, PageHeader, SectionHeader } from '@/components/ui/screen';
+import { Card } from '@/components/ui/surface';
+import { ListRow } from '@/components/ui/list-row';
+import { StatusPill } from '@/components/ui/status-pill';
+import { Field } from '@/components/ui/inputs';
+import { PickerSheet } from '@/components/ui/sheets';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/states';
+import { AppText } from '@/components/ui/text';
+import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
 import { DetailModal, ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
-import { goBack } from '@/utils/navigation';
-import { useRouter } from 'expo-router';
+
+type PickerTarget = 'week' | 'date' | 'start' | 'end' | null;
 
 export default function KitchenRosterBuilderScreen() {
-  const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const styles = createStyles(theme);
+  const theme = useAppTheme();
   const [weekStart, setWeekStart] = useState(() => todayISO());
   const [department, setDepartment] = useState('Food & Beverage');
   const [shifts, setShifts] = useState<RosterShift[]>([]);
-  const [draft, setDraft] = useState({ staffId: '', date: '', start: '08:00', end: '17:00', role: '', skill: '' });
+  const [draft, setDraft] = useState({ staffId: '', date: '', startTime: '08:00', endTime: '17:00', role: '', skill: '' });
+  const [picker, setPicker] = useState<PickerTarget>(null);
+  const [staffPicker, setStaffPicker] = useState(false);
   const [availability, setAvailability] = useState<StaffAvailability[]>([]);
   const [leave, setLeave] = useState<LeaveRequest[]>([]);
   const [rosters, setRosters] = useState<ShiftRoster[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [loadError, setLoadError] = useState('');
+  const [loaded, setLoaded] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const [selected, setSelected] = useState<ShiftRoster | null>(null);
   const [confirming, setConfirming] = useState(false);
-  const [names, setNames] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({ visible: false, title: '', message: '' });
   const showAlert = (config: Omit<AlertConfig, 'visible'>) => setAlertConfig({ ...config, visible: true });
   const { hasPermission } = usePermissions();
+  const staffNames = useStaffNames();
 
   useEffect(() => {
     setLoadError('');
-    const onErr = (e: Error) => setLoadError(e.message);
-    const u1 = listenAllAvailability(setAvailability, onErr);
+    setLoaded(false);
+    const onErr = (e: Error) => { setLoadError(e.message); setLoaded(true); };
+    const u1 = listenAllAvailability((l) => { setAvailability(l); setLoaded(true); }, onErr);
     const u2 = listenLeaveRequests(setLeave, undefined, onErr);
     const u3 = listenShiftRosters(setRosters, weekStart, onErr);
     return () => { u1(); u2(); u3(); };
   }, [weekStart, retryKey]);
 
-  // Resolve staff display names for the open roster (uids are cryptic).
-  useEffect(() => {
-    if (!selected) return;
-    const ids = [...new Set((selected.shifts || []).map((s) => s.staffId).filter(Boolean))].slice(0, 10);
-    if (ids.length === 0) return;
-    getDocs(query(collection(db, 'users'), where('__name__', 'in', ids)))
-      .then((snap) => {
-        const m: Record<string, string> = {};
-        snap.docs.forEach((d) => {
-          const v = d.data() as Record<string, unknown>;
-          m[d.id] = String(v.displayName || v.name || v.email || d.id);
-        });
-        setNames(m);
-      })
-      .catch(() => {});
-  }, [selected]);
-
-  const staffName = (uid: string) => names[uid] || uid;
+  const knownStaff = [...new Map(availability.map((a) => [a.staffId, a.staffName || staffNameOf(staffNames, a.staffId)])).entries()];
 
   const addShift = () => {
     if (!draft.staffId.trim() || !draft.date || !draft.role.trim()) {
       showAlert({ title: 'Incomplete shift', message: 'Staff, date and role are required.', type: 'error' });
       return;
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date) || !/^\d{2}:\d{2}$/.test(draft.start) || !/^\d{2}:\d{2}$/.test(draft.end)) {
-      showAlert({ title: 'Invalid format', message: 'Use YYYY-MM-DD for dates and HH:mm for times.', type: 'error' });
-      return;
-    }
-    if (draft.start >= draft.end) {
+    if (draft.startTime >= draft.endTime) {
       showAlert({ title: 'Invalid shift', message: 'End time must be after start time.', type: 'error' });
       return;
     }
     const entry: RosterShift = {
       shiftId: `SH-${Date.now().toString(36).toUpperCase()}`,
       staffId: draft.staffId.trim(), date: draft.date,
-      startTime: draft.start, endTime: draft.end, role: draft.role.trim(),
+      startTime: draft.startTime, endTime: draft.endTime, role: draft.role.trim(),
     };
     if (draft.skill.trim()) entry.requiredSkill = draft.skill.trim();
     setShifts((p) => [...p, entry]);
-    setDraft({ staffId: '', date: '', start: '08:00', end: '17:00', role: '', skill: '' });
+    setDraft({ staffId: '', date: '', startTime: '08:00', endTime: '17:00', role: '', skill: '' });
   };
 
   const save = async () => {
-    if (shifts.length === 0) {
-      showAlert({ title: 'Nothing to save', message: 'Add at least one shift first.', type: 'error' });
-      return;
-    }
+    if (shifts.length === 0) { showAlert({ title: 'Nothing to save', message: 'Add at least one shift first.', type: 'error' }); return; }
     setBusy(true);
     try {
       const { warnings: w } = await saveRosterMobile({
@@ -110,9 +95,7 @@ export default function KitchenRosterBuilderScreen() {
       });
     } catch (e: any) {
       showAlert({ title: 'Save failed', message: e?.message || 'Could not save.', type: 'error' });
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
   const publish = async () => {
@@ -124,105 +107,177 @@ export default function KitchenRosterBuilderScreen() {
       showAlert({ title: 'Roster published', message: 'Assigned staff notified. Roster locked.', type: 'success' });
     } catch (e: any) {
       showAlert({ title: 'Publish blocked', message: e?.message || 'Could not publish.', type: 'error' });
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
-  const knownStaff = [...new Map(availability.map((a) => [a.staffId, a.staffName || a.staffId])).entries()];
-
-  // Phase 1 (§20): capability gate — only roster managers may build/publish.
   if (!hasPermission('roster_manage')) {
     return (
-      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', gap: 8 }]}>
-        <Ionicons name="lock-closed" size={36} color={theme.colors.textMuted} />
-        <Text style={styles.muted}>Roster management is restricted to kitchen managers.</Text>
-      </View>
+      <Screen>
+        <PageHeader title="Roster builder" showBack fallback="/(kitchen)/dashboard" />
+        <EmptyState icon="lock-closed-outline" title="Restricted" message="Roster management is restricted to kitchen managers." />
+      </Screen>
     );
   }
 
+  const prettyWeek = storedDateToDate(weekStart).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });
+  const prettyDraftDate = draft.date ? storedDateToDate(draft.date).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' }) : 'Pick date';
+
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => goBack(router, '/(kitchen)/dashboard')}><Ionicons name="arrow-back" size={24} color={theme.colors.text} /></TouchableOpacity>
-        <Text style={styles.title}>Roster Builder</Text>
-      </View>
+    <Screen scroll>
+      <PageHeader title="Roster builder" subtitle="Build, validate & publish the week" showBack fallback="/(kitchen)/dashboard" />
       <LiveErrorBanner error={loadError} onRetry={() => { setLoadError(''); setRetryKey((k) => k + 1); }} />
-      <TextInput style={styles.input} value={weekStart} onChangeText={setWeekStart} placeholder="Week start YYYY-MM-DD" placeholderTextColor={theme.colors.textMuted} />
-      <TextInput style={styles.input} value={department} onChangeText={setDepartment} placeholder="Department" placeholderTextColor={theme.colors.textMuted} />
-      <Text style={styles.section}>Add shift</Text>
-      {knownStaff.length > 0 && (
-        <View style={styles.chips}>
-          {knownStaff.slice(0, 8).map(([uid, name]) => (
-            <TouchableOpacity key={uid} style={[styles.chip, draft.staffId === uid && styles.chipOn]} onPress={() => setDraft((p) => ({ ...p, staffId: uid }))}>
-              <Text style={[styles.chipText, draft.staffId === uid && styles.chipTextOn]}>{name}</Text>
+
+      {loadError && !loaded ? (
+        <ErrorState title="Couldn't load roster data" message="Roster data is unavailable right now." details={loadError} onRetry={() => { setLoadError(''); setRetryKey((k) => k + 1); }} />
+      ) : !loaded ? (
+        <ListSkeleton rows={3} />
+      ) : (
+        <>
+          <View style={{ gap: theme.space.sm }}>
+            <TouchableOpacity onPress={() => setPicker('week')}>
+              <Card padding="md" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <AppText variant="label" tone="secondary">Week starting</AppText>
+                <AppText variant="bodyStrong" tone="primary">{prettyWeek}</AppText>
+              </Card>
             </TouchableOpacity>
-          ))}
-        </View>
-      )}
-      <TextInput style={styles.input} value={draft.staffId} onChangeText={(v) => setDraft((p) => ({ ...p, staffId: v }))} placeholder="Staff ID (uid)" placeholderTextColor={theme.colors.textMuted} />
-      <TextInput style={styles.input} value={draft.date} onChangeText={(v) => setDraft((p) => ({ ...p, date: v }))} placeholder="Date YYYY-MM-DD" placeholderTextColor={theme.colors.textMuted} />
-      <View style={styles.halfRow}>
-        <TextInput style={[styles.input, styles.half]} value={draft.start} onChangeText={(v) => setDraft((p) => ({ ...p, start: v }))} placeholder="Start HH:mm" placeholderTextColor={theme.colors.textMuted} />
-        <TextInput style={[styles.input, styles.half]} value={draft.end} onChangeText={(v) => setDraft((p) => ({ ...p, end: v }))} placeholder="End HH:mm" placeholderTextColor={theme.colors.textMuted} />
-      </View>
-      <TextInput style={styles.input} value={draft.role} onChangeText={(v) => setDraft((p) => ({ ...p, role: v }))} placeholder="Role (e.g. chef)" placeholderTextColor={theme.colors.textMuted} />
-      <TextInput style={styles.input} value={draft.skill} onChangeText={(v) => setDraft((p) => ({ ...p, skill: v }))} placeholder="Required skill (optional)" placeholderTextColor={theme.colors.textMuted} />
-      <TouchableOpacity style={styles.secondary} onPress={addShift}><Text style={styles.secondaryText}>Add shift ({shifts.length})</Text></TouchableOpacity>
-      {shifts.map((s) => (
-        <View key={s.shiftId} style={styles.row}>
-          <Text style={styles.cardTitle}>{s.date} {s.startTime}–{s.endTime} · {s.staffId} · {s.role}{s.requiredSkill ? ` · ${s.requiredSkill}` : ''}</Text>
-          <TouchableOpacity onPress={() => setShifts((p) => p.filter((x) => x.shiftId !== s.shiftId))}><Ionicons name="trash-outline" size={20} color={theme.colors.error} /></TouchableOpacity>
-        </View>
-      ))}
-      {warnings.length > 0 && (
-        <View style={styles.warnBox}>
-          <Text style={styles.warnTitle}>Resolve before publishing</Text>
-          {warnings.map((w, i) => <Text key={i} style={styles.warn}>• {w}</Text>)}
-        </View>
-      )}
-      {busy ? <ActivityIndicator color={theme.colors.primary} /> : (
-        <TouchableOpacity style={styles.button} onPress={save}><Text style={styles.buttonText}>Validate & save</Text></TouchableOpacity>
-      )}
-      <Text style={styles.section}>Week rosters ({rosters.length})</Text>
-      {rosters.length === 0 && <Text style={styles.muted}>No rosters saved for this week yet.</Text>}
-      {rosters.map((r) => (
-        <TouchableOpacity key={r.id} style={styles.card} onPress={() => { setSelected(r); setConfirming(false); }} activeOpacity={0.7}>
-          <View style={styles.cardTop}>
-            <Text style={styles.cardTitle}>{r.rosterId}</Text>
-            <StatusBadge status={r.published ? 'published' : r.validationStatus} />
+            <Field label="Department" value={department} onChangeText={setDepartment} placeholder="Food & Beverage" />
           </View>
-          <Text style={styles.muted}>{r.shifts.length} shifts · {r.department}</Text>
-          <Text style={styles.review}>Tap to inspect ›</Text>
-        </TouchableOpacity>
-      ))}
+
+          <SectionHeader title="Add shift" />
+          <View style={{ gap: theme.space.sm }}>
+            <TouchableOpacity onPress={() => setStaffPicker(true)}>
+              <Card padding="md" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <AppText variant="label" tone="secondary">Staff member</AppText>
+                <AppText variant="bodyStrong" tone={draft.staffId ? 'primary' : 'muted'}>
+                  {draft.staffId ? (knownStaff.find(([uid]) => uid === draft.staffId)?.[1] || staffNameOf(staffNames, draft.staffId)) : 'Select staff'}
+                </AppText>
+              </Card>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setPicker('date')}>
+              <Card padding="md" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <AppText variant="label" tone="secondary">Date</AppText>
+                <AppText variant="bodyStrong" tone={draft.date ? 'primary' : 'muted'}>{prettyDraftDate}</AppText>
+              </Card>
+            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
+              <TouchableOpacity style={{ flex: 1 }} onPress={() => setPicker('start')}>
+                <Card padding="md" style={{ alignItems: 'center' }}>
+                  <AppText variant="micro" tone="muted">START</AppText>
+                  <AppText variant="bodyStrong">{draft.startTime}</AppText>
+                </Card>
+              </TouchableOpacity>
+              <TouchableOpacity style={{ flex: 1 }} onPress={() => setPicker('end')}>
+                <Card padding="md" style={{ alignItems: 'center' }}>
+                  <AppText variant="micro" tone="muted">END</AppText>
+                  <AppText variant="bodyStrong">{draft.endTime}</AppText>
+                </Card>
+              </TouchableOpacity>
+            </View>
+            <Field label="Role" value={draft.role} onChangeText={(v) => setDraft((p) => ({ ...p, role: v }))} placeholder="e.g. chef" />
+            <Field label="Required skill (optional)" value={draft.skill} onChangeText={(v) => setDraft((p) => ({ ...p, skill: v }))} placeholder="e.g. Food safety" />
+          </View>
+
+          {picker === 'week' ? <DateTimePicker value={storedDateToDate(weekStart)} mode="date" display="default" onChange={(_, d) => { setPicker(null); if (d) setWeekStart(dateToStored(d)); }} /> : null}
+          {picker === 'date' ? <DateTimePicker value={storedDateToDate(draft.date)} mode="date" display="default" onChange={(_, d) => { setPicker(null); if (d) setDraft((p) => ({ ...p, date: dateToStored(d) })); }} /> : null}
+          {picker === 'start' ? <DateTimePicker value={storedTimeToDate(draft.startTime)} mode="time" is24Hour display="default" onChange={(_, d) => { setPicker(null); if (d) setDraft((p) => ({ ...p, startTime: timeToStored(d) })); }} /> : null}
+          {picker === 'end' ? <DateTimePicker value={storedTimeToDate(draft.endTime)} mode="time" is24Hour display="default" onChange={(_, d) => { setPicker(null); if (d) setDraft((p) => ({ ...p, endTime: timeToStored(d) })); }} /> : null}
+
+          <View style={{ marginTop: theme.space.md }}>
+            <ModalButton label={`Add shift (${shifts.length})`} kind="secondary" onPress={addShift} />
+          </View>
+
+          {shifts.length > 0 ? (
+            <Card padding="none" style={{ marginTop: theme.space.md, paddingHorizontal: theme.space.lg }}>
+              {shifts.map((s, i) => (
+                <View key={s.shiftId} style={[{ flexDirection: 'row', alignItems: 'center' }, i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : null]}>
+                  <View style={{ flex: 1 }}>
+                    <ListRow
+                      title={`${s.date} ${s.startTime}–${s.endTime}`}
+                      subtitle={`${knownStaff.find(([uid]) => uid === s.staffId)?.[1] || staffNameOf(staffNames, s.staffId)} · ${s.role}${s.requiredSkill ? ` · ${s.requiredSkill}` : ''}`}
+                      showChevron={false}
+                    />
+                  </View>
+                  <TouchableOpacity onPress={() => setShifts((p) => p.filter((x) => x.shiftId !== s.shiftId))} accessibilityLabel="Remove shift" hitSlop={8}>
+                    <Ionicons name="trash-outline" size={theme.iconSize.md} color={theme.colors.error} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </Card>
+          ) : null}
+
+          {warnings.length > 0 ? (
+            <Card style={{ backgroundColor: theme.colors.warningSoft, borderColor: theme.colors.warningSoft, marginTop: theme.space.md }}>
+              <AppText variant="label" color={theme.colors.warningStrong} weight="700">Resolve before publishing</AppText>
+              {warnings.map((w, i) => (
+                <AppText key={i} variant="caption" color={theme.colors.warningStrong} style={{ marginTop: 2 }}>• {w}</AppText>
+              ))}
+            </Card>
+          ) : null}
+
+          <View style={{ marginTop: theme.space.md }}>
+            <ModalButton label="Validate & save" onPress={save} busy={busy} />
+          </View>
+
+          <SectionHeader title={`Week rosters (${rosters.length})`} />
+          {rosters.length === 0 ? (
+            <AppText variant="body" tone="muted">No rosters saved for this week yet.</AppText>
+          ) : (
+            <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+              {rosters.map((r, i) => (
+                <View key={r.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+                  <ListRow
+                    title={r.rosterId}
+                    subtitle={`${r.shifts.length} shifts · ${r.department}`}
+                    status={<StatusPill status={r.published ? 'published' : r.validationStatus} size="sm" />}
+                    onPress={() => { setSelected(r); setConfirming(false); }}
+                  />
+                </View>
+              ))}
+            </Card>
+          )}
+        </>
+      )}
+
+      <PickerSheet
+        visible={staffPicker}
+        title="Select staff member"
+        searchable
+        options={knownStaff.map(([uid, name]) => ({ value: uid, label: name }))}
+        onSelect={(uid) => setDraft((p) => ({ ...p, staffId: uid }))}
+        onClose={() => setStaffPicker(false)}
+        emptyMessage="No staff with submitted availability. Ask staff to submit availability first."
+      />
 
       <DetailModal visible={selected !== null} title={selected?.rosterId || ''} onClose={() => setSelected(null)}>
-        {selected && !confirming && (
+        {selected && !confirming ? (
           <View>
             <StatusBadge status={selected.published ? 'published' : selected.validationStatus} />
             <KV label="Week" value={selected.weekStart} />
             <KV label="Department" value={selected.department} />
-            {!!selected.publishedBy && <KV label="Published by" value={`${selected.publishedBy}${selected.publishedAt ? ` · ${new Date(selected.publishedAt).toLocaleString()}` : ''}`} />}
-            <SectionTitle>SHIFTS ({selected.shifts.length})</SectionTitle>
+            {selected.publishedBy ? <KV label="Published" value={selected.publishedAt ? new Date(selected.publishedAt).toLocaleString() : 'Yes'} /> : null}
+            <SectionTitle>{`SHIFTS (${selected.shifts.length})`}</SectionTitle>
             {(selected.shifts || []).map((s) => (
-              <View key={s.shiftId} style={styles.shiftRow}>
-                <Text style={styles.cardTitle}>{s.date} {s.startTime}–{s.endTime}</Text>
-                <Text style={styles.muted}>{staffName(s.staffId)} · {s.role}{s.requiredSkill ? ` · ${s.requiredSkill}` : ''} · {s.shiftId}</Text>
+              <View key={s.shiftId} style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingVertical: 8 }}>
+                <AppText variant="bodyStrong">{s.date} {s.startTime}–{s.endTime}</AppText>
+                <AppText variant="caption" tone="muted">{staffNameOf(staffNames, s.staffId)} · {s.role}{s.requiredSkill ? ` · ${s.requiredSkill}` : ''}</AppText>
               </View>
             ))}
             <SectionTitle>VALIDATION</SectionTitle>
-            {(selected.validationWarnings || []).length === 0
-              ? <Text style={styles.muted}>No warnings — ready to publish.</Text>
-              : (selected.validationWarnings || []).map((w, i) => <Text key={i} style={styles.warn}>• {w}</Text>)}
-            {!selected.published && (
-              <View style={{ marginTop: 12 }}>
+            {(selected.validationWarnings || []).length === 0 ? (
+              <AppText variant="body" tone="muted">No warnings — ready to publish.</AppText>
+            ) : (
+              (selected.validationWarnings || []).map((w, i) => (
+                <AppText key={i} variant="caption" color={theme.colors.warningStrong} style={{ marginTop: 2 }}>• {w}</AppText>
+              ))
+            )}
+            {!selected.published ? (
+              <View style={{ marginTop: theme.space.md }}>
                 <ModalButton label="Review publication" onPress={() => setConfirming(true)} />
               </View>
-            )}
+            ) : null}
           </View>
-        )}
-        {selected && confirming && (
+        ) : null}
+        {selected && confirming ? (
           <ConfirmBlock
             title={`Publish ${selected.rosterId}?`}
             rows={[
@@ -234,39 +289,10 @@ export default function KitchenRosterBuilderScreen() {
             warning="Publishing notifies every assigned staff member. Re-validated live before locking."
             confirmLabel="Confirm publication" onConfirm={publish} onCancel={() => setConfirming(false)} busy={busy}
           />
-        )}
+        ) : null}
       </DetailModal>
-      <View style={{ height: 40 }} />
+      <View style={{ height: theme.space['4xl'] }} />
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
-    </ScrollView>
+    </Screen>
   );
 }
-
-const createStyles = (theme: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, padding: 16 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  title: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
-  section: { fontSize: 16, fontWeight: '700', color: theme.colors.text, marginTop: 16, marginBottom: 8 },
-  input: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, padding: 12, color: theme.colors.text, marginBottom: 10, backgroundColor: theme.colors.surface },
-  halfRow: { flexDirection: 'row', gap: 8 },
-  half: { flex: 1 },
-  secondary: { borderWidth: 1, borderColor: theme.colors.primary, padding: 12, borderRadius: 10, alignItems: 'center', marginBottom: 8 },
-  secondaryText: { color: theme.colors.primary, fontWeight: '600' },
-  button: { backgroundColor: theme.colors.primary, padding: 14, borderRadius: 10, alignItems: 'center', marginTop: 8 },
-  buttonText: { color: '#fff', fontWeight: '700' },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingVertical: 8 },
-  card: { backgroundColor: theme.colors.surface, borderRadius: 10, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-  cardTitle: { color: theme.colors.text, fontWeight: '600', flex: 1 },
-  muted: { color: theme.colors.textMuted, fontSize: 12, marginTop: 4 },
-  review: { color: theme.colors.primary, fontSize: 12, fontWeight: '700', marginTop: 6 },
-  shiftRow: { borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingVertical: 8 },
-  warnBox: { borderWidth: 1, borderColor: '#f59e0b', backgroundColor: '#fffbeb', borderRadius: 8, padding: 12, marginTop: 8 },
-  warnTitle: { fontWeight: '700', color: '#92400e' },
-  warn: { color: '#92400e', fontSize: 12, marginTop: 4 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
-  chip: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 6 },
-  chipOn: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primary + '1A' },
-  chipText: { fontSize: 12, color: theme.colors.textMuted },
-  chipTextOn: { color: theme.colors.primary, fontWeight: '700' },
-});

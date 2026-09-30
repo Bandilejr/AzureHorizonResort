@@ -1,15 +1,18 @@
-// (kitchen) UC38 — Logistics. Layer 6 presentation rebuild.
-// scheduleDonationCollectionMobile payload unchanged: pickupDate YYYY-MM-DD,
-// windowStart/windowEnd ISO strings (new Date('YYYY-MM-DDTHH:mm').toISOString()).
-// Raw NPO id removed from the UI (facility shown instead).
+// (kitchen) UC38 — Logistics. Layer 8: native date/time pickers replace the
+// raw 'YYYY-MM-DDTHH:mm' text inputs. Stored payload is IDENTICAL:
+//   pickupDate      = 'YYYY-MM-DD'
+//   windowStart/End = localWindowToIso(date, 'HH:mm') === old new Date(`${date}T${time}`).toISOString()
+// (proven by scripts/test-datetime-helpers.js). Raw NPO id still hidden.
 import React, { useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { View, TouchableOpacity } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import QRCode from 'react-native-qrcode-svg';
 import { listenDonationBatches, scheduleDonationCollectionMobile } from '@/services/increment2-services';
 import type { DonationBatch } from '@/types/increment2';
-import { todayISO } from '@/utils/dates';
+import { todayISO, parseISOLocal } from '@/utils/dates';
+import { localWindowToIso, isoToStoredTime, storedTimeToDate, storedDateToDate, dateToStored, timeToStored } from '@/utils/datetime-input';
 import { useAppTheme } from '@/design/use-app-theme';
-import { Screen, PageHeader } from '@/components/ui/screen';
+import { Screen, PageHeader, SectionHeader } from '@/components/ui/screen';
 import { Card } from '@/components/ui/surface';
 import { ListRow } from '@/components/ui/list-row';
 import { StatusPill } from '@/components/ui/status-pill';
@@ -20,6 +23,7 @@ import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModa
 import { DetailModal, ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
 
 type Step = 'detail' | 'confirm' | 'done';
+type PickerTarget = 'date' | 'start' | 'end' | null;
 
 export default function KitchenLogisticsScreen() {
   const theme = useAppTheme();
@@ -29,7 +33,8 @@ export default function KitchenLogisticsScreen() {
   const [retryKey, setRetryKey] = useState(0);
   const [selected, setSelected] = useState<DonationBatch | null>(null);
   const [step, setStep] = useState<Step>('detail');
-  const [form, setForm] = useState({ date: '', start: '', end: '', bay: 'Bay A', courier: '' });
+  const [form, setForm] = useState({ date: '', startTime: '08:00', endTime: '17:00', bay: 'Bay A', courier: '' });
+  const [picker, setPicker] = useState<PickerTarget>(null);
   const [formError, setFormError] = useState('');
   const [busy, setBusy] = useState(false);
   const [qr, setQr] = useState<string | null>(null);
@@ -48,18 +53,15 @@ export default function KitchenLogisticsScreen() {
     setSelected(b); setStep('detail'); setQr(b.collectionQr || null); setFormError('');
     setForm({
       date: b.pickupDate || todayISO(),
-      start: b.pickupWindowStart ? b.pickupWindowStart.slice(0, 16) : '',
-      end: b.pickupWindowEnd ? b.pickupWindowEnd.slice(0, 16) : '',
+      startTime: isoToStoredTime(b.pickupWindowStart) || '08:00',
+      endTime: isoToStoredTime(b.pickupWindowEnd) || '17:00',
       bay: b.loadingBay || 'Bay A', courier: b.courierName || '',
     });
   };
 
   const validForm = (): string => {
     if (!form.date) return 'Pickup date is required.';
-    const s = new Date(form.start).getTime();
-    const e = new Date(form.end).getTime();
-    if (Number.isNaN(s) || Number.isNaN(e)) return 'Window start/end must be valid dates (YYYY-MM-DDTHH:mm).';
-    if (e <= s) return 'Window end must be after start.';
+    if (form.endTime <= form.startTime) return 'Window end must be after start.';
     if (!form.bay.trim()) return 'Loading bay is required.';
     return '';
   };
@@ -70,7 +72,7 @@ export default function KitchenLogisticsScreen() {
     try {
       const code = await scheduleDonationCollectionMobile({
         batchDocId: selected.id, pickupDate: form.date,
-        windowStart: new Date(form.start).toISOString(), windowEnd: new Date(form.end).toISOString(),
+        windowStart: localWindowToIso(form.date, form.startTime), windowEnd: localWindowToIso(form.date, form.endTime),
         loadingBay: form.bay, courierName: form.courier,
       });
       setQr(code); setStep('done');
@@ -78,6 +80,8 @@ export default function KitchenLogisticsScreen() {
       showAlert({ title: 'Scheduling failed', message: e?.message || 'Could not schedule.', type: 'error' });
     } finally { setBusy(false); }
   };
+
+  const prettyDate = form.date ? parseISOLocal(form.date).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' }) : 'Pick date';
 
   return (
     <Screen scroll>
@@ -109,7 +113,7 @@ export default function KitchenLogisticsScreen() {
         </Card>
       )}
 
-      <DetailModal visible={selected !== null} title={selected?.batchId || ''} onClose={() => { setSelected(null); setQr(null); }}>
+      <DetailModal visible={selected !== null} title={selected?.batchId || ''} onClose={() => { setSelected(null); setQr(null); setPicker(null); }}>
         {selected && step === 'detail' ? (
           <View>
             <StatusBadge status={selected.status} />
@@ -124,13 +128,57 @@ export default function KitchenLogisticsScreen() {
             <KV label="Courier" value={selected.courierName || '—'} />
             <KV label="QR pass" value={selected.collectionQr ? (selected.qrConsumed ? 'Used' : 'Issued, unused') : 'None'} />
             <SectionTitle>{selected.collectionQr ? 'RESCHEDULE (rotates the pass)' : 'SCHEDULE PICKUP'}</SectionTitle>
+
             <View style={{ gap: theme.space.sm, marginTop: theme.space.sm }}>
-              <Field label="Pickup date" value={form.date} onChangeText={(v) => setForm((p) => ({ ...p, date: v }))} placeholder="YYYY-MM-DD" />
-              <Field label="Window start" value={form.start} onChangeText={(v) => setForm((p) => ({ ...p, start: v }))} placeholder="YYYY-MM-DDTHH:mm" />
-              <Field label="Window end" value={form.end} onChangeText={(v) => setForm((p) => ({ ...p, end: v }))} placeholder="YYYY-MM-DDTHH:mm" />
+              <TouchableOpacity onPress={() => setPicker('date')}>
+                <Card padding="md" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <AppText variant="label" tone="secondary">Pickup date</AppText>
+                  <AppText variant="bodyStrong" tone="primary">{prettyDate}</AppText>
+                </Card>
+              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
+                <TouchableOpacity style={{ flex: 1 }} onPress={() => setPicker('start')}>
+                  <Card padding="md" style={{ alignItems: 'center' }}>
+                    <AppText variant="micro" tone="muted">FROM</AppText>
+                    <AppText variant="bodyStrong">{form.startTime}</AppText>
+                  </Card>
+                </TouchableOpacity>
+                <TouchableOpacity style={{ flex: 1 }} onPress={() => setPicker('end')}>
+                  <Card padding="md" style={{ alignItems: 'center' }}>
+                    <AppText variant="micro" tone="muted">TO</AppText>
+                    <AppText variant="bodyStrong">{form.endTime}</AppText>
+                  </Card>
+                </TouchableOpacity>
+              </View>
+              <AppText variant="caption" tone="secondary" align="center">
+                {prettyDate} · {form.startTime} → {form.endTime}
+              </AppText>
               <Field label="Loading bay" value={form.bay} onChangeText={(v) => setForm((p) => ({ ...p, bay: v }))} placeholder="Bay A" />
               <Field label="Courier (optional)" value={form.courier} onChangeText={(v) => setForm((p) => ({ ...p, courier: v }))} placeholder="Courier name" />
             </View>
+
+            {picker === 'date' ? (
+              <DateTimePicker
+                value={storedDateToDate(form.date)}
+                mode="date" display="default"
+                onChange={(_, d) => { setPicker(null); if (d) setForm((p) => ({ ...p, date: dateToStored(d) })); }}
+              />
+            ) : null}
+            {picker === 'start' ? (
+              <DateTimePicker
+                value={storedTimeToDate(form.startTime)}
+                mode="time" is24Hour display="default"
+                onChange={(_, d) => { setPicker(null); if (d) setForm((p) => ({ ...p, startTime: timeToStored(d) })); }}
+              />
+            ) : null}
+            {picker === 'end' ? (
+              <DateTimePicker
+                value={storedTimeToDate(form.endTime)}
+                mode="time" is24Hour display="default"
+                onChange={(_, d) => { setPicker(null); if (d) setForm((p) => ({ ...p, endTime: timeToStored(d) })); }}
+              />
+            ) : null}
+
             {formError ? <AppText variant="caption" tone="error" style={{ marginTop: theme.space.sm }}>{formError}</AppText> : null}
             <View style={{ marginTop: theme.space.md }}>
               <ModalButton
@@ -145,7 +193,7 @@ export default function KitchenLogisticsScreen() {
             title={selected.collectionQr ? 'Confirm reschedule?' : 'Confirm schedule?'}
             rows={[
               ['Batch', `${selected.batchId} — ${selected.itemName}`],
-              ['Window', `${form.start} → ${form.end}`],
+              ['Window', `${prettyDate} · ${form.startTime} → ${form.endTime}`],
               ['Bay', form.bay], ['Courier', form.courier || '—'],
               ['Effect', 'Signed single-use QR pass is (re-)issued; old pass invalidates'],
             ]}
