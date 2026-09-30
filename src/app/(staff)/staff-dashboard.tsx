@@ -72,6 +72,7 @@ export default function StaffDashboardScreen() {
 
   return (
     <AppShell
+      context="Staff · FixedFunding"
       title={`${(profile?.displayName || '').trim().split(/\s+/)[0] || 'there'}`}
       subtitle={`${(profile?.position || profile?.subRole?.replace(/_/g, ' ') || 'Staff')} · My work`}
       onNotifications={() => router.push('/(staff)/notifications' as any)}
@@ -106,7 +107,10 @@ export default function StaffDashboardScreen() {
               <AppText variant="body" tone="secondary">
                 {todayShift.role}{todayShift.requiredSkill ? ` · ${todayShift.requiredSkill}` : ''}
               </AppText>
-              <Button label="View my schedule" variant="secondary" onPress={() => router.push('/(staff)/my-roster' as any)} style={{ marginTop: theme.space.xs }} />
+              <View style={{ flexDirection: 'row', gap: theme.space.sm, marginTop: theme.space.xs }}>
+                <Button label="Clock in / out" icon="finger-print-outline" onPress={() => router.push('/(staff)/clock-in-out' as any)} fullWidth={false} style={{ flex: 1 }} />
+                <Button label="My schedule" variant="secondary" onPress={() => router.push('/(staff)/my-roster' as any)} fullWidth={false} style={{ flex: 1 }} />
+              </View>
             </Card>
           ) : (
             <EmptyState

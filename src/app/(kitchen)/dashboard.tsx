@@ -129,6 +129,7 @@ export default function KitchenDashboardScreen() {
 
   return (
     <AppShell
+      context={isManager ? 'Kitchen Manager · FixedFunding' : 'Chef · FixedFunding'}
       title={isManager ? 'Operations' : 'Kitchen'}
       subtitle={profile?.displayName ? `Signed in as ${profile.displayName}` : undefined}
       onNotifications={onNotifications}

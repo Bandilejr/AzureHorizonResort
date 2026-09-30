@@ -50,6 +50,7 @@ export default function AvailabilityLeaveScreen() {
   const [loaded, setLoaded] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<'availability' | 'leave'>('availability');
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({ visible: false, title: '', message: '' });
   const showAlert = (config: Omit<AlertConfig, 'visible'>) => setAlertConfig({ ...config, visible: true });
 
@@ -104,6 +105,25 @@ export default function AvailabilityLeaveScreen() {
         <Skeleton width="100%" height={200} radius={theme.radius.lg} />
       ) : (
         <>
+          <View style={{ flexDirection: 'row', gap: theme.space.xs, backgroundColor: theme.colors.surfaceVariant, borderRadius: theme.radius.md, padding: 4, marginBottom: theme.space.md }}>
+            {(['availability', 'leave'] as const).map((v) => {
+              const active = tab === v;
+              return (
+                <TouchableOpacity
+                  key={v}
+                  onPress={() => setTab(v)}
+                  style={{ flex: 1, paddingVertical: theme.space.sm, borderRadius: theme.radius.sm, backgroundColor: active ? theme.colors.surface : 'transparent', alignItems: 'center' }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                >
+                  <AppText variant="label" tone={active ? 'primary' : 'secondary'} weight="600">{v === 'availability' ? 'Availability' : 'Leave'}</AppText>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {tab === 'availability' ? (
+            <>
           <SectionHeader title="When can you work?" />
           <TouchableOpacity onPress={() => setShowWeekPicker(true)}>
             <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -184,7 +204,11 @@ export default function AvailabilityLeaveScreen() {
           </View>
           <Button label="Submit availability" onPress={saveAvailability} loading={busy} style={{ marginTop: theme.space.md }} />
           {myAvail.length > 0 ? <AppText variant="caption" tone="muted" style={{ marginTop: theme.space.sm }}>Submitted: {myAvail.length} week(s)</AppText> : null}
+            </>
+          ) : null}
 
+          {tab === 'leave' ? (
+            <>
           <SectionHeader title="Request leave" />
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.sm, marginBottom: theme.space.md }}>
             {LEAVE_TYPES.map((t) => {
@@ -237,6 +261,8 @@ export default function AvailabilityLeaveScreen() {
               ))}
             </Card>
           )}
+            </>
+          ) : null}
         </>
       )}
 

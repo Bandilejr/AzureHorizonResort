@@ -1,7 +1,7 @@
 // Open Shifts — calendar-first. Layer 6 presentation rebuild; claim/eligibility
 // service calls unchanged.
 import React, { useState, useEffect, useMemo } from 'react';
-import { View } from 'react-native';
+import { View, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { auth } from '@/services/firebase-services';
@@ -17,9 +17,16 @@ import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states';
 import { AppText } from '@/components/ui/text';
 import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
 import { DetailModal, ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
-import { todayISO, localDateISO } from '@/utils/dates';
+import { todayISO, localDateISO, addDaysISO, parseISOLocal } from '@/utils/dates';
 import { formatStatus } from '@/utils/status-labels';
 import { Calendar, CalendarIndicator } from '@/components/Calendar';
+import { WeekStrip, type WeekDay, type WeekBlock } from '@/components/WeekStrip';
+
+function mondayOf(iso: string): string {
+  const d = parseISOLocal(iso);
+  const dow = (d.getDay() + 6) % 7;
+  return localDateISO(new Date(d.getFullYear(), d.getMonth(), d.getDate() - dow));
+}
 
 export default function StaffOpenShiftsCalendarScreen() {
   const router = useRouter();
@@ -32,6 +39,7 @@ export default function StaffOpenShiftsCalendarScreen() {
   const [loaded, setLoaded] = useState(false);
   const [month, setMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string>(todayISO());
+  const [view, setView] = useState<'week' | 'month'>('week');
   const [showAll, setShowAll] = useState(false);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<OpenShift | null>(null);
@@ -80,6 +88,21 @@ export default function StaffOpenShiftsCalendarScreen() {
     return res;
   }, [open, myShifts, month]);
 
+  const weekStart = useMemo(() => mondayOf(selectedDate), [selectedDate]);
+  const weekDays: WeekDay[] = useMemo(() => {
+    const dates = Array.from({ length: 7 }, (_, i) => addDaysISO(weekStart, i));
+    const today = todayISO();
+    return dates.map((date) => {
+      const blocks: WeekBlock[] = [];
+      if (myShifts.some((m) => m.date === date)) blocks.push({ label: 'My shift', tone: 'shift' });
+      open.filter((o) => o.date === date).forEach((o) => {
+        const urgent = o.urgency === 'urgent' || o.urgency === 'critical';
+        blocks.push({ label: `${o.startTime}`, tone: urgent ? 'pending' : 'open' });
+      });
+      return { date, blocks, isToday: date === today };
+    });
+  }, [weekStart, open, myShifts]);
+
   const filtered = useMemo(() => {
     let base = showAll ? open : open.filter((s) => s.date === selectedDate);
     if (query) base = base.filter((s) => `${s.role} ${s.department} ${s.date}`.toLowerCase().includes(query.toLowerCase()));
@@ -122,7 +145,27 @@ export default function StaffOpenShiftsCalendarScreen() {
         <Skeleton width="100%" height={280} radius={theme.radius.lg} />
       ) : (
         <>
-          <Calendar month={month} selectedDate={selectedDate} indicators={indicators} onSelectDate={setSelectedDate} onMonthChange={setMonth} />
+          <View style={{ flexDirection: 'row', gap: theme.space.xs, backgroundColor: theme.colors.surfaceVariant, borderRadius: theme.radius.md, padding: 4, marginBottom: theme.space.sm }}>
+            {(['week', 'month'] as const).map((v) => {
+              const active = view === v;
+              return (
+                <TouchableOpacity
+                  key={v}
+                  onPress={() => setView(v)}
+                  style={{ flex: 1, paddingVertical: theme.space.sm, borderRadius: theme.radius.sm, backgroundColor: active ? theme.colors.surface : 'transparent', alignItems: 'center' }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                >
+                  <AppText variant="label" tone={active ? 'primary' : 'secondary'} weight="600">{v === 'week' ? 'Week' : 'Month'}</AppText>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {view === 'week' ? (
+            <WeekStrip days={weekDays} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+          ) : (
+            <Calendar month={month} selectedDate={selectedDate} indicators={indicators} onSelectDate={setSelectedDate} onMonthChange={setMonth} />
+          )}
 
           <View style={{ marginTop: theme.space.md }}>
             <SearchField value={query} onChangeText={setQuery} placeholder="Search role or department" />
