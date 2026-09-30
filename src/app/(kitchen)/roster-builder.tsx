@@ -1,12 +1,12 @@
 // (kitchen) UC42 — Roster builder.
 // Layer 8: pickers for week/date/times, searchable staff sheet (no manual UID),
 // cached names. saveRosterMobile / publishRosterMobile payloads unchanged.
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, TouchableOpacity } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { listenAllAvailability, listenLeaveRequests, listenShiftRosters, saveRosterMobile, publishRosterMobile } from '@/services/increment2-services';
-import { todayISO } from '@/utils/dates';
+import { todayISO, addDaysISO, parseISOLocal } from '@/utils/dates';
 import { dateToStored, timeToStored, storedDateToDate, storedTimeToDate } from '@/utils/datetime-input';
 import { usePermissions } from '@/context/PermissionsContext';
 import type { RosterShift, ShiftRoster, StaffAvailability, LeaveRequest } from '@/types/increment2';
@@ -24,6 +24,7 @@ import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModa
 import { DetailModal, ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
 
 type PickerTarget = 'week' | 'date' | 'start' | 'end' | null;
+const WD = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
 export default function KitchenRosterBuilderScreen() {
   const theme = useAppTheme();
@@ -59,6 +60,11 @@ export default function KitchenRosterBuilderScreen() {
   }, [weekStart, retryKey]);
 
   const knownStaff = [...new Map(availability.map((a) => [a.staffId, a.staffName || staffNameOf(staffNames, a.staffId)])).entries()];
+
+  // Read-only week overview (saved rosters only) — no writes.
+  const weekDates = useMemo(() => Array.from({ length: 7 }, (_, i) => addDaysISO(weekStart, i)), [weekStart]);
+  const weekShifts = useMemo(() => rosters.flatMap((r) => r.shifts || []), [rosters]);
+  const weekStaff = useMemo(() => [...new Set(weekShifts.map((s) => s.staffId))], [weekShifts]);
 
   const addShift = () => {
     if (!draft.staffId.trim() || !draft.date || !draft.role.trim()) {
@@ -142,6 +148,49 @@ export default function KitchenRosterBuilderScreen() {
             </TouchableOpacity>
             <Field label="Department" value={department} onChangeText={setDepartment} placeholder="Food & Beverage" />
           </View>
+
+          <SectionHeader title="Week overview" />
+          {weekShifts.length === 0 ? (
+            <AppText variant="body" tone="muted">No saved shifts for this week yet.</AppText>
+          ) : (
+            <Card padding="md">
+              <View style={{ flexDirection: 'row', marginBottom: theme.space.xs }}>
+                <View style={{ width: 88 }} />
+                {weekDates.map((d, i) => (
+                  <View key={d} style={{ flex: 1, alignItems: 'center' }}>
+                    <AppText variant="micro" tone="muted" weight="700">{WD[i]}</AppText>
+                    <AppText variant="micro" tone="muted">{parseISOLocal(d).getDate()}</AppText>
+                  </View>
+                ))}
+              </View>
+              {weekStaff.map((uid) => (
+                <View key={uid} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+                  <View style={{ width: 88, paddingRight: 4 }}>
+                    <AppText variant="caption" numberOfLines={1}>{staffNameOf(staffNames, uid)}</AppText>
+                  </View>
+                  {weekDates.map((d) => {
+                    const cellShifts = weekShifts.filter((s) => s.staffId === uid && s.date === d);
+                    const onLeave = leave.some((l) => l.status === 'approved' && d >= l.startDate && d <= l.endDate);
+                    const overlap = cellShifts.some((a, i) => cellShifts.some((b, j) => i < j && a.startTime < b.endTime && b.startTime < a.endTime));
+                    const bar = overlap ? theme.colors.error : cellShifts.length ? theme.colors.primary : onLeave ? theme.colors.textMuted : 'transparent';
+                    return (
+                      <View key={d} style={{ flex: 1, paddingHorizontal: 2 }}>
+                        <View style={{ height: 14, borderRadius: 4, backgroundColor: bar }} />
+                      </View>
+                    );
+                  })}
+                </View>
+              ))}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.md, justifyContent: 'center', marginTop: theme.space.sm, borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: theme.space.sm }}>
+                {([['Shift', theme.colors.primary], ['Leave', theme.colors.textMuted], ['Conflict', theme.colors.error]] as [string, string][]).map(([label, color]) => (
+                  <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
+                    <AppText variant="micro" tone="muted" weight="600">{label}</AppText>
+                  </View>
+                ))}
+              </View>
+            </Card>
+          )}
 
           <SectionHeader title="Add shift" />
           <View style={{ gap: theme.space.sm }}>
