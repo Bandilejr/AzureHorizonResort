@@ -17,7 +17,8 @@ import { Field } from '@/components/ui/inputs';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/states';
 import { AppText } from '@/components/ui/text';
 import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
-import { DetailModal, ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
+import { ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
+import { DetailScreen } from '@/components/ui/detail-screen';
 
 type Step = 'review' | 'confirm-approve' | 'confirm-reject';
 
@@ -120,7 +121,13 @@ export default function AdminNpoVerificationScreen() {
         </>
       )}
 
-      <DetailModal visible={selected !== null} title={`Review — ${selected?.organisationName || ''}`} onClose={() => setSelected(null)}>
+      <DetailScreen
+        visible={selected !== null}
+        title={`Review — ${selected?.organisationName || ''}`}
+        subtitle={selected?.registrationNumber ? `Reg ${selected.registrationNumber}` : undefined}
+        status={selected ? <StatusPill status={selected.verificationStatus} /> : undefined}
+        onClose={() => setSelected(null)}
+      >
         {selected && step === 'review' ? (
           <View>
             <StatusBadge status={selected.verificationStatus} />
@@ -173,7 +180,7 @@ export default function AdminNpoVerificationScreen() {
             confirmLabel="Confirm rejection" danger onConfirm={() => decide(false)} onCancel={() => setStep('review')} busy={busy}
           />
         ) : null}
-      </DetailModal>
+      </DetailScreen>
       <View style={{ height: theme.space['4xl'] }} />
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
     </Screen>

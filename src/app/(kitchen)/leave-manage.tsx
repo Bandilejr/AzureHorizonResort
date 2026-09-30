@@ -15,7 +15,8 @@ import { Field } from '@/components/ui/inputs';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/states';
 import { AppText } from '@/components/ui/text';
 import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
-import { DetailModal, ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
+import { ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
+import { DetailScreen } from '@/components/ui/detail-screen';
 import { useStaffNames, staffNameOf } from '@/hooks/use-staff-names';
 import { usePermissions } from '@/context/PermissionsContext';
 
@@ -151,7 +152,13 @@ export default function LeaveManageScreen() {
         </>
       )}
 
-      <DetailModal visible={selLeave !== null} title={selLeave ? `Leave — ${staffNameOf(staffNames, selLeave.staffId)}` : ''} onClose={() => setSelLeave(null)}>
+      <DetailScreen
+        visible={selLeave !== null}
+        title={selLeave ? `Leave — ${staffNameOf(staffNames, selLeave.staffId)}` : 'Leave'}
+        subtitle={selLeave ? `${selLeave.leaveType}: ${selLeave.startDate} → ${selLeave.endDate}` : undefined}
+        status={selLeave ? <StatusPill status={selLeave.status} /> : undefined}
+        onClose={() => setSelLeave(null)}
+      >
         {selLeave && leaveStep === 'detail' ? (
           <View>
             <StatusBadge status={selLeave.status} />
@@ -192,9 +199,14 @@ export default function LeaveManageScreen() {
             confirmLabel="Confirm rejection" danger onConfirm={() => reviewLeave(false)} onCancel={() => setLeaveStep('detail')} busy={busy}
           />
         ) : null}
-      </DetailModal>
+      </DetailScreen>
 
-      <DetailModal visible={selSwap !== null} title="Swap review" onClose={() => setSelSwap(null)}>
+      <DetailScreen
+        visible={selSwap !== null}
+        title="Swap review"
+        status={selSwap ? <StatusPill status={selSwap.status} /> : undefined}
+        onClose={() => setSelSwap(null)}
+      >
         {selSwap && swapStep === 'detail' ? (
           <View>
             <StatusBadge status={selSwap.status} />
@@ -228,7 +240,7 @@ export default function LeaveManageScreen() {
             confirmLabel="Confirm rejection" danger onConfirm={() => reviewSwap(false)} onCancel={() => setSwapStep('detail')} busy={busy}
           />
         ) : null}
-      </DetailModal>
+      </DetailScreen>
       <View style={{ height: theme.space['4xl'] }} />
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
     </Screen>

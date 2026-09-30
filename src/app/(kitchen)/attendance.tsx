@@ -21,7 +21,9 @@ import { Field } from '@/components/ui/inputs';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/states';
 import { AppText } from '@/components/ui/text';
 import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
-import { DetailModal, ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
+import { ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
+import { DetailScreen } from '@/components/ui/detail-screen';
+import { formatStatus } from '@/utils/status-labels';
 import { usePermissions } from '@/context/PermissionsContext';
 
 type Flagged = Omit<AttendanceException, 'id' | 'createdAt'> & { id: string };
@@ -151,7 +153,13 @@ export default function KitchenAttendanceScreen() {
         </Card>
       )}
 
-      <DetailModal visible={selected !== null} title={`Verify — ${selected ? staffNameOf(staffNames, selected.staffId) : ''}`} onClose={() => setSelected(null)}>
+      <DetailScreen
+        visible={selected !== null}
+        title={`Verify — ${selected ? staffNameOf(staffNames, selected.staffId) : ''}`}
+        subtitle={selected?.exceptionType ? formatStatus(selected.exceptionType) : undefined}
+        status={selected ? <StatusPill status={selected.exceptionType} /> : undefined}
+        onClose={() => setSelected(null)}
+      >
         {selected && !confirming ? (
           <View>
             <StatusBadge status={selected.exceptionType} />
@@ -196,7 +204,7 @@ export default function KitchenAttendanceScreen() {
             confirmLabel="Confirm verification" onConfirm={save} onCancel={() => setConfirming(false)} busy={busy}
           />
         ) : null}
-      </DetailModal>
+      </DetailScreen>
       <View style={{ height: theme.space['4xl'] }} />
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
     </Screen>

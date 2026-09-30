@@ -16,7 +16,8 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/states';
 import { AppText } from '@/components/ui/text';
 import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
-import { DetailModal, ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
+import { ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
+import { DetailScreen } from '@/components/ui/detail-screen';
 
 type Step = 'detail' | 'confirm';
 
@@ -124,7 +125,13 @@ export default function NpoAllocationsScreen() {
         </>
       )}
 
-      <DetailModal visible={selected !== null} title={selected ? `${selected.batchId} — ${selected.itemName}` : ''} onClose={() => setSelected(null)}>
+      <DetailScreen
+        visible={selected !== null}
+        title={selected ? selected.itemName : 'Allocation'}
+        subtitle={selected?.batchId}
+        status={selected ? <StatusPill status={selected.status} /> : undefined}
+        onClose={() => setSelected(null)}
+      >
         {selected && step === 'detail' ? (
           <View>
             <StatusBadge status={selected.status} />
@@ -208,7 +215,7 @@ export default function NpoAllocationsScreen() {
             confirmLabel="Confirm claim" onConfirm={claim} onCancel={() => setStep('detail')} busy={busy}
           />
         ) : null}
-      </DetailModal>
+      </DetailScreen>
       <View style={{ height: theme.space['4xl'] }} />
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
     </Screen>

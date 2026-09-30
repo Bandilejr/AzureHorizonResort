@@ -15,7 +15,8 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states';
 import { AppText } from '@/components/ui/text';
 import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
-import { DetailModal, ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
+import { ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
+import { DetailScreen } from '@/components/ui/detail-screen';
 import { useStaffNames, staffNameOf } from '@/hooks/use-staff-names';
 
 type Step = 'detail' | 'confirm-request' | 'confirm-peer';
@@ -183,9 +184,10 @@ export default function ShiftSwapsScreen() {
         </>
       )}
 
-      <DetailModal
+      <DetailScreen
         visible={step === 'confirm-request' || selSwap !== null}
         title={step === 'confirm-request' ? 'Review swap request' : 'Swap detail'}
+        status={selSwap && step === 'detail' ? <StatusPill status={selSwap.status} /> : undefined}
         onClose={() => { setSelSwap(null); setStep('detail'); }}
       >
         {step === 'confirm-request' && myShift && target ? (
@@ -235,7 +237,7 @@ export default function ShiftSwapsScreen() {
             danger={!peerChoice} onConfirm={peer} onCancel={() => setStep('detail')} busy={busy}
           />
         ) : null}
-      </DetailModal>
+      </DetailScreen>
       <View style={{ height: theme.space['4xl'] }} />
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
     </Screen>

@@ -25,6 +25,7 @@ import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/states';
 import { AppText } from '@/components/ui/text';
 import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
 import { DetailModal, KV, SectionTitle, StatusBadge, LiveErrorBanner, ConfirmBlock } from '@/components/detail-kit';
+import { DetailScreen } from '@/components/ui/detail-screen';
 
 const CHECKS: { key: keyof SafetyChecklist; label: string }[] = [
   { key: 'coreTemperatureVerified', label: 'Core temperature within safe bounds' },
@@ -407,7 +408,13 @@ export default function DonationLogScreen() {
         </Card>
       )}
 
-      <DetailModal visible={inspected !== null} title={inspected ? `${inspected.batchId} — ${inspected.itemName}` : ''} onClose={() => setInspected(null)}>
+      <DetailScreen
+        visible={inspected !== null}
+        title={inspected ? inspected.itemName : 'Batch'}
+        subtitle={inspected?.batchId}
+        status={inspected ? <StatusPill status={inspected.status} /> : undefined}
+        onClose={() => setInspected(null)}
+      >
         {inspected ? (
           <View>
             <StatusBadge status={inspected.status} />
@@ -436,7 +443,7 @@ export default function DonationLogScreen() {
             <KV label="Pickup" value={inspected.pickupWindowStart ? `${new Date(inspected.pickupWindowStart).toLocaleString()} · ${inspected.loadingBay || ''}` : '—'} />
           </View>
         ) : null}
-      </DetailModal>
+      </DetailScreen>
 
       <DetailModal visible={confirming} title="Review donation batch" onClose={() => setConfirming(false)}>
         <ConfirmBlock
