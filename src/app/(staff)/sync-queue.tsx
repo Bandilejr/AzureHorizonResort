@@ -1,30 +1,43 @@
-// (staff) Sync Queue — offline operation visibility (remediation Phase E, §34).
-// Pending (queued/sending/retrying) + failed dead-letter queue with manual
-// retry/discard. Nothing disappears silently.
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, useColorScheme, ScrollView } from 'react-native';
+// Sync Queue — offline operation visibility. Layer 12: token-based rebuild.
+// Pending + failed items are readable, human-labelled and never show queue IDs.
+// (kitchen)/(courier) re-export this screen.
+import React, { useState } from 'react';
+import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useOfflineQueue, QueueItem, FailedItem } from '@/services/offline-queue';
-import { getTheme } from '@/constants/theme';
-import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
-import { SectionTitle, StatusBadge } from '@/components/detail-kit';
-import { goBack } from '@/utils/navigation';
-import { useRouter } from 'expo-router';
+import { useOfflineQueue, type QueueItem, type FailedItem } from '@/services/offline-queue';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen, PageHeader, SectionHeader } from '@/components/ui/screen';
+import { Card } from '@/components/ui/surface';
+import { ListRow } from '@/components/ui/list-row';
+import { StatusPill } from '@/components/ui/status-pill';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/states';
+import { AppText } from '@/components/ui/text';
+import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
 
-function age(ts: number): string {
-  const m = Math.max(0, Math.round((Date.now() - ts) / 60000));
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
-  return `${Math.round(m / 60)}h ago`;
+function labelForType(t: string): string {
+  switch (t) {
+    case 'staff_checkin': return 'Staff check-in';
+    case 'attendee_checkin': return 'Attendee check-in';
+    case 'pre_inspection': return 'Pre-event inspection';
+    case 'post_inspection': return 'Post-event inspection';
+    case 'damage_report': return 'Damage report';
+    case 'live_complaint': return 'Live complaint';
+    case 'loyalty_scan': return 'Loyalty scan';
+    case 'attendance_punch': return 'Attendance punch';
+    case 'donation_collection': return 'Donation collection';
+    default: return 'Queued item';
+  }
+}
+
+function timeLabel(ts: number): string {
+  return new Date(ts).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
 }
 
 export default function SyncQueueScreen() {
-  const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const styles = createStyles(theme);
+  const theme = useAppTheme();
   const { queue, failed, isOnline, retryFailed, discardFailed, removeItem } = useOfflineQueue();
-  const [alertConfig, setAlertConfig] = React.useState<AlertConfig>({ visible: false, title: '', message: '' });
+  const [alertConfig, setAlertConfig] = useState<AlertConfig>({ visible: false, title: '', message: '' });
 
   const act = async (label: string, fn: () => Promise<unknown>) => {
     try { await fn(); }
@@ -33,84 +46,64 @@ export default function SyncQueueScreen() {
     }
   };
 
-  const renderPending = (q: QueueItem) => (
-    <View key={q.id} style={styles.card}>
-      <View style={styles.cardTop}>
-        <Text style={styles.cardTitle}>{q.type.replace(/_/g, ' ')}</Text>
-        <StatusBadge status={q.status} />
-      </View>
-      <Text style={styles.muted}>Queued {age(q.timestamp)}{q.retries > 0 ? ` · attempt ${q.retries + 1}` : ''}</Text>
-      {!!q.lastError && <Text style={styles.warn}>Last error: {q.lastError}</Text>}
-      {!!q.nextAttemptAt && q.nextAttemptAt > Date.now() && (
-        <Text style={styles.muted}>Retrying in {Math.max(1, Math.round((q.nextAttemptAt - Date.now()) / 1000))}s</Text>
-      )}
-      <TouchableOpacity style={styles.link} onPress={() => act('Discard', () => removeItem(q.id))}>
-        <Text style={styles.linkText}>Discard</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderFailed = (f: FailedItem) => (
-    <View key={f.item.id} style={[styles.card, styles.failedCard]}>
-      <View style={styles.cardTop}>
-        <Text style={styles.cardTitle}>{f.item.type.replace(/_/g, ' ')}</Text>
-        <StatusBadge status="failed" />
-      </View>
-      <Text style={styles.muted}>Failed {age(f.failedAt)} after {f.item.retries} attempt(s)</Text>
-      <Text style={styles.warn}>{f.error}</Text>
-      <View style={styles.btnRow}>
-        <TouchableOpacity style={[styles.small, styles.ok]} onPress={() => act('Retry', () => retryFailed(f.item.id))}>
-          <Text style={styles.buttonText}>Retry now</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.small, styles.danger]} onPress={() => act('Discard', () => discardFailed(f.item.id))}>
-          <Text style={styles.buttonText}>Discard</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => goBack(router, '/(staff)/staff-dashboard')}><Ionicons name="arrow-back" size={24} color={theme.colors.text} /></TouchableOpacity>
-        <Text style={styles.title}>Sync Queue</Text>
-        <View style={[styles.net, { borderColor: isOnline ? '#16a34a' : '#d97706' }]}>
-          <Text style={{ color: isOnline ? '#16a34a' : '#d97706', fontSize: 11, fontWeight: '700' }}>
-            {isOnline ? 'ONLINE' : 'OFFLINE'}
-          </Text>
-        </View>
-      </View>
-      {!isOnline && (
-        <Text style={styles.muted}>Offline — actions queue locally and replay automatically on reconnect.</Text>
+    <Screen scroll>
+      <PageHeader
+        title="Sync queue"
+        subtitle={isOnline ? 'Online — items sync automatically' : 'Working offline — items will sync when connection returns'}
+        showBack
+        fallback="/(staff)/staff-dashboard"
+        right={<StatusPill status={isOnline ? 'online' : 'offline'} size="sm" />}
+      />
+
+      <SectionHeader title={`Pending (${queue.length})`} />
+      {queue.length === 0 ? (
+        <EmptyState icon="cloud-done-outline" title="Nothing queued" message="Offline scans and punches appear here until they sync." />
+      ) : (
+        <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+          {queue.map((q: QueueItem, i) => (
+            <View key={q.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+              <ListRow
+                title={labelForType(q.type)}
+                subtitle={`Queued ${timeLabel(q.timestamp)} · will sync when connection returns${q.retries > 0 ? ` · attempt ${q.retries + 1}` : ''}${q.lastError ? `\nLast error: ${q.lastError}` : ''}`}
+                status={<StatusPill status={q.status} size="sm" />}
+                trailing={
+                  <Button label="Discard" variant="ghost" fullWidth={false} onPress={() => act('Discard', () => removeItem(q.id))} />
+                }
+                showChevron={false}
+              />
+            </View>
+          ))}
+        </Card>
       )}
-      <SectionTitle>PENDING ({queue.length})</SectionTitle>
-      {queue.length === 0 && <Text style={styles.muted}>Nothing queued. Offline scans and punches appear here.</Text>}
-      {queue.map(renderPending)}
-      <SectionTitle>NEEDS ATTENTION ({failed.length})</SectionTitle>
-      {failed.length === 0 && <Text style={styles.muted}>No failed operations.</Text>}
-      {failed.map(renderFailed)}
-      <View style={{ height: 40 }} />
+
+      <SectionHeader title={`Needs attention (${failed.length})`} />
+      {failed.length === 0 ? (
+        <AppText variant="body" tone="muted">No failed operations.</AppText>
+      ) : (
+        <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+          {failed.map((f: FailedItem, i) => (
+            <View key={f.item.id} style={[{ paddingVertical: theme.space.md, gap: theme.space.sm }, i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : null]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space.sm }}>
+                <AppText variant="bodyStrong" style={{ flex: 1 }}>{labelForType(f.item.type)}</AppText>
+                <StatusPill status="failed" size="sm" />
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space.sm }}>
+                <Ionicons name="alert-circle-outline" size={theme.iconSize.sm} color={theme.colors.warningStrong} />
+                <AppText variant="caption" color={theme.colors.warningStrong} style={{ flex: 1 }}>
+                  Failed {timeLabel(f.failedAt)} after {f.item.retries} attempt(s). {f.error}
+                </AppText>
+              </View>
+              <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
+                <Button label="Retry now" fullWidth={false} style={{ flex: 1 }} onPress={() => act('Retry', () => retryFailed(f.item.id))} />
+                <Button label="Discard" variant="secondary" fullWidth={false} style={{ flex: 1 }} onPress={() => act('Discard', () => discardFailed(f.item.id))} />
+              </View>
+            </View>
+          ))}
+        </Card>
+      )}
+      <View style={{ height: theme.space['4xl'] }} />
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
-    </ScrollView>
+    </Screen>
   );
 }
-
-const createStyles = (theme: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, padding: 16 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  title: { fontSize: 20, fontWeight: '700', color: theme.colors.text, flex: 1 },
-  net: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 4 },
-  card: { backgroundColor: theme.colors.surface, borderRadius: 10, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
-  failedCard: { borderColor: theme.colors.error },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-  cardTitle: { color: theme.colors.text, fontWeight: '700', flex: 1 },
-  muted: { color: theme.colors.textMuted, fontSize: 12, marginTop: 4 },
-  warn: { color: '#92400e', fontSize: 12, marginTop: 4 },
-  link: { marginTop: 8 },
-  linkText: { color: theme.colors.error, fontSize: 12, fontWeight: '700' },
-  btnRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
-  small: { padding: 10, borderRadius: 8, flex: 1, alignItems: 'center' },
-  ok: { backgroundColor: '#16a34a' },
-  danger: { backgroundColor: '#dc2626' },
-  buttonText: { color: '#fff', fontWeight: '700' },
-});
