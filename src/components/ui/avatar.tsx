@@ -59,7 +59,7 @@ export function RoleBadge({ label, tone = 'primary' }: RoleBadgeProps) {
   const theme = useAppTheme();
   const map = {
     primary: { bg: theme.colors.primarySoft, fg: theme.colors.primary },
-    accent: { bg: theme.colors.accentSoft, fg: theme.colors.accent },
+    accent: { bg: theme.colors.accentSoft, fg: theme.colors.accentStrong },
     muted: { bg: theme.colors.surfaceVariant, fg: theme.colors.textSecondary },
   } as const;
   const c = map[tone];

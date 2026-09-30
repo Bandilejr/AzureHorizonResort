@@ -86,7 +86,9 @@ export const lightColors = {
   primaryPressed: palette.indigo600,
   primarySoft: palette.indigo50,
   primaryBorder: palette.indigo200,
+  // accent = icons/large objects (>=3:1). accentStrong = text/labels (>=4.5:1).
   accent: palette.teal500,
+  accentStrong: palette.teal600,
   accentSoft: palette.teal50,
   gold: palette.gold500,
 
@@ -105,20 +107,21 @@ export const lightColors = {
   text: palette.gray900,
   textPrimary: palette.gray900,
   textSecondary: palette.gray600,
-  textMuted: palette.gray400,
+  textMuted: palette.gray500,
   textInverse: palette.gray0,
 
-  // status
-  success: palette.green500,
+  // status — base = icons/large objects (>=3:1 on surface); Strong = text
+  // on soft backgrounds (>=4.5:1); Soft = background.
+  success: palette.green600,
   successSoft: palette.green50,
   successStrong: palette.green700,
-  warning: palette.amber500,
+  warning: palette.amber600,
   warningSoft: palette.amber50,
   warningStrong: palette.amber700,
   error: palette.red500,
   errorSoft: palette.red50,
   errorStrong: palette.red700,
-  info: palette.sky500,
+  info: palette.sky600,
   infoSoft: palette.sky50,
   infoStrong: palette.sky700,
 
@@ -144,6 +147,7 @@ export const darkColors = {
   primarySoft: '#1B2547',
   primaryBorder: '#2E3A66',
   accent: palette.teal400,
+  accentStrong: '#7CD9E2',
   accentSoft: '#0C2E33',
   gold: palette.gold500,
 
@@ -159,7 +163,7 @@ export const darkColors = {
   text: palette.gray100,
   textPrimary: palette.gray100,
   textSecondary: '#C3CAD9',
-  textMuted: '#7C8AA0',
+  textMuted: '#8A97AC',
   textInverse: palette.night0,
 
   success: '#32D583',

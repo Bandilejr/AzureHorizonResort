@@ -26,7 +26,7 @@ function toneColor(theme: Theme, tone: TextTone): string {
     case 'secondary': return c.textSecondary;
     case 'muted': return c.textMuted;
     case 'primary': return c.primary;
-    case 'accent': return c.accent;
+    case 'accent': return c.accentStrong;
     case 'inverse': return c.textInverse;
     case 'success': return c.success;
     case 'warning': return c.warning;

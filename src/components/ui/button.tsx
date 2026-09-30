@@ -48,7 +48,7 @@ export function Button({
   const palette = {
     primary: { bg: theme.colors.primary, fg: theme.colors.textInverse, border: 'transparent' },
     secondary: { bg: 'transparent', fg: theme.colors.primary, border: theme.colors.primary },
-    danger: { bg: theme.colors.error, fg: theme.colors.textInverse, border: 'transparent' },
+    danger: { bg: theme.colors.errorStrong, fg: theme.colors.textInverse, border: 'transparent' },
     ghost: { bg: 'transparent', fg: theme.colors.textSecondary, border: 'transparent' },
   } as const;
   const p = palette[variant];

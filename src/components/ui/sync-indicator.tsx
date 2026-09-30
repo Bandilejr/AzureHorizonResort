@@ -42,19 +42,19 @@ export function SyncIndicator({ onPress }: { onPress?: () => void }) {
   const { online, queued, failed } = useSyncStatus();
 
   let icon: React.ComponentProps<typeof Ionicons>['name'] = 'checkmark-circle';
-  let color: string = theme.colors.success;
+  let color: string = theme.colors.successStrong;
   let label = 'Up to date';
   if (!online) {
     icon = 'cloud-offline-outline';
-    color = theme.colors.textMuted;
+    color = theme.colors.textSecondary;
     label = 'Working offline';
   } else if (failed > 0) {
     icon = 'alert-circle-outline';
-    color = theme.colors.warning;
+    color = theme.colors.warningStrong;
     label = `${failed} need${failed === 1 ? 's' : ''} attention`;
   } else if (queued > 0) {
     icon = 'sync-outline';
-    color = theme.colors.info;
+    color = theme.colors.infoStrong;
     label = `Syncing ${queued}`;
   }
 
