@@ -4,7 +4,10 @@
 // categories, strict response validation, confidence null when absent.
 import * as functions from "firebase-functions";
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+// Model is configurable (functions/.env → GEMINI_MODEL, or Cloud Secret
+// Manager). Defaults to gemini-2.5-flash. Never hard-code a single model so a
+// future retirement only needs an env change, not a redeploy of logic.
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 // Server-side secret: functions/.env locally, Cloud Secret Manager in prod.
@@ -107,17 +110,36 @@ export const analyzeFoodImage = functions.https.onCall(async (data, context) => 
   if (res.status === 429) {
     throw new functions.https.HttpsError("resource-exhausted", "AI quota exceeded — try again later or continue manually.");
   }
-  if (res.status === 400 || res.status === 403) {
+  if (res.status === 400 || res.status === 401 || res.status === 403) {
+    let body = "";
     let safetyBlock = false;
     try {
-      const errText = await res.text();
-      safetyBlock = errText.includes("SAFETY") || errText.includes("safety");
+      body = await res.text();
+      safetyBlock = body.includes("SAFETY") || body.includes("safety");
     } catch { /* keep false */ }
+    // Distinguish an invalid/leaked/revoked server key (permission-denied) from
+    // a safety block (failed-precondition). A leaked key is the most common
+    // real-world failure — see the probe in the Layer 9 report.
+    const keyRejected = /leaked|invalid|API key|PERMISSION_DENIED|UNAUTHENTICATED/i.test(body);
+    if (safetyBlock) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "The image was blocked by the AI safety filter. Continue manually.",
+      );
+    }
+    if (keyRejected) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "The AI service key was rejected (invalid, revoked or reported leaked). An administrator must rotate GEMINI_API_KEY. Continue manually.",
+      );
+    }
+    throw new functions.https.HttpsError("invalid-argument", "The image could not be analysed. Try another photo or continue manually.");
+  }
+  if (res.status === 404) {
+    // Unknown/retired model — actionable, not a generic outage.
     throw new functions.https.HttpsError(
-      safetyBlock ? "failed-precondition" : "permission-denied",
-      safetyBlock
-        ? "The image was blocked by the AI safety filter. Continue manually."
-        : "The AI key was rejected (invalid or revoked) — contact the administrator. Continue manually.",
+      "failed-precondition",
+      `The configured AI model (${GEMINI_MODEL}) is unavailable. Set GEMINI_MODEL to a supported model. Continue manually.`,
     );
   }
   if (!res.ok) {

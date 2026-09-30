@@ -1,7 +1,9 @@
-// UC35 mobile — Log Surplus Donation. Uses logDonationFromMobile (same
-// donation_batches model, 4-check + photo gate enforced in the service).
+// UC35 mobile — Log Surplus Donation. Layer 9: token-based guided form
+// (What is it? / How much? / Safety / Photo & AI / Review). AI output is
+// advisory only and never blocks manual entry. logDonationFromMobile payload
+// unchanged (preparedAt/expiryAt ISO, safetyChecklist, photoUri).
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, useColorScheme, TextInput, ScrollView, Switch, Image } from 'react-native';
+import { View, TouchableOpacity, Switch, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -10,12 +12,18 @@ import { logDonationFromMobile, listenDonationBatches, listenNpoPartners } from 
 import { analyzeFoodImage, GeminiFoodResult, isGeminiConfigured, GEMINI_UNAVAILABLE_MESSAGE } from '@/services/gemini-food';
 import type { DonationBatch, NpoPartner, SafetyChecklist } from '@/types/increment2';
 import { usePermissions } from '@/context/PermissionsContext';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
 import { formatStatus } from '@/utils/status-labels';
-import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
-import { DetailModal, KV, SectionTitle, StatusBadge, LiveErrorBanner, ConfirmBlock, ModalButton } from '@/components/detail-kit';
-import { goBack } from '@/utils/navigation';
-import { useRouter } from 'expo-router';
+import { Screen, PageHeader, SectionHeader } from '@/components/ui/screen';
+import { Card, Surface } from '@/components/ui/surface';
+import { ListRow } from '@/components/ui/list-row';
+import { StatusPill } from '@/components/ui/status-pill';
+import { Field } from '@/components/ui/inputs';
+import { Button } from '@/components/ui/button';
+import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/states';
+import { AppText } from '@/components/ui/text';
+import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
+import { DetailModal, KV, SectionTitle, StatusBadge, LiveErrorBanner, ConfirmBlock } from '@/components/detail-kit';
 
 const CHECKS: { key: keyof SafetyChecklist; label: string }[] = [
   { key: 'coreTemperatureVerified', label: 'Core temperature within safe bounds' },
@@ -30,10 +38,7 @@ const isoLocal = (d: Date) => {
 };
 
 export default function DonationLogScreen() {
-  const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const styles = createStyles(theme);
+  const theme = useAppTheme();
   const { hasPermission } = usePermissions();
   const canLog = hasPermission('donation_log');
 
@@ -60,22 +65,23 @@ export default function DonationLogScreen() {
   const [confirming, setConfirming] = useState(false);
   const [npos, setNpos] = useState<NpoPartner[]>([]);
   const [loadError, setLoadError] = useState('');
+  const [loaded, setLoaded] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({ visible: false, title: '', message: '' });
   const showAlert = (config: Omit<AlertConfig, 'visible'>) => setAlertConfig({ ...config, visible: true });
 
-  // Realtime: my submissions update live (e.g. web allocation moves them on).
   useEffect(() => {
     const uid = auth.currentUser?.uid;
-    if (!uid) return;
+    if (!uid) { setLoaded(true); return; }
     setLoadError('');
+    setLoaded(false);
     return listenDonationBatches((list) => {
       setRecent(list.filter((b) => b.createdBy === uid).slice(0, 5));
-    }, undefined, (e) => setLoadError(e.message));
+      setLoaded(true);
+    }, undefined, (e) => { setLoadError(e.message); setLoaded(true); });
   }, [retryKey]);
 
-  // §3.A: resolve allocated NPO ids to organisation names for the detail view.
   useEffect(() => listenNpoPartners(setNpos, undefined), []);
 
   const applyGeminiResult = (res: GeminiFoodResult) => {
@@ -95,31 +101,25 @@ export default function DonationLogScreen() {
     if (!uri || geminiBusy) return;
     setGemini(null);
     setGeminiError('');
-    if (!isGeminiConfigured()) {
-      setGeminiError(GEMINI_UNAVAILABLE_MESSAGE);
-      return;
-    }
+    if (!isGeminiConfigured()) { setGeminiError(GEMINI_UNAVAILABLE_MESSAGE); return; }
     setGeminiBusy(true);
     try {
       const res = await analyzeFoodImage(uri, base64 ? { base64 } : undefined);
-      if (res) {
-        applyGeminiResult(res);
-      } else {
-        setGeminiError(GEMINI_UNAVAILABLE_MESSAGE);
-      }
+      if (res) applyGeminiResult(res);
+      else setGeminiError(GEMINI_UNAVAILABLE_MESSAGE);
     } catch (e: any) {
       setGeminiError(e?.message || GEMINI_UNAVAILABLE_MESSAGE);
-    } finally {
-      setGeminiBusy(false);
-    }
+    } finally { setGeminiBusy(false); }
   };
 
   const pickImage = async (camera: boolean) => {
-    const perm = camera
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const perm = camera ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (perm.status !== 'granted') {
-      showAlert({ title: 'Permission Denied', message: 'Photo permission is required for food-safety evidence.', type: 'warning' });
+      showAlert({
+        title: 'Photo access needed',
+        message: camera ? 'Camera access is unavailable. You can still add the photo from your gallery or enter details manually.' : 'Photo library access is unavailable. You can still enter details manually.',
+        type: 'warning',
+      });
       return;
     }
     const opts = { allowsEditing: true, quality: 0.5, base64: true } as const;
@@ -128,14 +128,11 @@ export default function DonationLogScreen() {
       : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, ...opts });
     if (!result.canceled && result.assets?.[0]?.uri) {
       const asset = result.assets[0];
-      const uri = asset.uri;
-      setPhotoUri(uri);
+      setPhotoUri(asset.uri);
       setPhotoBase64(asset.base64 || null);
       setGemini(null);
       setGeminiError(isGeminiConfigured() ? '' : GEMINI_UNAVAILABLE_MESSAGE);
-      if (isGeminiConfigured()) {
-        await runGeminiAnalysis(uri, asset.base64 || null);
-      }
+      if (isGeminiConfigured()) await runGeminiAnalysis(asset.uri, asset.base64 || null);
     }
   };
 
@@ -160,13 +157,9 @@ export default function DonationLogScreen() {
       setConfirming(false);
     } catch (e: any) {
       showAlert({ title: 'Submission failed', message: e?.message || 'Could not log donation.', type: 'error' });
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
-  // Phase 2 (§2.B/§2.E): consequential submission is review-first — validate,
-  // then show the confirmation block before executing.
   const validateForm = (): string => {
     if (!itemName.trim()) return 'Food item name is required.';
     const missing = CHECKS.filter((c) => !checks[c.key]);
@@ -183,148 +176,178 @@ export default function DonationLogScreen() {
 
   if (!canLog) {
     return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => goBack(router, '/(kitchen)/dashboard')}><Ionicons name="arrow-back" size={24} color={theme.colors.text} /></TouchableOpacity>
-          <Text style={styles.title}>Log Donation</Text>
-        </View>
-        <Text style={styles.muted}>Your role cannot log donations. Kitchen staff or managers only.</Text>
-      </View>
+      <Screen>
+        <PageHeader title="Log donation" showBack fallback="/(kitchen)/dashboard" />
+        <EmptyState icon="lock-closed-outline" title="Restricted" message="Your role cannot log donations. Kitchen staff or managers only." />
+      </Screen>
     );
   }
 
+  const lowConfidence = gemini != null && (gemini.confidence == null || gemini.confidence < 0.6);
+
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => goBack(router, '/(kitchen)/dashboard')}><Ionicons name="arrow-back" size={24} color={theme.colors.text} /></TouchableOpacity>
-        <Text style={styles.title}>Log Surplus Food</Text>
-      </View>
+    <Screen scroll>
+      <PageHeader title="Log surplus food" subtitle="Capture → analyze → safety → review" showBack fallback="/(kitchen)/dashboard" />
 
-      {/* CAMERA-FIRST HERO */}
-      <TouchableOpacity onPress={() => pickImage(true)} activeOpacity={0.8} style={styles.hero}>
-        {photoUri ? (
-          <Image source={{ uri: photoUri }} style={styles.heroImage} />
-        ) : (
-          <View style={styles.heroPlaceholder}>
-            <Ionicons name="camera" size={48} color={theme.colors.primary} />
-            <Text style={styles.heroTitle}>Tap to take photo</Text>
-            <Text style={styles.heroSub}>{isGeminiConfigured() ? 'AI can identify food type, quantity, allergens & use-by' : 'Food-safety photo evidence is required'}</Text>
-          </View>
-        )}
-        {photoUri && <View style={styles.heroBadge}><Text style={styles.heroBadgeText}>Tap to retake</Text></View>}
-      </TouchableOpacity>
-      <View style={styles.btnRow}>
-        <TouchableOpacity style={[styles.small, styles.secondary]} onPress={() => pickImage(true)}><Ionicons name="camera-outline" size={16} color={theme.colors.primary} /><Text style={styles.secondaryText}> Camera</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.small, styles.secondary]} onPress={() => pickImage(false)}><Ionicons name="images-outline" size={16} color={theme.colors.primary} /><Text style={styles.secondaryText}> Gallery</Text></TouchableOpacity>
-      </View>
-      {photoUri && !geminiBusy && isGeminiConfigured() && (
-        <TouchableOpacity
-          style={[styles.analyzeBtn, gemini && !geminiError ? styles.analyzeBtnDone : null]}
-          onPress={() => runGeminiAnalysis(photoUri, photoBase64)}
-          disabled={geminiBusy}
-          activeOpacity={0.8}
-        >
-          <Ionicons name={gemini && !geminiError ? 'checkmark-circle' : 'sparkles'} size={18} color={gemini && !geminiError ? '#166534' : '#fff'} />
-          <Text style={[styles.analyzeBtnText, gemini && !geminiError ? { color: '#166534' } : null]}>
-            {geminiBusy ? 'Analyzing…' : gemini && !geminiError ? 'Re-analyze with AI' : 'Analyze with AI'}
-          </Text>
-        </TouchableOpacity>
-      )}
-      {geminiBusy && (
-        <View style={styles.analyzingRow}>
-          <ActivityIndicator size="small" color={theme.colors.primary} />
-          <Text style={styles.muted}>Gemini analyzing image…</Text>
-        </View>
-      )}
-      {!geminiBusy && geminiError && photoUri && (
-        <View style={styles.aiErrorBox}>
-          <Ionicons name="alert-circle-outline" size={16} color="#b45309" />
-          <Text style={styles.aiErrorText}>{geminiError}</Text>
-        </View>
-      )}
-      {gemini && !geminiBusy && (
-        <View style={[styles.aiCard, { borderColor: gemini.confidence == null || gemini.confidence < 0.6 ? theme.colors.warning : theme.colors.primary }]}>
-          <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center'}}>
-            <Text style={styles.aiTitle}>AI Suggestion</Text>
-            <View style={[styles.confBadge, {backgroundColor: gemini.confidence == null || gemini.confidence < 0.6 ? '#fef3c7' : '#dcfce7'}]}>
-              <Text style={[styles.confText, {color: gemini.confidence == null || gemini.confidence < 0.6 ? '#92400e' : '#16a34a'}]}>{gemini.confidence == null ? '—' : `${(gemini.confidence*100).toFixed(0)}%`}{gemini.confidence != null && gemini.confidence < 0.6 ? ' • Low' : gemini.confidence == null ? ' • Unverified' : ''}</Text>
+      {/* PHOTO & AI */}
+      <TouchableOpacity onPress={() => pickImage(true)} activeOpacity={0.85}>
+        <View style={{ height: 220, borderRadius: theme.radius.lg, overflow: 'hidden', backgroundColor: theme.colors.surface, borderWidth: 2, borderColor: theme.colors.border, borderStyle: 'dashed', marginBottom: theme.space.sm }}>
+          {photoUri ? (
+            <Image source={{ uri: photoUri }} style={{ width: '100%', height: '100%' }} />
+          ) : (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: theme.space.sm, padding: theme.space.lg }}>
+              <Ionicons name="camera" size={48} color={theme.colors.primary} />
+              <AppText variant="subtitle">Take a photo</AppText>
+              <AppText variant="caption" tone="secondary" align="center">AI can suggest food type, quantity, allergens & use-by — advisory only.</AppText>
             </View>
-          </View>
-          <Text style={styles.aiNote}>{gemini.notes}</Text>
-          <View style={styles.aiGrid}>
-            <View style={styles.aiItem}><Text style={styles.aiLabel}>Food</Text><Text style={styles.aiValue}>{gemini.itemName || '—'}</Text></View>
-            <View style={styles.aiItem}><Text style={styles.aiLabel}>Category</Text><Text style={styles.aiValue}>{gemini.category}</Text></View>
-            <View style={styles.aiItem}><Text style={styles.aiLabel}>Portions</Text><Text style={styles.aiValue}>{gemini.estimatedPortions ?? '—'}</Text></View>
-            <View style={styles.aiItem}><Text style={styles.aiLabel}>Weight</Text><Text style={styles.aiValue}>{gemini.estimatedWeightKg ?? '—'} kg</Text></View>
-          </View>
-          <Text style={styles.aiAllergens}>Allergens: {(gemini.allergens||[]).join(', ')||'none'}</Text>
-          {(gemini.confidence == null || gemini.confidence < 0.6) && <Text style={styles.aiWarn}>⚠ {gemini.confidence == null ? 'AI did not report confidence' : 'Low confidence'} — please verify category, portions, allergens & use-by</Text>}
-          <Text style={styles.muted}>Auto-filled — review & edit below.</Text>
+          )}
+          {photoUri ? (
+            <View style={{ position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(16,24,40,0.6)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: theme.radius.pill }}>
+              <AppText variant="micro" color={theme.colors.textInverse} weight="600">Tap to retake</AppText>
+            </View>
+          ) : null}
         </View>
-      )}
-      {!gemini && !geminiBusy && !photoUri && (
-        <View style={styles.infoBox}>
-          <Ionicons name="bulb-outline" size={16} color="#0284c7"/>
-          <Text style={styles.infoText}>{isGeminiConfigured() ? 'Take a photo first — AI will suggest details. Or fill manually below.' : 'Fill in the details below — a photo is required as evidence.'}</Text>
-        </View>
-      )}
-
-      {/* REVIEW & EDIT */}
-      <Text style={styles.section}>Review & Edit {gemini? '· AI-assisted':''}</Text>
-      <TextInput style={styles.input} value={itemName} onChangeText={setItemName} placeholder="Food item *" placeholderTextColor={theme.colors.textMuted} />
-      <TextInput style={styles.input} value={mealCategory} onChangeText={setMealCategory} placeholder="Meal category *" placeholderTextColor={theme.colors.textMuted} />
-      <View style={styles.halfRow}>
-        <TextInput style={[styles.input, styles.half]} value={portions} onChangeText={setPortions} placeholder="Portions *" keyboardType="numeric" placeholderTextColor={theme.colors.textMuted} />
-        <TextInput style={[styles.input, styles.half]} value={weight} onChangeText={setWeight} placeholder="Weight kg *" keyboardType="decimal-pad" placeholderTextColor={theme.colors.textMuted} />
+      </TouchableOpacity>
+      <View style={{ flexDirection: 'row', gap: theme.space.sm, marginBottom: theme.space.sm }}>
+        <Button label="Camera" icon="camera-outline" variant="secondary" onPress={() => pickImage(true)} fullWidth={false} style={{ flex: 1 }} />
+        <Button label="Gallery" icon="images-outline" variant="secondary" onPress={() => pickImage(false)} fullWidth={false} style={{ flex: 1 }} />
       </View>
-      <TextInput style={styles.input} value={allergens} onChangeText={setAllergens} placeholder="Allergens (comma-separated)" placeholderTextColor={theme.colors.textMuted} />
-      <View style={styles.halfRow}>
-        <TouchableOpacity style={[styles.input, styles.half, { justifyContent: 'center' }]} onPress={() => setShowPreparedPicker(true)}>
-          <Text style={{ color: theme.colors.text }}>{preparedAt || 'Prepared — tap to pick'}</Text>
+
+      {geminiBusy ? (
+        <Card style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.sm }}>
+          <Ionicons name="sparkles" size={theme.iconSize.md} color={theme.colors.primary} />
+          <AppText variant="body" tone="secondary">Analyzing food image…</AppText>
+        </Card>
+      ) : null}
+
+      {!geminiBusy && geminiError && photoUri ? (
+        <Card style={{ backgroundColor: theme.colors.warningSoft, borderColor: theme.colors.warningSoft, flexDirection: 'row', alignItems: 'center', gap: theme.space.sm }}>
+          <Ionicons name="alert-circle-outline" size={theme.iconSize.md} color={theme.colors.warningStrong} />
+          <AppText variant="caption" color={theme.colors.warningStrong} style={{ flex: 1 }}>{geminiError}</AppText>
+          <TouchableOpacity onPress={() => runGeminiAnalysis(photoUri, photoBase64)} accessibilityRole="button">
+            <AppText variant="label" color={theme.colors.warningStrong} weight="700">Retry</AppText>
+          </TouchableOpacity>
+        </Card>
+      ) : null}
+
+      {gemini && !geminiBusy ? (
+        <Card style={{ borderColor: lowConfidence ? theme.colors.warning : theme.colors.primary, borderWidth: 1.5, gap: theme.space.sm }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <AppText variant="micro" tone="muted" weight="700">AI SUGGESTION — ADVISORY ONLY</AppText>
+            <StatusPill
+              status={lowConfidence ? 'pending' : 'approved'}
+              size="sm"
+              label={gemini.confidence == null ? 'Unverified' : `${Math.round(gemini.confidence * 100)}%${lowConfidence ? ' • Low' : ''}`}
+            />
+          </View>
+          {gemini.notes ? <AppText variant="caption" tone="secondary" style={{ fontStyle: 'italic' }}>{gemini.notes}</AppText> : null}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.sm }}>
+            <Surface tone="variant" radius="sm" padding="sm" style={{ width: '48%' }}>
+              <AppText variant="micro" tone="muted">FOOD</AppText>
+              <AppText variant="bodyStrong">{gemini.itemName || '—'}</AppText>
+            </Surface>
+            <Surface tone="variant" radius="sm" padding="sm" style={{ width: '48%' }}>
+              <AppText variant="micro" tone="muted">CATEGORY</AppText>
+              <AppText variant="bodyStrong">{gemini.category}</AppText>
+            </Surface>
+            <Surface tone="variant" radius="sm" padding="sm" style={{ width: '48%' }}>
+              <AppText variant="micro" tone="muted">PORTIONS</AppText>
+              <AppText variant="bodyStrong">{gemini.estimatedPortions ?? '—'}</AppText>
+            </Surface>
+            <Surface tone="variant" radius="sm" padding="sm" style={{ width: '48%' }}>
+              <AppText variant="micro" tone="muted">WEIGHT</AppText>
+              <AppText variant="bodyStrong">{gemini.estimatedWeightKg ?? '—'} kg</AppText>
+            </Surface>
+          </View>
+          <AppText variant="caption" tone="secondary">Allergens: {(gemini.allergens || []).join(', ') || 'none'}</AppText>
+          {lowConfidence ? (
+            <AppText variant="caption" color={theme.colors.warningStrong}>⚠ {gemini.confidence == null ? 'AI did not report confidence' : 'Low confidence'} — verify category, portions, allergens & use-by</AppText>
+          ) : null}
+          <AppText variant="micro" tone="muted">Auto-filled below — review & edit.</AppText>
+        </Card>
+      ) : null}
+
+      {!gemini && !geminiBusy && !photoUri ? (
+        <Card style={{ backgroundColor: theme.colors.infoSoft, borderColor: theme.colors.infoSoft, flexDirection: 'row', alignItems: 'center', gap: theme.space.sm }}>
+          <Ionicons name="bulb-outline" size={theme.iconSize.md} color={theme.colors.infoStrong} />
+          <AppText variant="caption" color={theme.colors.infoStrong} style={{ flex: 1 }}>Take a photo first — AI will suggest details. Or fill manually below.</AppText>
+        </Card>
+      ) : null}
+
+      {/* WHAT IS IT? */}
+      <SectionHeader title="What is it?" />
+      <View style={{ gap: theme.space.sm }}>
+        <Field label="Food item *" value={itemName} onChangeText={setItemName} placeholder="e.g. Cooked chicken curry" />
+        <Field label="Meal category *" value={mealCategory} onChangeText={setMealCategory} placeholder="Cooked meals" />
+      </View>
+
+      {/* HOW MUCH? */}
+      <SectionHeader title="How much?" />
+      <View style={{ gap: theme.space.sm }}>
+        <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
+          <View style={{ flex: 1 }}><Field label="Portions *" value={portions} onChangeText={setPortions} keyboardType="numeric" placeholder="10" /></View>
+          <View style={{ flex: 1 }}><Field label="Weight kg *" value={weight} onChangeText={setWeight} keyboardType="numeric" placeholder="5" /></View>
+        </View>
+        <Field label="Allergens (comma-separated)" value={allergens} onChangeText={setAllergens} placeholder="e.g. dairy, nuts" />
+      </View>
+
+      {/* SAFETY */}
+      <SectionHeader title="Safety & freshness" />
+      <View style={{ flexDirection: 'row', gap: theme.space.sm, marginBottom: theme.space.sm }}>
+        <TouchableOpacity style={{ flex: 1 }} onPress={() => setShowPreparedPicker(true)}>
+          <Card padding="md" style={{ alignItems: 'center' }}>
+            <AppText variant="micro" tone="muted">PREPARED</AppText>
+            <AppText variant="bodyStrong">{preparedAt ? new Date(preparedAt).toLocaleString('en-ZA', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Pick'}</AppText>
+          </Card>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.input, styles.half, { justifyContent: 'center' }]} onPress={() => setShowExpiryPicker(true)}>
-          <Text style={{ color: theme.colors.text }}>{expiryAt || 'Expiry — tap to pick'}</Text>
+        <TouchableOpacity style={{ flex: 1 }} onPress={() => setShowExpiryPicker(true)}>
+          <Card padding="md" style={{ alignItems: 'center' }}>
+            <AppText variant="micro" tone="muted">USE BY</AppText>
+            <AppText variant="bodyStrong">{expiryAt ? new Date(expiryAt).toLocaleString('en-ZA', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Pick'}</AppText>
+          </Card>
         </TouchableOpacity>
       </View>
-      {showPreparedPicker && (
-        <DateTimePicker
-          value={preparedAt ? new Date(preparedAt) : new Date()}
-          mode="datetime" display="default"
-          onChange={(_, d) => { setShowPreparedPicker(false); if (d) setPreparedAt(isoLocal(d)); }}
-        />
-      )}
-      {showExpiryPicker && (
-        <DateTimePicker
-          value={expiryAt ? new Date(expiryAt) : new Date(Date.now() + 24 * 3600000)}
-          mode="datetime" display="default"
-          onChange={(_, d) => { setShowExpiryPicker(false); if (d) setExpiryAt(isoLocal(d)); }}
-        />
-      )}
+      {showPreparedPicker ? <DateTimePicker value={preparedAt ? new Date(preparedAt) : new Date()} mode="datetime" display="default" onChange={(_, d) => { setShowPreparedPicker(false); if (d) setPreparedAt(isoLocal(d)); }} /> : null}
+      {showExpiryPicker ? <DateTimePicker value={expiryAt ? new Date(expiryAt) : new Date(Date.now() + 24 * 3600000)} mode="datetime" display="default" onChange={(_, d) => { setShowExpiryPicker(false); if (d) setExpiryAt(isoLocal(d)); }} /> : null}
 
-      <Text style={styles.section}>Safety checklist (all four required)</Text>
-      {CHECKS.map((c) => (
-        <View key={c.key} style={styles.row}>
-          <Text style={styles.checkLabel}>{c.label}</Text>
-          <Switch value={checks[c.key]} onValueChange={(v) => setChecks((p) => ({ ...p, [c.key]: v }))} />
-        </View>
-      ))}
+      <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+        {CHECKS.map((c, i) => (
+          <View key={c.key} style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space.md, paddingVertical: theme.space.md }, i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : null]}>
+            <AppText variant="body" style={{ flex: 1 }}>{c.label}</AppText>
+            <Switch value={checks[c.key]} onValueChange={(v) => setChecks((p) => ({ ...p, [c.key]: v }))} />
+          </View>
+        ))}
+      </Card>
+      <AppText variant="micro" tone="muted" style={{ marginTop: theme.space.xs }}>All four checks are required. Food-safety certification is your responsibility.</AppText>
 
-      {busy ? <ActivityIndicator size="large" color={theme.colors.primary} /> : (
-        <TouchableOpacity style={styles.button} onPress={reviewAndSubmit}><Text style={styles.buttonText}>Review safety & log batch</Text></TouchableOpacity>
-      )}
+      <Button label="Review safety & log batch" onPress={reviewAndSubmit} loading={busy} style={{ marginTop: theme.space.lg }} />
 
-      <Text style={styles.section}>My recent batches ({recent.length})</Text>
+      {/* RECENT */}
+      <SectionHeader title={`My recent batches (${recent.length})`} />
       <LiveErrorBanner error={loadError} onRetry={() => { setLoadError(''); setRetryKey((k) => k + 1); }} />
-      {recent.length === 0 && <Text style={styles.muted}>Nothing logged yet.</Text>}
-      {recent.map((b) => (
-        <TouchableOpacity key={b.id} style={styles.card} onPress={() => setInspected(b)} activeOpacity={0.7}>
-          <Text style={styles.cardTitle}>{b.batchId} — {b.itemName}</Text>
-          <Text style={styles.muted}>{formatStatus(b.status)} · {b.portionCount} portions · {b.estimatedWeightKg}kg</Text>
-          <Text style={styles.review}>Tap to inspect ›</Text>
-        </TouchableOpacity>
-      ))}
+      {!loaded ? (
+        <ListSkeleton rows={2} />
+      ) : loadError && recent.length === 0 ? (
+        <ErrorState title="Couldn't load your batches" message="Recent batches are unavailable right now." details={loadError} onRetry={() => { setLoadError(''); setRetryKey((k) => k + 1); }} />
+      ) : recent.length === 0 ? (
+        <AppText variant="body" tone="muted">Nothing logged yet.</AppText>
+      ) : (
+        <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+          {recent.map((b, i) => (
+            <View key={b.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+              <ListRow
+                title={`${b.batchId} — ${b.itemName}`}
+                subtitle={`${b.portionCount} portions · ${b.estimatedWeightKg}kg`}
+                status={<StatusPill status={b.status} size="sm" />}
+                onPress={() => setInspected(b)}
+              />
+            </View>
+          ))}
+        </Card>
+      )}
+
       <DetailModal visible={inspected !== null} title={inspected ? `${inspected.batchId} — ${inspected.itemName}` : ''} onClose={() => setInspected(null)}>
-        {inspected && (
+        {inspected ? (
           <View>
             <StatusBadge status={inspected.status} />
             <SectionTitle>BATCH</SectionTitle>
@@ -339,20 +362,21 @@ export default function DonationLogScreen() {
             <KV label="Packaging" value={inspected.safetyChecklist?.packagingIntegrityVerified ? 'Verified ✓' : 'NOT verified'} />
             <KV label="Allergen labels" value={inspected.safetyChecklist?.allergenLabelsVerified ? 'Verified ✓' : 'NOT verified'} />
             <KV label="Prep window" value={inspected.safetyChecklist?.safePreparationWindowVerified ? 'Verified ✓' : 'NOT verified'} />
-            {!!inspected.safetyPhotoUrl && (
+            {inspected.safetyPhotoUrl ? (
               <>
                 <SectionTitle>PHOTO</SectionTitle>
-                <Image source={{ uri: inspected.safetyPhotoUrl }} style={styles.photo} resizeMode="cover" />
+                <Image source={{ uri: inspected.safetyPhotoUrl }} style={{ width: '100%', height: 180, borderRadius: theme.radius.sm, marginTop: 4 }} resizeMode="cover" />
               </>
-            )}
+            ) : null}
             <SectionTitle>LIFECYCLE</SectionTitle>
             <KV label="Status" value={formatStatus(inspected.status)} />
-            <KV label="NPO" value={(npos.find((n) => n.npoId === inspected.allocatedNpoId)?.organisationName) || inspected.allocatedNpoId || '—'} />
+            <KV label="NPO" value={npos.find((n) => n.npoId === inspected.allocatedNpoId)?.organisationName || 'Not yet allocated'} />
             <KV label="Facility" value={inspected.receivingFacility || '—'} />
             <KV label="Pickup" value={inspected.pickupWindowStart ? `${new Date(inspected.pickupWindowStart).toLocaleString()} · ${inspected.loadingBay || ''}` : '—'} />
           </View>
-        )}
+        ) : null}
       </DetailModal>
+
       <DetailModal visible={confirming} title="Review donation batch" onClose={() => setConfirming(false)}>
         <ConfirmBlock
           title="Log this batch as Safety Verified?"
@@ -369,57 +393,8 @@ export default function DonationLogScreen() {
           confirmLabel="Confirm & log batch" onConfirm={submit} onCancel={() => setConfirming(false)} busy={busy}
         />
       </DetailModal>
-      <View style={{ height: 40 }} />
+      <View style={{ height: theme.space['4xl'] }} />
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
-    </ScrollView>
+    </Screen>
   );
 }
-
-const createStyles = (theme: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, padding: 16 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  title: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
-  section: { fontSize: 16, fontWeight: '700', color: theme.colors.text, marginTop: 16, marginBottom: 8 },
-  input: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, padding: 12, color: theme.colors.text, marginBottom: 10, backgroundColor: theme.colors.surface },
-  halfRow: { flexDirection: 'row', gap: 8 },
-  half: { flex: 1 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  checkLabel: { color: theme.colors.text, flex: 1, marginRight: 8 },
-  btnRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  small: { padding: 12, borderRadius: 10, flex: 1, alignItems: 'center' },
-  secondary: { borderWidth: 1, borderColor: theme.colors.primary },
-  secondaryText: { color: theme.colors.primary, fontWeight: '600' },
-  button: { backgroundColor: theme.colors.primary, padding: 14, borderRadius: 10, alignItems: 'center', marginTop: 8 },
-  buttonText: { color: '#fff', fontWeight: '700' },
-  card: { backgroundColor: theme.colors.surface, borderRadius: 8, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
-  cardTitle: { color: theme.colors.text, fontWeight: '600' },
-  muted: { color: theme.colors.textMuted, fontSize: 12, marginTop: 4 },
-  review: { color: theme.colors.primary, fontSize: 12, fontWeight: '700', marginTop: 6 },
-  photo: { width: '100%', height: 180, borderRadius: 8, marginTop: 4 },
-  hero:{height:220, borderRadius:16, overflow:'hidden', backgroundColor:theme.colors.surface, borderWidth:2, borderColor:theme.colors.border, borderStyle:'dashed', marginBottom:8},
-  heroImage:{width:'100%', height:'100%'},
-  heroPlaceholder:{flex:1, alignItems:'center', justifyContent:'center', gap:8, padding:16},
-  heroTitle:{fontSize:18, fontWeight:'700', color:theme.colors.text, marginTop:4},
-  heroSub:{fontSize:12, color:theme.colors.textMuted, textAlign:'center'},
-  heroBadge:{position:'absolute', bottom:8, right:8, backgroundColor:'rgba(0,0,0,0.6)', paddingHorizontal:8, paddingVertical:4, borderRadius:12},
-  heroBadgeText:{color:'#fff', fontSize:11, fontWeight:'600'},
-  aiCard:{backgroundColor:theme.colors.surface, borderRadius:12, padding:12, marginTop:8, borderWidth:1.5},
-  aiTitle:{fontSize:13, fontWeight:'700', color:theme.colors.text, letterSpacing:0.5, textTransform:'uppercase'},
-  aiNote:{fontSize:12, color:theme.colors.textSecondary, marginTop:4, fontStyle:'italic'},
-  aiGrid:{flexDirection:'row', flexWrap:'wrap', gap:8, marginTop:8},
-  aiItem:{width:'48%', backgroundColor:theme.colors.surfaceVariant, borderRadius:8, padding:8, borderWidth:1, borderColor:theme.colors.border},
-  aiLabel:{fontSize:10, fontWeight:'600', color:theme.colors.textMuted, textTransform:'uppercase', letterSpacing:0.5},
-  aiValue:{fontSize:14, fontWeight:'700', color:theme.colors.text, marginTop:2},
-  aiAllergens:{fontSize:12, color:theme.colors.textSecondary, marginTop:8},
-  aiWarn:{fontSize:12, color:'#92400e', fontWeight:'600', marginTop:6, backgroundColor:'#fef3c7', padding:6, borderRadius:6},
-  confBadge:{paddingHorizontal:8, paddingVertical:3, borderRadius:12, borderWidth:1, borderColor:'#e2e8f0'},
-  confText:{fontSize:11, fontWeight:'700'},
-  analyzeBtn:{flexDirection:'row', alignItems:'center', justifyContent:'center', gap:8, backgroundColor:'#0f172a', paddingVertical:14, borderRadius:12, marginTop:4, marginBottom:8},
-  analyzeBtnDone:{backgroundColor:'#dcfce7', borderWidth:1, borderColor:'#86efac'},
-  analyzeBtnText:{color:'#fff', fontWeight:'700', fontSize:14},
-  analyzingRow:{flexDirection:'row', alignItems:'center', gap:8, marginTop:8, marginBottom:4},
-  aiErrorBox:{flexDirection:'row', gap:8, alignItems:'flex-start', backgroundColor:'#fef3c7', borderWidth:1, borderColor:'#fde68a', borderRadius:8, padding:10, marginTop:8, marginBottom:4},
-  aiErrorText:{flex:1, fontSize:12, color:'#92400e', fontWeight:'600'},
-  infoBox:{flexDirection:'row', gap:8, alignItems:'center', backgroundColor:'#e0f2fe', borderWidth:1, borderColor:'#bae6fd', borderRadius:8, padding:10, marginTop:8},
-  infoText:{flex:1, fontSize:12, color:'#0369a1', fontWeight:'500'},
-});

@@ -11,17 +11,19 @@ import { httpsCallable } from 'firebase/functions';
 
 // §32: structured failure categories — never collapse to one generic message.
 export type GeminiErrorCode =
-  | 'NETWORK_ERROR' | 'AUTH_ERROR' | 'RATE_LIMIT' | 'TIMEOUT'
-  | 'INVALID_IMAGE' | 'SAFETY_BLOCK' | 'INVALID_RESPONSE' | 'SERVICE_UNAVAILABLE';
+  | 'NETWORK_ERROR' | 'AUTH_ERROR' | 'SERVER_CONFIG' | 'RATE_LIMIT' | 'TIMEOUT'
+  | 'INVALID_IMAGE' | 'SAFETY_BLOCK' | 'INVALID_RESPONSE' | 'MODEL_UNAVAILABLE' | 'SERVICE_UNAVAILABLE';
 
 export const GEMINI_ERROR_MESSAGES: Record<GeminiErrorCode, string> = {
   NETWORK_ERROR: 'Network error reaching the AI service — check your connection.',
   AUTH_ERROR: 'AI access rejected for your account — sign in again or continue manually.',
+  SERVER_CONFIG: 'AI service key is invalid or has been rotated — continue manually.',
   RATE_LIMIT: 'AI quota exceeded — try again later or continue manually.',
   TIMEOUT: 'Analysis took too long — try again or continue manually.',
   INVALID_IMAGE: 'The photo could not be analyzed — try another photo or continue manually.',
   SAFETY_BLOCK: 'The image was blocked by the AI safety filter — continue manually.',
   INVALID_RESPONSE: 'The AI returned an unreadable response — try again or continue manually.',
+  MODEL_UNAVAILABLE: 'The configured AI model is unavailable — continue manually.',
   SERVICE_UNAVAILABLE: 'AI analysis is unavailable right now — continue manually.',
 };
 
@@ -57,25 +59,32 @@ async function callProxyWithTimeout(imageBase64: string, mimeType: string): Prom
   return Promise.race([call({ imageBase64, mimeType }).then((r) => r.data), timeout]);
 }
 
-/** Map FunctionsError codes to §32 categories. */
+/**
+ * Map FunctionsError codes to §32 categories.
+ * NOTE: the server returns `failed-precondition` for BOTH a safety block and a
+ * retired model — the server message disambiguates. `permission-denied` is a
+ * server KEY problem (leaked/revoked), NOT a user-auth problem, so it maps to
+ * SERVER_CONFIG rather than AUTH_ERROR.
+ */
 function mapProxyError(e: unknown): Error {
   const code = (e as { code?: string })?.code || '';
+  const serverMessage = (e as { message?: string })?.message || '';
   const map: Record<string, GeminiErrorCode> = {
     'unauthenticated': 'AUTH_ERROR',
-    'permission-denied': 'AUTH_ERROR',
+    'permission-denied': 'SERVER_CONFIG',
     'resource-exhausted': 'RATE_LIMIT',
     'deadline-exceeded': 'TIMEOUT',
     'invalid-argument': 'INVALID_IMAGE',
-    'failed-precondition': 'SAFETY_BLOCK',
+    'failed-precondition': /model/i.test(serverMessage) ? 'MODEL_UNAVAILABLE' : 'SAFETY_BLOCK',
     'internal': 'INVALID_RESPONSE',
-    'not-found': 'SERVICE_UNAVAILABLE',
+    'not-found': 'MODEL_UNAVAILABLE',
     'unavailable': 'SERVICE_UNAVAILABLE',
   };
   const category = map[code];
-  if (category) return new Error(GEMINI_ERROR_MESSAGES[category]);
-  // Network failures surface as FirebaseError without a callable code, or as
-  // plain Errors — treat anything unmapped as network/service trouble.
-  return new Error(GEMINI_ERROR_MESSAGES.NETWORK_ERROR);
+  // Prefer the server's specific, actionable message when present; fall back to
+  // the category message. Always keep the manual-entry fallback wording.
+  const message = serverMessage || (category ? GEMINI_ERROR_MESSAGES[category] : GEMINI_ERROR_MESSAGES.NETWORK_ERROR);
+  return new Error(message);
 }
 
 export async function analyzeFoodImage(
@@ -104,5 +113,5 @@ export async function analyzeFoodImage(
 }
 
 export const GEMINI_UNAVAILABLE_MESSAGE =
-  'AI analysis is unavailable. You can continue manually.';
+  'AI assistance unavailable. Continue manually.';
 
