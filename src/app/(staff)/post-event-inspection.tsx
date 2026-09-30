@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  Alert, ActivityIndicator, useColorScheme, Image, SafeAreaView, Modal,
+  Alert, ActivityIndicator, Image, Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import * as ImagePicker from 'expo-image-picker';
 import {
   db, createEventInspection, createDamageRecord, uploadImage
@@ -29,7 +30,7 @@ const SEVERITY_OPTS = ['low', 'medium', 'high', 'critical'] as const;
 const sevColor = (theme: any, s: string) => {
   switch (s) {
     case 'critical': return { text: theme.colors.error, bg: theme.colors.errorLight };
-    case 'high': return { text: '#dc4a00', bg: '#fff0e6' };
+    case 'high': return { text: theme.colors.warningStrong, bg: theme.colors.warningSoft };
     case 'medium': return { text: theme.colors.warning, bg: theme.colors.warningLight };
     default: return { text: theme.colors.success, bg: theme.colors.successLight };
   }
@@ -39,8 +40,7 @@ export default function PostEventInspectionScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { profile } = useAuth();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const S = createStyles(theme);
 
   const [events, setEvents] = useState<any[]>([]);
@@ -250,7 +250,7 @@ export default function PostEventInspectionScreen() {
   // ── SUCCESS SCREEN ──
   if (submitted && submittedData) {
     return (
-      <SafeAreaView style={[S.container, { justifyContent: 'center', alignItems: 'center', padding: 32 }]}>
+      <Screen style={{ justifyContent: 'center', alignItems: 'center' }}>
         <View style={[S.successIcon, { backgroundColor: submittedData.itemCount === 0 ? theme.colors.successLight : theme.colors.errorLight }]}>
           <Ionicons
             name={submittedData.itemCount === 0 ? 'checkmark-circle' : 'alert-circle'}
@@ -287,13 +287,12 @@ export default function PostEventInspectionScreen() {
         <TouchableOpacity onPress={() => router.replace('/staff-dashboard' as any)} style={{ marginTop: 12 }}>
           <Text style={{ color: theme.colors.textMuted, fontSize: 14 }}>Back to Dashboard</Text>
         </TouchableOpacity>
-      </SafeAreaView>
+      </Screen>
     );
   }
 
   return (
-    <SafeAreaView style={S.container}>
-      <ScrollView contentContainerStyle={S.content} showsVerticalScrollIndicator={false}>
+    <Screen scroll>
         {/* ── HEADER ── */}
         <View style={S.headerRow}>
           <TouchableOpacity onPress={() => router.back()} style={S.backBtn}>
@@ -327,9 +326,9 @@ export default function PostEventInspectionScreen() {
               <Text style={S.totalValue}>R {totalCost.toLocaleString()}</Text>
             </View>
             <View>
-              <Text style={{ fontSize: 12, color: '#fff', opacity: 0.8 }}>{damages.length} item{damages.length !== 1 ? 's' : ''}</Text>
+              <Text style={{ fontSize: 12, color: theme.colors.textInverse, opacity: 0.8 }}>{damages.length} item{damages.length !== 1 ? 's' : ''}</Text>
               {damages.some(d => d.severity === 'critical') && (
-                <Text style={{ fontSize: 12, color: '#ffc4c4', fontWeight: '700' }}>⚠ CRITICAL</Text>
+                <Text style={{ fontSize: 12, color: theme.colors.errorSoft, fontWeight: '700' }}>⚠ CRITICAL</Text>
               )}
             </View>
           </View>
@@ -339,7 +338,7 @@ export default function PostEventInspectionScreen() {
         <View style={S.sectionHeader}>
           <Text style={S.label}>Damage Items</Text>
           <TouchableOpacity style={S.addBtn} onPress={() => setShowAddDamage(true)}>
-            <Ionicons name="add" size={18} color="#fff" />
+            <Ionicons name="add" size={18} color={theme.colors.textInverse} />
             <Text style={S.addBtnText}>Add</Text>
           </TouchableOpacity>
         </View>
@@ -396,18 +395,16 @@ export default function PostEventInspectionScreen() {
           disabled={isSubmitting}
         >
           {isSubmitting ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={theme.colors.textInverse} />
           ) : (
             <>
-              <Ionicons name="document-text-outline" size={20} color="#fff" />
+              <Ionicons name="document-text-outline" size={20} color={theme.colors.textInverse} />
               <Text style={S.submitBtnText}>
                 {damages.length > 0 ? `Submit & Generate Invoice (R ${totalCost.toLocaleString()})` : 'Submit — No Damages'}
               </Text>
             </>
           )}
         </TouchableOpacity>
-      </ScrollView>
-
       {/* ── EVENT PICKER MODAL ── */}
       <Modal visible={showEventPicker} transparent animationType="slide">
         <View style={S.modalOverlay}>
@@ -422,7 +419,7 @@ export default function PostEventInspectionScreen() {
                   style={[S.tabBtn, pickerTab === idx && { backgroundColor: theme.colors.primary }]}
                   onPress={() => setPickerTab(idx)}
                 >
-                  <Text style={[S.tabText, pickerTab === idx && { color: '#fff' }]}>{eventDayLabel[idx]}</Text>
+                  <Text style={[S.tabText, pickerTab === idx && { color: theme.colors.textInverse }]}>{eventDayLabel[idx]}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -532,13 +529,13 @@ export default function PostEventInspectionScreen() {
                 <Text style={{ color: theme.colors.text, fontWeight: '600' }}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[S.confirmBtn, { backgroundColor: theme.colors.error, flex: 2 }]} onPress={addDamageItem}>
-                <Text style={{ color: '#fff', fontWeight: '700' }}>Add Damage</Text>
+                <Text style={{ color: theme.colors.textInverse, fontWeight: '700' }}>Add Damage</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
         </View>
       </Modal>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
@@ -564,26 +561,26 @@ const createStyles = (theme: any) => StyleSheet.create({
     backgroundColor: theme.colors.error, borderRadius: 16, padding: 16,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16,
   },
-  totalLabel: { fontSize: 13, color: '#fff', opacity: 0.8, fontWeight: '600' },
-  totalValue: { fontSize: 24, fontWeight: '800', color: '#fff' },
+  totalLabel: { fontSize: 13, color: theme.colors.textInverse, opacity: 0.8, fontWeight: '600' },
+  totalValue: { fontSize: 24, fontWeight: '800', color: theme.colors.textInverse },
 
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   addBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: theme.colors.error, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10,
   },
-  addBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  addBtnText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 13 },
 
   emptyCard: {
     backgroundColor: theme.colors.surface, borderRadius: 16, padding: 32,
     alignItems: 'center', gap: 8,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+    shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
   },
   emptyText: { fontSize: 15, color: theme.colors.textMuted, fontWeight: '600' },
 
   damageCard: {
     backgroundColor: theme.colors.surface, borderRadius: 16, padding: 14, marginBottom: 12,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+    shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
   },
   damageCardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 10 },
   damageItemText: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
@@ -599,7 +596,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     backgroundColor: theme.colors.error, flexDirection: 'row', alignItems: 'center',
     justifyContent: 'center', gap: 8, paddingVertical: 16, borderRadius: 14, marginTop: 24,
   },
-  submitBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  submitBtnText: { color: theme.colors.textInverse, fontSize: 15, fontWeight: '700' },
 
   successIcon: { width: 120, height: 120, borderRadius: 60, justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
   successTitle: { fontSize: 28, fontWeight: '800', color: theme.colors.text, textAlign: 'center' },
@@ -607,7 +604,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   successStats: { marginTop: 16, alignItems: 'center', gap: 8 },
   successStatText: { fontSize: 14, color: theme.colors.textSecondary, textAlign: 'center' },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalOverlay: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
   modalSheet: {
     backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
     padding: 20,

@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput,
-  Alert, ActivityIndicator, useColorScheme, SafeAreaView, Modal,
+  Alert, ActivityIndicator, Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import {
   db, validateAttendeeQR
@@ -19,8 +20,7 @@ export default function AttendeeCheckinScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { profile } = useAuth();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const S = createStyles(theme);
 
   // Event state
@@ -225,7 +225,7 @@ export default function AttendeeCheckinScreen() {
   // ── QR SCANNER VIEW ──
   if (scanning) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#000' }}>
+      <View style={{ flex: 1, backgroundColor: theme.colors.cameraBackdrop }}>
         <CameraView
           style={{ flex: 1 }}
           facing="back"
@@ -235,19 +235,18 @@ export default function AttendeeCheckinScreen() {
         <View style={S.scanOverlay}>
           <View style={S.scanFrame} />
           <Text style={S.scanHint}>Point at attendee&apos;s QR code</Text>
-          {isProcessingQR && <ActivityIndicator color="#fff" style={{ marginTop: 16 }} />}
+          {isProcessingQR && <ActivityIndicator color={theme.colors.textInverse} style={{ marginTop: 16 }} />}
         </View>
         <TouchableOpacity style={S.closeScanBtn} onPress={() => setScanning(false)}>
-          <Ionicons name="close" size={28} color="#fff" />
-          <Text style={{ color: '#fff', fontWeight: '600', marginLeft: 8 }}>Close Scanner</Text>
+          <Ionicons name="close" size={28} color={theme.colors.textInverse} />
+          <Text style={{ color: theme.colors.textInverse, fontWeight: '600', marginLeft: 8 }}>Close Scanner</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={S.container}>
-      <ScrollView contentContainerStyle={S.content} showsVerticalScrollIndicator={false}>
+    <Screen scroll>
         {/* ── HEADER ── */}
         <View style={S.headerRow}>
           <TouchableOpacity onPress={() => router.back()} style={S.backBtn}>
@@ -295,7 +294,7 @@ export default function AttendeeCheckinScreen() {
 
         {/* ── SCAN + SEARCH ── */}
         <TouchableOpacity style={S.scanBtn} onPress={openScanner}>
-          <Ionicons name="qr-code" size={22} color="#fff" />
+          <Ionicons name="qr-code" size={22} color={theme.colors.textInverse} />
           <Text style={S.scanBtnText}>Open QR Scanner</Text>
         </TouchableOpacity>
 
@@ -368,8 +367,6 @@ export default function AttendeeCheckinScreen() {
             </TouchableOpacity>
           ))
         )}
-      </ScrollView>
-
       {/* ── EVENT PICKER MODAL ── */}
       <Modal visible={showEventPicker} transparent animationType="slide">
         <View style={S.modalOverlay}>
@@ -428,16 +425,16 @@ export default function AttendeeCheckinScreen() {
                 disabled={isCheckingIn}
               >
                 {isCheckingIn ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={theme.colors.textInverse} />
                 ) : (
-                  <Text style={{ color: '#fff', fontWeight: '700' }}>✓ Check In</Text>
+                  <Text style={{ color: theme.colors.textInverse, fontWeight: '700' }}>✓ Check In</Text>
                 )}
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
@@ -470,7 +467,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     backgroundColor: theme.colors.secondary, flexDirection: 'row', alignItems: 'center',
     justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, marginBottom: 12,
   },
-  scanBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  scanBtnText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 16 },
 
   searchRow: {
     flexDirection: 'row', alignItems: 'center',
@@ -488,7 +485,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   attendeeCard: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: theme.colors.surface, padding: 14, borderRadius: 14, marginBottom: 10,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+    shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
   avatarCircle: {
     width: 44, height: 44, borderRadius: 22,
@@ -511,18 +508,18 @@ const createStyles = (theme: any) => StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   scanFrame: {
-    width: 240, height: 240, borderWidth: 3, borderColor: '#fff',
+    width: 240, height: 240, borderWidth: 3, borderColor: theme.colors.textInverse,
     borderRadius: 16, backgroundColor: 'transparent',
   },
-  scanHint: { color: '#fff', fontSize: 14, fontWeight: '600', marginTop: 20, textAlign: 'center' },
+  scanHint: { color: theme.colors.textInverse, fontSize: 14, fontWeight: '600', marginTop: 20, textAlign: 'center' },
   closeScanBtn: {
     position: 'absolute', bottom: 60, alignSelf: 'center',
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: theme.colors.overlay, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12,
   },
 
   // Modals
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalOverlay: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
   modalSheet: {
     backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
     padding: 20, maxHeight: '80%',

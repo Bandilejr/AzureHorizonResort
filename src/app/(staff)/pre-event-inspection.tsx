@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  Alert, ActivityIndicator, useColorScheme, Modal, SafeAreaView,
+  Alert, ActivityIndicator, Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import {
   db, createEventInspection
 } from '../../services/firebase-services';
@@ -41,8 +42,7 @@ export default function PreEventInspectionScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { profile } = useAuth();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const S = createStyles(theme);
 
   const [events, setEvents] = useState<any[]>([]);
@@ -232,7 +232,7 @@ export default function PreEventInspectionScreen() {
   // ── SUCCESS SCREEN ──
   if (submitted) {
     return (
-      <SafeAreaView style={[S.container, { justifyContent: 'center', alignItems: 'center', padding: 32 }]}>
+      <Screen style={{ justifyContent: 'center', alignItems: 'center' }}>
         <View style={[S.successIcon, { backgroundColor: overallStatus === 'approved' ? theme.colors.successLight : theme.colors.warningLight }]}>
           <Ionicons
             name={overallStatus === 'approved' ? 'checkmark-circle' : 'alert-circle'}
@@ -272,13 +272,12 @@ export default function PreEventInspectionScreen() {
         <TouchableOpacity onPress={() => router.replace('/staff-dashboard' as any)} style={{ marginTop: 12 }}>
           <Text style={{ color: theme.colors.textMuted, fontSize: 14 }}>Back to Dashboard</Text>
         </TouchableOpacity>
-      </SafeAreaView>
+      </Screen>
     );
   }
 
   return (
-    <SafeAreaView style={S.container}>
-      <ScrollView contentContainerStyle={S.content} showsVerticalScrollIndicator={false}>
+    <Screen scroll>
         {/* ── HEADER ── */}
         <View style={S.headerRow}>
           <TouchableOpacity onPress={() => router.back()} style={S.backBtn}>
@@ -366,16 +365,14 @@ export default function PreEventInspectionScreen() {
           disabled={isSubmitting}
         >
           {isSubmitting ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={theme.colors.textInverse} />
           ) : (
             <>
-              <Ionicons name="checkmark-done-outline" size={20} color="#fff" />
+              <Ionicons name="checkmark-done-outline" size={20} color={theme.colors.textInverse} />
               <Text style={S.submitBtnText}>Submit Inspection Report</Text>
             </>
           )}
         </TouchableOpacity>
-      </ScrollView>
-
       {/* ── EVENT PICKER MODAL ── */}
       <Modal visible={showEventPicker} transparent animationType="slide">
         <View style={S.modalOverlay}>
@@ -391,7 +388,7 @@ export default function PreEventInspectionScreen() {
                     pickerTab === i && { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
                   ]}
                 >
-                  <Text style={[S.dayTabText, pickerTab === i && { color: '#fff', fontWeight: '700' }]}>
+                  <Text style={[S.dayTabText, pickerTab === i && { color: theme.colors.textInverse, fontWeight: '700' }]}>
                     {eventDayLabel[i]}
                   </Text>
                 </TouchableOpacity>
@@ -446,13 +443,13 @@ export default function PreEventInspectionScreen() {
                 <Text style={{ color: theme.colors.text, fontWeight: '600' }}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[S.modalActionBtn, { backgroundColor: theme.colors.secondary, flex: 2 }]} onPress={saveNote}>
-                <Text style={{ color: '#fff', fontWeight: '700' }}>Save Note</Text>
+                <Text style={{ color: theme.colors.textInverse, fontWeight: '700' }}>Save Note</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
@@ -477,7 +474,7 @@ const createStyles = (theme: any) => StyleSheet.create({
 
   progressCard: {
     backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16, marginBottom: 8,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+    shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
   },
   progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   progressLabel: { fontSize: 14, fontWeight: '600', color: theme.colors.text },
@@ -490,7 +487,7 @@ const createStyles = (theme: any) => StyleSheet.create({
 
   checkCard: {
     backgroundColor: theme.colors.surface, borderRadius: 16, overflow: 'hidden',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+    shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
   },
   checkRow: {
     flexDirection: 'row', alignItems: 'center', padding: 14,
@@ -505,14 +502,14 @@ const createStyles = (theme: any) => StyleSheet.create({
     backgroundColor: theme.colors.secondary, flexDirection: 'row', alignItems: 'center',
     justifyContent: 'center', gap: 8, paddingVertical: 16, borderRadius: 14, marginTop: 24,
   },
-  submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  submitBtnText: { color: theme.colors.textInverse, fontSize: 16, fontWeight: '700' },
 
   successIcon: { width: 120, height: 120, borderRadius: 60, justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
   successTitle: { fontSize: 28, fontWeight: '800', color: theme.colors.text, textAlign: 'center' },
   successSub: { fontSize: 16, color: theme.colors.textSecondary, textAlign: 'center', marginTop: 8 },
   successStats: { fontSize: 14, color: theme.colors.textMuted, textAlign: 'center', marginTop: 12 },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalOverlay: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
   modalSheet: {
     backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
     padding: 20, maxHeight: '80%',

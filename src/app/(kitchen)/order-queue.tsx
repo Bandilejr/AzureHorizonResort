@@ -1,17 +1,21 @@
-// (kitchen) Order queue — live RTDB orders.
-// REMEDIATED Phase C (P0-2): card → ORDER DETAIL (customer/context, items,
-// totals, current state, assignee) → CONFIRM (next state + actor) → advance
-// with per-order busy + failure feedback. No opaque one-tap progression.
+// (kitchen) Order queue — live RTDB orders. Batch F: rebuilt on the design
+// system; card → full-screen ORDER DETAIL → CONFIRM (next state + actor) →
+// advance with per-order busy + failure feedback. listenKitchenOrders and
+// advanceOrder are unchanged.
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, useColorScheme, ScrollView } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { View, TouchableOpacity } from 'react-native';
 import { usePermissions } from '@/context/PermissionsContext';
 import { listenKitchenOrders, advanceOrder, type KitchenOrder, type OrderStatus } from '@/services/order-queue';
-import { getTheme } from '@/constants/theme';
-import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
-import { DetailModal, ConfirmBlock, KV, ModalButton, SectionTitle, StatusBadge, LiveErrorBanner } from '@/components/detail-kit';
-import { goBack } from '@/utils/navigation';
-import { useRouter } from 'expo-router';
+import { useAppTheme } from '@/design/use-app-theme';
+import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
+import { Screen, PageHeader } from '@/components/ui/screen';
+import { Card } from '@/components/ui/surface';
+import { ListRow } from '@/components/ui/list-row';
+import { StatusPill } from '@/components/ui/status-pill';
+import { EmptyState, ListSkeleton, ErrorState } from '@/components/ui/states';
+import { AppText } from '@/components/ui/text';
+import { DetailScreen } from '@/components/ui/detail-screen';
+import { ConfirmBlock, KV, ModalButton, SectionTitle, LiveErrorBanner } from '@/components/detail-kit';
 
 const FILTERS: ('all' | OrderStatus)[] = ['all', 'pending', 'preparing', 'ready', 'picked_up', 'delivered'];
 const ACTION: Partial<Record<OrderStatus, string>> = {
@@ -22,10 +26,7 @@ const NEXT_STATE: Partial<Record<OrderStatus, string>> = {
 };
 
 export default function OrderQueueScreen() {
-  const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const styles = createStyles(theme);
+  const theme = useAppTheme();
   const { hasPermission, isStaff } = usePermissions();
   const canWork = hasPermission('kitchen_orders') || isStaff;
   const [orders, setOrders] = useState<KitchenOrder[]>([]);
@@ -42,7 +43,6 @@ export default function OrderQueueScreen() {
   useEffect(() => listenKitchenOrders((list) => {
     setOrders([...list].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))));
     setLoading(false);
-    // Keep the open detail live: realtime is authoritative (stale guard).
     setSelected((prev) => (prev ? list.find((o) => o.id === prev.id) || null : prev));
   }, (e) => { setLoadError(e.message); setLoading(false); }), [retryKey]);
 
@@ -65,54 +65,62 @@ export default function OrderQueueScreen() {
 
   if (!canWork) {
     return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => goBack(router, '/(kitchen)/dashboard')}><Ionicons name="arrow-back" size={24} color={theme.colors.text} /></TouchableOpacity>
-          <Text style={styles.title}>Order Queue</Text>
-        </View>
-        <Text style={styles.muted}>Your role cannot work orders.</Text>
-      </View>
+      <Screen scroll>
+        <PageHeader title="Order queue" showBack fallback="/(kitchen)/dashboard" />
+        <EmptyState icon="lock-closed-outline" title="Restricted" message="Your role cannot work orders." />
+      </Screen>
     );
   }
-  if (loading) return <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 60 }} />;
 
   const visible = filter === 'all' ? orders : orders.filter((o) => o.status === filter);
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => goBack(router, '/(kitchen)/dashboard')}><Ionicons name="arrow-back" size={24} color={theme.colors.text} /></TouchableOpacity>
-        <Text style={styles.title}>Order Queue ({orders.filter((o) => o.status !== 'delivered').length} open)</Text>
-      </View>
+    <Screen scroll>
+      <PageHeader title={`Order queue (${orders.filter((o) => o.status !== 'delivered').length} open)`} subtitle="Live kitchen orders" showBack fallback="/(kitchen)/dashboard" />
       <LiveErrorBanner error={loadError} onRetry={() => { setLoadError(''); setRetryKey((k) => k + 1); }} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
-        {FILTERS.map((f) => (
-          <TouchableOpacity key={f} style={[styles.chip, filter === f && styles.chipOn]} onPress={() => setFilter(f)}>
-            <Text style={[styles.chipText, filter === f && styles.chipTextOn]}>{f.replace('_', ' ')}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-      {visible.length === 0 && (
-        <View style={styles.empty}>
-          <Ionicons name={"receipt-outline" as any} size={40} color={theme.colors.textMuted} />
-          <Text style={styles.muted}>No orders here.</Text>
-        </View>
-      )}
-      {visible.map((o) => (
-        <TouchableOpacity key={o.id} style={styles.card} onPress={() => { setSelected(o); setConfirming(false); }} activeOpacity={0.7}>
-          <View style={styles.cardTop}>
-            <Text style={styles.cardTitle}>{o.guestName || 'Guest'}{o.roomNumber ? ` · Room ${o.roomNumber}` : ''}{o.tableNumber ? ` · Table ${o.tableNumber}` : ''}</Text>
-            <StatusBadge status={o.status} />
-          </View>
-          <Text style={styles.muted}>{(o.items || []).map((i) => `${i.quantity}× ${i.name}`).join(', ') || '—'} · R{o.totalAmount ?? '—'}</Text>
-          <Text style={styles.review}>Tap to inspect ›</Text>
-        </TouchableOpacity>
-      ))}
 
-      <DetailModal visible={selected !== null} title={selected ? `Order · ${selected.guestName || 'Guest'}` : ''} onClose={() => setSelected(null)}>
-        {selected && !confirming && (
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.sm, marginBottom: theme.space.md }}>
+        {FILTERS.map((f) => {
+          const on = filter === f;
+          return (
+            <TouchableOpacity key={f} onPress={() => setFilter(f)} accessibilityRole="button" accessibilityState={{ selected: on }}
+              style={{ borderWidth: 1, borderColor: on ? theme.colors.primary : theme.colors.border, backgroundColor: on ? theme.colors.primary : theme.colors.surface, borderRadius: theme.radius.pill, paddingVertical: 6, paddingHorizontal: 12 }}>
+              <AppText variant="caption" color={on ? theme.colors.textInverse : theme.colors.textMuted} weight="600">{f.replace('_', ' ')}</AppText>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {loading ? (
+        <ListSkeleton rows={3} />
+      ) : loadError && orders.length === 0 ? (
+        <ErrorState title="Couldn't load orders" message="The order queue is unavailable right now." details={loadError} onRetry={() => { setLoadError(''); setRetryKey((k) => k + 1); }} />
+      ) : visible.length === 0 ? (
+        <EmptyState icon="receipt-outline" title="No orders here" message="Orders matching this filter will appear here." />
+      ) : (
+        <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+          {visible.map((o, i) => (
+            <View key={o.id} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+              <ListRow
+                title={`${o.guestName || 'Guest'}${o.roomNumber ? ` · Room ${o.roomNumber}` : ''}${o.tableNumber ? ` · Table ${o.tableNumber}` : ''}`}
+                subtitle={`${(o.items || []).map((it) => `${it.quantity}× ${it.name}`).join(', ') || '—'} · R${o.totalAmount ?? '—'}`}
+                status={<StatusPill status={o.status} size="sm" />}
+                onPress={() => { setSelected(o); setConfirming(false); }}
+              />
+            </View>
+          ))}
+        </Card>
+      )}
+
+      <DetailScreen
+        visible={selected !== null}
+        title={selected ? `Order · ${selected.guestName || 'Guest'}` : 'Order'}
+        subtitle={selected ? selected.status.replace('_', ' ') : undefined}
+        status={selected ? <StatusPill status={selected.status} /> : undefined}
+        onClose={() => setSelected(null)}
+      >
+        {selected && !confirming ? (
           <View>
-            <StatusBadge status={selected.status} />
             <SectionTitle>CUSTOMER / CONTEXT</SectionTitle>
             <KV label="Guest" value={selected.guestName || '—'} />
             <KV label="Room" value={selected.roomNumber || '—'} />
@@ -120,22 +128,22 @@ export default function OrderQueueScreen() {
             <KV label="Type" value={selected.orderType || '—'} />
             <KV label="Placed" value={selected.createdAt ? new Date(selected.createdAt).toLocaleString() : '—'} />
             <SectionTitle>ITEMS</SectionTitle>
-            {(selected.items || []).length === 0 && <Text style={styles.muted}>No line items.</Text>}
-            {(selected.items || []).map((i, idx) => (
-              <KV key={idx} label={`${i.quantity}× ${i.name}`} value={i.price != null ? `R${i.price}` : '—'} />
+            {(selected.items || []).length === 0 ? <AppText variant="body" tone="muted">No line items.</AppText> : null}
+            {(selected.items || []).map((it, idx) => (
+              <KV key={idx} label={`${it.quantity}× ${it.name}`} value={it.price != null ? `R${it.price}` : '—'} />
             ))}
             <KV label="Total" value={`R${selected.totalAmount ?? '—'}`} />
             <SectionTitle>STATE</SectionTitle>
             <KV label="Current" value={selected.status.replace('_', ' ')} />
             <KV label="Handled by" value={selected.assignedTo || 'Unassigned'} />
-            {ACTION[selected.status] && (
-              <View style={{ marginTop: 12 }}>
+            {ACTION[selected.status] ? (
+              <View style={{ marginTop: theme.space.md }}>
                 <ModalButton label={`Review: ${ACTION[selected.status]}`} onPress={() => setConfirming(true)} />
               </View>
-            )}
+            ) : null}
           </View>
-        )}
-        {selected && confirming && ACTION[selected.status] && (
+        ) : null}
+        {selected && confirming && ACTION[selected.status] ? (
           <ConfirmBlock
             title={`${ACTION[selected.status]} this order?`}
             rows={[
@@ -148,27 +156,9 @@ export default function OrderQueueScreen() {
             confirmLabel={ACTION[selected.status] || 'Confirm'}
             onConfirm={advance} onCancel={() => setConfirming(false)} busy={busyId === selected.id}
           />
-        )}
-      </DetailModal>
-      <View style={{ height: 40 }} />
+        ) : null}
+      </DetailScreen>
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
-    </ScrollView>
+    </Screen>
   );
 }
-
-const createStyles = (theme: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, padding: 16 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  title: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
-  chips: { marginBottom: 12 },
-  chip: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 16, paddingVertical: 6, paddingHorizontal: 12, marginRight: 8 },
-  chipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  chipText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600' },
-  chipTextOn: { color: '#fff' },
-  card: { backgroundColor: theme.colors.surface, borderRadius: 10, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-  cardTitle: { color: theme.colors.text, fontWeight: '700', flex: 1 },
-  muted: { color: theme.colors.textMuted, fontSize: 12, marginTop: 4 },
-  review: { color: theme.colors.primary, fontSize: 12, fontWeight: '700', marginTop: 6 },
-  empty: { alignItems: 'center', padding: 24, gap: 8 },
-});

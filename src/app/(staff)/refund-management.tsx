@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, useColorScheme, ActivityIndicator, TextInput, Modal,
+  Alert, ActivityIndicator, TextInput, Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import { usePermissions } from '@/context/PermissionsContext';
 import { listenForRefundRequests, updateRefundRequestStatus } from '@/services/firebase-services';
 
 export default function RefundManagementScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
   const { hasPermission } = usePermissions();
   const canApprove = hasPermission('refund_approve');
@@ -46,7 +46,7 @@ export default function RefundManagementScreen() {
   // SRS: no staff refund UC — refunds are admin / event_manager only.
   if (!canApprove) {
     return (
-      <View style={styles.root}>
+      <Screen scroll={false} padded={false}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={22} color={theme.colors.text} />
@@ -60,7 +60,7 @@ export default function RefundManagementScreen() {
           <Ionicons name="lock-closed-outline" size={48} color={theme.colors.textMuted} />
           <Text style={styles.emptyText}>Refunds are handled by Admin / Event Manager.</Text>
         </View>
-      </View>
+      </Screen>
     );
   }
 
@@ -117,7 +117,7 @@ export default function RefundManagementScreen() {
     switch (status) {
       case 'approved': return { bg: theme.colors.successLight, text: theme.colors.success };
       case 'rejected': return { bg: theme.colors.errorLight, text: theme.colors.error };
-      default: return { bg: theme.colors.warningLight, text: '#b07800' };
+      default: return { bg: theme.colors.warningLight, text: theme.colors.warningStrong };
     }
   };
 
@@ -128,7 +128,7 @@ export default function RefundManagementScreen() {
   };
 
   return (
-    <View style={styles.root}>
+    <Screen scroll={false} padded={false}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
@@ -204,14 +204,14 @@ export default function RefundManagementScreen() {
                           style={[styles.btn, { backgroundColor: theme.colors.success }]}
                           onPress={() => handleApprove(request)}
                         >
-                          <Ionicons name="checkmark" size={16} color="#fff" />
+                          <Ionicons name="checkmark" size={16} color={theme.colors.textInverse} />
                           <Text style={styles.btnText}>Approve</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={[styles.btn, { backgroundColor: theme.colors.error }]}
                           onPress={() => openRejectModal(request)}
                         >
-                          <Ionicons name="close" size={16} color="#fff" />
+                          <Ionicons name="close" size={16} color={theme.colors.textInverse} />
                           <Text style={styles.btnText}>Reject</Text>
                         </TouchableOpacity>
                       </>
@@ -260,7 +260,7 @@ export default function RefundManagementScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </Screen>
   );
 }
 
@@ -291,7 +291,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   list: { padding: 16, paddingBottom: 40, gap: 14 },
   card: {
     backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06,
+    shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06,
     shadowRadius: 8, elevation: 3,
   },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
@@ -305,9 +305,9 @@ const createStyles = (theme: any) => StyleSheet.create({
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 6, paddingVertical: 11, borderRadius: 10,
   },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  btnText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 14 },
   modalOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
+    flex: 1, backgroundColor: theme.colors.overlay,
     justifyContent: 'flex-end',
   },
   modalBox: {

@@ -5,21 +5,20 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  useColorScheme,
   TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, Camera } from 'expo-camera';
 import { validateLoyaltyQR, redeemVoucherByStaff, awardLoyaltyPoints, auth } from '@/services/firebase-services';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import { useAuth } from '@/context/AuthContext';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 import { useRouter } from 'expo-router';
 
 export default function LoyaltyScannerScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
   const { profile } = useAuth();
   // Loyalty redemption is hotel-ops (event_manager / admin), not Increment-2 staff UCs.
@@ -67,7 +66,7 @@ export default function LoyaltyScannerScreen() {
 
   if (!canScan) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.colors.background, padding: 20, paddingTop: 80 }]}>
+      <Screen scroll={false} style={{ paddingTop: theme.space['4xl'] }}>
         <Text style={{ fontSize: 22, fontWeight: '800', color: theme.colors.text }}>Loyalty Scanner</Text>
         <Text style={{ fontSize: 14, color: theme.colors.textMuted, marginTop: 12 }}>
           Loyalty redemption is for Admin / Event Manager roles. Not part of your staff tools.
@@ -75,7 +74,7 @@ export default function LoyaltyScannerScreen() {
         <TouchableOpacity style={{ marginTop: 20, alignSelf: 'flex-start' }} onPress={() => router.back()}>
           <Text style={{ color: theme.colors.primary, fontWeight: '700' }}>Go back</Text>
         </TouchableOpacity>
-      </View>
+      </Screen>
     );
   }
 
@@ -212,11 +211,11 @@ export default function LoyaltyScannerScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <Screen scroll={false} padded={false}>
       {/* Header */}
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={24} color="#fff" />
+          <Ionicons name="chevron-back" size={24} color={theme.colors.textInverse} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Waiter & Staff Redemption</Text>
@@ -236,7 +235,7 @@ export default function LoyaltyScannerScreen() {
           />
         ) : (
           <View style={styles.noCameraView}>
-            <Ionicons name="qr-code-outline" size={48} color="#c9a227" style={{ marginBottom: 12 }} />
+            <Ionicons name="qr-code-outline" size={48} color={theme.colors.gold} style={{ marginBottom: 12 }} />
             <Text style={styles.noCamText}>
               {isExpoGo ? 'QR Scanner requires development APK build' : 'Camera permission required'}
             </Text>
@@ -261,13 +260,13 @@ export default function LoyaltyScannerScreen() {
           <TextInput
             style={styles.manualInput}
             placeholder="Enter code (e.g. AZURE-REWARD-12345)"
-            placeholderTextColor="#64748b"
+            placeholderTextColor={theme.colors.textMuted}
             value={manualCode}
             onChangeText={setManualCode}
             autoCapitalize="characters"
           />
           <TouchableOpacity style={styles.manualBtn} onPress={handleManualRedeem} disabled={loading}>
-            {loading ? <ActivityIndicator color="#0f172a" /> : <Text style={styles.manualBtnText}>Validate</Text>}
+            {loading ? <ActivityIndicator color={theme.colors.textInverse} /> : <Text style={styles.manualBtnText}>Validate</Text>}
           </TouchableOpacity>
         </View>
       </View>
@@ -275,7 +274,7 @@ export default function LoyaltyScannerScreen() {
       {/* Results View */}
       {(result || voucherResult) && (
         <View style={styles.resultCard}>
-          <Ionicons name="checkmark-circle-sharp" size={48} color="#16a34a" />
+          <Ionicons name="checkmark-circle-sharp" size={48} color={theme.colors.success} />
           <Text style={styles.resultName}>
             {voucherResult ? voucherResult.rewardTitle : result?.name}
           </Text>
@@ -299,10 +298,10 @@ export default function LoyaltyScannerScreen() {
                   disabled={awarding}
                 >
                   {awarding ? (
-                    <ActivityIndicator color="#0f172a" size="small" />
+                    <ActivityIndicator color={theme.colors.textInverse} size="small" />
                   ) : (
                     <>
-                      <Ionicons name="add-circle" size={16} color="#0f172a" />
+                      <Ionicons name="add-circle" size={16} color={theme.colors.textInverse} />
                       <Text style={styles.awardBtnText}>Award +50 Pts</Text>
                     </>
                   )}
@@ -313,8 +312,8 @@ export default function LoyaltyScannerScreen() {
                   onPress={() => handleAwardPoints(100)}
                   disabled={awarding}
                 >
-                  <Ionicons name="add-circle" size={16} color="#ffffff" />
-                  <Text style={[styles.awardBtnText, { color: '#ffffff' }]}>Award +100 Pts</Text>
+                  <Ionicons name="add-circle" size={16} color={theme.colors.textInverse} />
+                  <Text style={[styles.awardBtnText, { color: theme.colors.textInverse }]}>Award +100 Pts</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -331,49 +330,49 @@ export default function LoyaltyScannerScreen() {
 
       {/* Custom Alert */}
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </View>
+    </Screen>
   );
 }
 
 const createStyles = (theme: any) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.text },
-    headerRow: { flexDirection: 'row', alignItems: 'center', paddingTop: 56, paddingHorizontal: 20, paddingBottom: 16, gap: 12, backgroundColor: '#1e293b' },
-    backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' },
-    title: { fontSize: 20, fontWeight: '800', color: '#fff' },
+    headerRow: { flexDirection: 'row', alignItems: 'center', paddingTop: 56, paddingHorizontal: 20, paddingBottom: 16, gap: 12, backgroundColor: theme.colors.cameraBackdrop },
+    backBtn: { width: 40, height: 40, borderRadius: 20,     backgroundColor: theme.colors.overlay, justifyContent: 'center', alignItems: 'center' },
+    title: { fontSize: 20, fontWeight: '800', color: theme.colors.textInverse },
     subtitle: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
 
     scannerContainer: { flex: 1, position: 'relative' },
     noCameraView: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: theme.colors.text },
     noCamText: { color: theme.colors.textMuted, fontSize: 14, textAlign: 'center' },
 
-    overlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15,23,42,0.4)' },
+    overlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.overlay },
     scanFrame: { width: 240, height: 240, position: 'relative', borderRadius: 20 },
     cornerTopLeft: { position: 'absolute', top: 0, left: 0, width: 30, height: 30, borderTopWidth: 4, borderLeftWidth: 4, borderColor: theme.colors.primary, borderTopLeftRadius: 16 },
     cornerTopRight: { position: 'absolute', top: 0, right: 0, width: 30, height: 30, borderTopWidth: 4, borderRightWidth: 4, borderColor: theme.colors.primary, borderTopRightRadius: 16 },
     cornerBottomLeft: { position: 'absolute', bottom: 0, left: 0, width: 30, height: 30, borderBottomWidth: 4, borderLeftWidth: 4, borderColor: theme.colors.primary, borderBottomLeftRadius: 16 },
     cornerBottomRight: { position: 'absolute', bottom: 0, right: 0, width: 30, height: 30, borderBottomWidth: 4, borderRightWidth: 4, borderColor: theme.colors.primary, borderBottomRightRadius: 16 },
-    scanText: { color: '#ffffff', marginTop: 24, fontSize: 14, fontWeight: '600', backgroundColor: 'rgba(15,23,42,0.7)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+    scanText: { color: theme.colors.textInverse, marginTop: 24, fontSize: 14, fontWeight: '600', backgroundColor: theme.colors.overlay, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
 
-    manualBar: { padding: 16, backgroundColor: '#1e293b', borderTopWidth: 1, borderColor: '#334155' },
+    manualBar: { padding: 16, backgroundColor: theme.colors.cameraBackdrop, borderTopWidth: 1, borderColor: theme.colors.borderStrong },
     manualTitle: { fontSize: 12, fontWeight: '700', color: theme.colors.primary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
     manualInputRow: { flexDirection: 'row', gap: 10 },
-    manualInput: { flex: 1, backgroundColor: theme.colors.text, borderWidth: 1, borderColor: '#334155', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, color: '#fff', fontSize: 14 },
+    manualInput: { flex: 1, backgroundColor: theme.colors.text, borderWidth: 1, borderColor: theme.colors.borderStrong, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, color: theme.colors.textInverse, fontSize: 14 },
     manualBtn: { backgroundColor: theme.colors.primary, paddingHorizontal: 20, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
     manualBtnText: { color: theme.colors.text, fontWeight: '800', fontSize: 14 },
 
-    resultCard: { position: 'absolute', bottom: 90, left: 20, right: 20, backgroundColor: '#1e293b', borderRadius: 24, padding: 20, alignItems: 'center', borderWidth: 1.5, borderColor: theme.colors.success, elevation: 10 },
-    resultName: { fontSize: 20, fontWeight: '800', color: '#fff', marginTop: 6, textAlign: 'center' },
-    voucherBadge: { marginTop: 12, backgroundColor: 'rgba(22,163,74,0.15)', padding: 12, borderRadius: 12, alignItems: 'center', width: '100%' },
+    resultCard: { position: 'absolute', bottom: 90, left: 20, right: 20, backgroundColor: theme.colors.cameraBackdrop, borderRadius: 24, padding: 20, alignItems: 'center', borderWidth: 1.5, borderColor: theme.colors.success, elevation: 10 },
+    resultName: { fontSize: 20, fontWeight: '800', color: theme.colors.textInverse, marginTop: 6, textAlign: 'center' },
+    voucherBadge: { marginTop: 12, backgroundColor: theme.colors.successSoft, padding: 12, borderRadius: 12, alignItems: 'center', width: '100%' },
     voucherBadgeText: { color: theme.colors.success, fontWeight: '800', fontSize: 13, letterSpacing: 0.5 },
-    voucherDetail: { color: '#cbd5e1', fontSize: 13, marginTop: 4 },
+    voucherDetail: { color: theme.colors.textSecondary, fontSize: 13, marginTop: 4 },
     resultDetails: { width: '100%', marginTop: 10, alignItems: 'center', gap: 4 },
-    resultDetail: { fontSize: 14, color: '#cbd5e1', fontWeight: '600' },
+    resultDetail: { fontSize: 14, color: theme.colors.textSecondary, fontWeight: '600' },
 
     awardRow: { flexDirection: 'row', gap: 10, marginTop: 12, width: '100%' },
     awardBtn: { flex: 1, backgroundColor: theme.colors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 12 },
     awardBtnText: { color: theme.colors.text, fontWeight: '800', fontSize: 13 },
 
-    scanAgainBtn: { backgroundColor: '#334155', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12, marginTop: 14 },
-    scanAgainBtnText: { color: '#ffffff', fontWeight: '800', fontSize: 13 },
+    scanAgainBtn: { backgroundColor: theme.colors.borderStrong, paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12, marginTop: 14 },
+    scanAgainBtnText: { color: theme.colors.textInverse, fontWeight: '800', fontSize: 13 },
   });

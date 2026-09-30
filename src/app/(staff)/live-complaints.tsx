@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, useColorScheme, ActivityIndicator, RefreshControl,
+  Alert, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 import PhotoThumb from '@/components/PhotoThumb';
 import {
@@ -24,8 +25,8 @@ const STATUS_NEXT: Record<string, string> = {
 const urgencyColors = (theme: any, urgency: string) => {
   switch (urgency) {
     case 'critical': return { bg: theme.colors.errorLight, text: theme.colors.error };
-    case 'high': return { bg: '#fff0e6', text: '#dc4a00' };
-    case 'medium': return { bg: theme.colors.warningLight, text: '#b07800' };
+    case 'high': return { bg: theme.colors.warningSoft, text: theme.colors.warningStrong };
+    case 'medium': return { bg: theme.colors.warningLight, text: theme.colors.warningStrong };
     default: return { bg: theme.colors.successLight, text: theme.colors.success };
   }
 };
@@ -33,8 +34,8 @@ const urgencyColors = (theme: any, urgency: string) => {
 const statusColors = (theme: any, status: string) => {
   switch (status) {
     case 'resolved': return { bg: theme.colors.successLight, text: theme.colors.success };
-    case 'in_progress': return { bg: '#e8f4ff', text: '#1a78c2' };
-    case 'assigned': return { bg: theme.colors.warningLight, text: '#b07800' };
+    case 'in_progress': return { bg: theme.colors.infoSoft, text: theme.colors.infoStrong };
+    case 'assigned': return { bg: theme.colors.warningLight, text: theme.colors.warningStrong };
     default: return { bg: theme.colors.surfaceVariant, text: theme.colors.textMuted };
   }
 };
@@ -42,8 +43,7 @@ const statusColors = (theme: any, status: string) => {
 export default function LiveComplaintsScreen() {
   const router = useRouter();
   const { profile } = useAuth();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const styles = createStyles(theme);
 
   const [complaints, setComplaints] = useState<any[]>([]);
@@ -166,7 +166,7 @@ export default function LiveComplaintsScreen() {
   const pendingCount = complaints.filter(c => c.status !== 'resolved').length;
 
   return (
-    <View style={styles.root}>
+    <Screen scroll={false} padded={false}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
@@ -203,7 +203,7 @@ export default function LiveComplaintsScreen() {
           }}
           onPress={() => setPrioritySort(p => !p)}
         >
-          <Text style={{ fontSize: 11, fontWeight: '700', color: prioritySort ? '#fff' : theme.colors.primary }}>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: prioritySort ? theme.colors.textInverse : theme.colors.primary }}>
             {prioritySort ? '⬆️ Priority Sort' : '🕐 Chronological'}
           </Text>
         </TouchableOpacity>
@@ -261,8 +261,8 @@ export default function LiveComplaintsScreen() {
                   {prioritySort && !isResolved && (
                     <View style={{ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       {isEscalating(complaint) && (
-                        <View style={{ backgroundColor: '#dc2626', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
-                          <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>⬆️ ESCALATING</Text>
+                        <View style={{ backgroundColor: theme.colors.errorStrong, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                          <Text style={{ color: theme.colors.textInverse, fontSize: 9, fontWeight: '800' }}>⬆️ ESCALATING</Text>
                         </View>
                       )}
                       <Text style={{ fontSize: 10, color: uc.text, fontWeight: '600' }}>
@@ -356,7 +356,7 @@ export default function LiveComplaintsScreen() {
       )}
 
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </View>
+    </Screen>
   );
 }
 
@@ -375,7 +375,7 @@ const createStyles = (theme: any) => StyleSheet.create({
     backgroundColor: theme.colors.error, borderRadius: 12,
     paddingHorizontal: 10, paddingVertical: 4,
   },
-  urgentBadgeText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  urgentBadgeText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 13 },
   filterBar: { paddingVertical: 12, flexGrow: 0 },
   filterTab: {
     paddingHorizontal: 16, paddingVertical: 7, borderRadius: 20,
@@ -383,7 +383,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   },
   filterTabActive: { backgroundColor: theme.colors.primary },
   filterTabText: { fontSize: 13, color: theme.colors.textMuted, fontWeight: '600' },
-  filterTabTextActive: { color: '#fff' },
+  filterTabTextActive: { color: theme.colors.textInverse },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 40 },
   loadingText: { color: theme.colors.textMuted, fontSize: 14 },
   emptyTitle: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
@@ -391,7 +391,7 @@ const createStyles = (theme: any) => StyleSheet.create({
   list: { padding: 16, paddingBottom: 40, gap: 14 },
   card: {
     backgroundColor: theme.colors.surface, borderRadius: 16, overflow: 'hidden',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06,
+    shadowColor: theme.colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06,
     shadowRadius: 8, elevation: 3,
   },
   urgencyStripe: {

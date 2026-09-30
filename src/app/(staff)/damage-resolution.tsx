@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  Alert, ActivityIndicator, useColorScheme, SafeAreaView, Modal, RefreshControl,
+  Alert, ActivityIndicator, Modal, RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen } from '@/components/ui/screen';
 import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
 import PhotoThumb from '@/components/PhotoThumb';
 import {
@@ -31,8 +32,7 @@ const statusConfig = (theme: any, status: DamageStatus) => {
 export default function DamageResolutionScreen() {
   const router = useRouter();
   const { profile } = useAuth();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
+  const theme = useAppTheme();
   const S = createStyles(theme);
 
   const [records, setRecords] = useState<any[]>([]);
@@ -132,12 +132,10 @@ export default function DamageResolutionScreen() {
   const totalCost = records.reduce((s, r) => s + (r.totalCost || 0), 0);
 
   return (
-    <SafeAreaView style={S.container}>
-      <ScrollView
-        contentContainerStyle={S.content}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />}
-      >
+    <Screen
+      scroll
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />}
+    >
         {/* ── HEADER ── */}
         <View style={S.headerRow}>
           <TouchableOpacity onPress={() => router.back()} style={S.backBtn}>
@@ -185,7 +183,7 @@ export default function DamageResolutionScreen() {
               style={[S.filterSegment, filterStatus === f && { backgroundColor: theme.colors.primary }]}
               onPress={() => setFilterStatus(f)}
             >
-              <Text style={[S.filterText, filterStatus === f && { color: '#fff' }]}>
+              <Text style={[S.filterText, filterStatus === f && { color: theme.colors.textInverse }]}>
                 {f === 'all' ? 'All' : f.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
               </Text>
             </TouchableOpacity>
@@ -297,15 +295,13 @@ export default function DamageResolutionScreen() {
 
                 {/* Primary action */}
                 <TouchableOpacity style={S.actionBtn} onPress={() => openUpdateModal(record)} activeOpacity={0.85}>
-                  <Ionicons name="create-outline" size={16} color="#fff" />
+                  <Ionicons name="create-outline" size={16} color={theme.colors.textInverse} />
                   <Text style={S.actionBtnText}>Update Status</Text>
                 </TouchableOpacity>
               </View>
             );
           })
         )}
-      </ScrollView>
-
       {/* ── STATUS UPDATE MODAL ── */}
       <Modal visible={!!selectedRecord} transparent animationType="slide">
         <View style={S.modalOverlay}>
@@ -347,7 +343,7 @@ export default function DamageResolutionScreen() {
                 style={[S.techChip, !selectedTechnician && { backgroundColor: theme.colors.primary }]}
                 onPress={() => setSelectedTechnician('')}
               >
-                <Text style={[S.techChipText, !selectedTechnician && { color: '#fff' }]}>Unassigned</Text>
+                <Text style={[S.techChipText, !selectedTechnician && { color: theme.colors.textInverse }]}>Unassigned</Text>
               </TouchableOpacity>
               {staffList.map(s => (
                 <TouchableOpacity
@@ -355,7 +351,7 @@ export default function DamageResolutionScreen() {
                   style={[S.techChip, selectedTechnician === s.id && { backgroundColor: theme.colors.primary }]}
                   onPress={() => setSelectedTechnician(s.id)}
                 >
-                  <Text style={[S.techChipText, selectedTechnician === s.id && { color: '#fff' }]}>
+                  <Text style={[S.techChipText, selectedTechnician === s.id && { color: theme.colors.textInverse }]}>
                     {s.displayName || s.email?.split('@')[0] || s.id}
                   </Text>
                 </TouchableOpacity>
@@ -374,7 +370,7 @@ export default function DamageResolutionScreen() {
                 onPress={handleUpdate}
                 disabled={isUpdating}
               >
-                {isUpdating ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Save Changes</Text>}
+                {isUpdating ? <ActivityIndicator color={theme.colors.textInverse} /> : <Text style={{ color: theme.colors.textInverse, fontWeight: '700' }}>Save Changes</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -383,7 +379,7 @@ export default function DamageResolutionScreen() {
 
       {/* Custom Themed Alert Modal */}
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))} />
-    </SafeAreaView>
+    </Screen>
   );
 }
 
@@ -461,10 +457,10 @@ const createStyles = (theme: any) => StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     backgroundColor: theme.colors.primary, paddingVertical: 11, borderRadius: 10,
   },
-  actionBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  actionBtnText: { color: theme.colors.textInverse, fontWeight: '700', fontSize: 14 },
 
   // Modal
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalOverlay: { flex: 1, backgroundColor: theme.colors.overlay, justifyContent: 'flex-end' },
   modalSheet: {
     backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
     padding: 20, maxHeight: '88%',

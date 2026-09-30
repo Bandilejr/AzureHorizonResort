@@ -1,10 +1,18 @@
+// (staff) Today's events — live list of event bookings for today with attendee
+// check-in progress. Batch F: rebuilt on the design system; the onSnapshot
+// listener and getAttendeeCheckIns calls are unchanged.
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, useColorScheme } from 'react-native';
+import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { getTheme } from '@/constants/theme';
-import { db , getAttendeeCheckIns } from '@/services/firebase-services';
+import { db, getAttendeeCheckIns } from '@/services/firebase-services';
 import { collection, onSnapshot } from 'firebase/firestore';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen, PageHeader } from '@/components/ui/screen';
+import { Card } from '@/components/ui/surface';
+import { EmptyState, ListSkeleton, ErrorState } from '@/components/ui/states';
+import { ProgressBar } from '@/components/ui/progress';
+import { AppText } from '@/components/ui/text';
 
 interface EventBooking {
   id: string;
@@ -18,12 +26,11 @@ interface EventBooking {
 
 export default function TodayEventsScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const styles = createStyles(theme);
+  const theme = useAppTheme();
   const [events, setEvents] = useState<EventBooking[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -36,7 +43,7 @@ export default function TodayEventsScreen() {
         } catch {
           return [e.id, 0] as const;
         }
-      })
+      }),
     );
     setCounts(Object.fromEntries(entries));
   }, []);
@@ -52,10 +59,7 @@ export default function TodayEventsScreen() {
         setLoading(false);
         if (list.length > 0) loadCounts(list);
       },
-      (err) => {
-        console.warn('today-events error:', err);
-        setLoading(false);
-      }
+      () => { setLoadError('Live event data is unavailable.'); setLoading(false); },
     );
     return unsub;
   }, [today, loadCounts]);
@@ -73,91 +77,45 @@ export default function TodayEventsScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Today&apos;s Events</Text>
-        <Text style={styles.subtitle}>{new Date().toDateString()}</Text>
-      </View>
+    <Screen scroll>
+      <PageHeader title="Today's events" subtitle={new Date().toDateString()} showBack fallback="/(staff)/staff-dashboard" />
 
-      {loading ? (
-        <ActivityIndicator size="large" color={theme.colors.secondary} style={{ marginTop: 60 }} />
+      {loadError && events.length === 0 ? (
+        <ErrorState title="Couldn't load events" message="Live event data is unavailable right now." details={loadError} />
+      ) : loading ? (
+        <ListSkeleton rows={3} />
       ) : events.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Ionicons name="calendar-outline" size={44} color={theme.colors.textMuted} />
-          <Text style={styles.emptyTitle}>No events today</Text>
-          <Text style={styles.emptyText}>
-            Events booked for today will appear here with live attendance, inspections and tasks.
-          </Text>
-        </View>
+        <EmptyState icon="calendar-outline" title="No events today" message="Events booked for today will appear here with live attendance." />
       ) : (
-        events.map((event) => {
-          const c = counts[event.id] ?? 0;
-          const expected = event.expectedAttendance ?? 0;
-          const progress = expected > 0 ? Math.min(100, Math.round((c / expected) * 100)) : 0;
-          return (
-            <TouchableOpacity key={event.id} style={styles.eventCard} onPress={() => openEvent(event)}>
-              <View style={styles.eventRow}>
-                <View style={styles.venue}>
-                  <Ionicons name="gift" size={20} color={theme.colors.primary} />
+        <View style={{ gap: theme.space.md }}>
+          {events.map((event) => {
+            const c = counts[event.id] ?? 0;
+            const expected = event.expectedAttendance ?? 0;
+            const progress = expected > 0 ? Math.min(100, Math.round((c / expected) * 100)) : 0;
+            return (
+              <Card key={event.id} onPress={() => openEvent(event)} style={{ gap: theme.space.sm }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.md }}>
+                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
+                    <Ionicons name="gift" size={20} color={theme.colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <AppText variant="bodyStrong" numberOfLines={1}>{event.venueName || 'Event'}</AppText>
+                    <AppText variant="caption" tone="secondary" numberOfLines={1}>
+                      Hosted by {event.guestName || 'Organizer'} • {event.status || 'confirmed'}
+                    </AppText>
+                  </View>
+                  <Ionicons name="chevron-forward" size={theme.iconSize.md} color={theme.colors.textMuted} />
                 </View>
-                <View style={styles.eventInfo}>
-                  <Text style={styles.eventVenue}>{event.venueName || 'Event'}</Text>
-                  <Text style={styles.eventGuest}>
-                    Hosted by {event.guestName || 'Organizer'} • {event.status || 'confirmed'}
-                  </Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <AppText variant="caption" tone="muted">{c} / {expected} guests checked in</AppText>
+                  <AppText variant="caption" weight="700">{progress}%</AppText>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color={theme.colors.textMuted} />
-              </View>
-
-              <View style={styles.progressRow}>
-                <Text style={styles.progressText}>
-                  {c} / {expected} guests checked in
-                </Text>
-                <Text style={styles.progressPct}>{progress}%</Text>
-              </View>
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: `${progress}%` }]} />
-              </View>
-
-              <View style={styles.chips}>
-                <View style={styles.chip}>
-                  <Ionicons name="people" size={13} color={theme.colors.success} />
-                  <Text style={styles.chipText}>{c} checked in</Text>
-                </View>
-                <View style={styles.chip}>
-                  <Ionicons name="clipboard" size={13} color={theme.colors.secondary} />
-                  <Text style={styles.chipText}>Operations</Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          );
-        })
+                <ProgressBar value={progress / 100} />
+              </Card>
+            );
+          })}
+        </View>
       )}
-    </ScrollView>
+    </Screen>
   );
 }
-
-const createStyles = (theme: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
-  content: { padding: 20, paddingTop: 60, paddingBottom: 40 },
-  header: { marginBottom: 20 },
-  title: { fontSize: 28, fontWeight: 'bold', color: theme.colors.text },
-  subtitle: { fontSize: 14, color: theme.colors.textMuted, marginTop: 4 },
-  emptyCard: { alignItems: 'center', backgroundColor: theme.colors.surface, borderRadius: 16, padding: 32, marginTop: 40 },
-  emptyTitle: { fontSize: 18, fontWeight: 'bold', color: theme.colors.text, marginTop: 12 },
-  emptyText: { color: theme.colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 20 },
-  eventCard: { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16, marginBottom: 14, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 },
-  eventRow: { flexDirection: 'row', alignItems: 'center' },
-  venue: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(201,162,39,0.12)', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  eventInfo: { flex: 1 },
-  eventVenue: { fontSize: 17, fontWeight: 'bold', color: theme.colors.text },
-  eventGuest: { fontSize: 13, color: theme.colors.textMuted, marginTop: 2 },
-  progressRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 14, marginBottom: 6 },
-  progressText: { fontSize: 12, color: theme.colors.textMuted, fontWeight: '500' },
-  progressPct: { fontSize: 12, color: theme.colors.text, fontWeight: 'bold' },
-  progressTrack: { height: 6, backgroundColor: theme.colors.border, borderRadius: 3, overflow: 'hidden' },
-  progressFill: { height: 6, backgroundColor: theme.colors.success, borderRadius: 3 },
-  chips: { flexDirection: 'row', marginTop: 12, gap: 8 },
-  chip: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surfaceVariant, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16 },
-  chipText: { fontSize: 12, color: theme.colors.text, marginLeft: 4 },
-});

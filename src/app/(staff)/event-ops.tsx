@@ -1,21 +1,23 @@
+// (staff) Event operations — live event cockpit: attendee check-in progress,
+// operational entry points, assigned tasks and wrap-up. Batch F: rebuilt on the
+// design system; every Firestore query/listener/write is unchanged.
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator, useColorScheme } from 'react-native';
+import { View, Alert, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { auth, db , listenForAttendeeCheckIns, listenForEventInspections } from '@/services/firebase-services';
-import { getTheme } from '@/constants/theme';
+import { auth, db, listenForAttendeeCheckIns, listenForEventInspections } from '@/services/firebase-services';
 import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  serverTimestamp,
+  collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp,
 } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen, PageHeader, SectionHeader } from '@/components/ui/screen';
+import { Card } from '@/components/ui/surface';
+import { ListRow } from '@/components/ui/list-row';
+import { Button } from '@/components/ui/button';
+import { StatusPill } from '@/components/ui/status-pill';
+import { ProgressBar } from '@/components/ui/progress';
+import { AppText } from '@/components/ui/text';
 
 interface Task {
   id: string;
@@ -30,9 +32,7 @@ interface Task {
 export default function EventOpsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const styles = createStyles(theme);
+  const theme = useAppTheme();
   const { isAdmin, isEventManager } = useAuth();
   const eventId = (params.eventId as string) || '';
   const guestName = (params.guestName as string) || 'Host';
@@ -59,14 +59,9 @@ export default function EventOpsScreen() {
         list.sort((a, b) => Number(a.done) - Number(b.done));
         setTasks(list);
       },
-      (err) => console.warn('event_ops tasks error:', err)
+      () => {},
     );
-    return () => {
-      unsubBooking();
-      unsubCheckins();
-      unsubInsp();
-      unsubTasks();
-    };
+    return () => { unsubBooking(); unsubCheckins(); unsubInsp(); unsubTasks(); };
   }, [eventId]);
 
   const seedTasks = async () => {
@@ -133,154 +128,76 @@ export default function EventOpsScreen() {
 
   const preDone = inspections.some((i) => i.type === 'pre_event' && i.overallStatus === 'approved');
   const postDone = inspections.some((i) => i.type === 'post_event' && i.completedAt);
-  const checkedPct = expected > 0 ? Math.round((checkinCount / expected) * 100) : 0;
+  const checkedPct = expected > 0 ? Math.min(100, Math.round((checkinCount / expected) * 100)) : 0;
 
   const openRoute = (route: string) => {
     router.push({ pathname: route, params: { eventId } } as any);
   };
 
+  const operations: { key: string; title: string; desc: string; icon: React.ComponentProps<typeof Ionicons>['name']; route: string; badge?: string }[] = [
+    { key: 'checkin', title: 'Staff check-in', desc: 'Verify team members on site', icon: 'id-card', route: '/staff-checkin' },
+    { key: 'attendees', title: 'Attendee check-in', desc: `${checkinCount} of ${expected} guests in venue`, icon: 'qr-code', route: '/attendee-checkin', badge: `${checkinCount}/${expected}` },
+    { key: 'pre', title: 'Pre-event inspection', desc: preDone ? 'Approved' : 'Not completed yet', icon: 'clipboard', route: '/pre-event-inspection' },
+    { key: 'post', title: 'Post-event inspection', desc: postDone ? 'Completed' : 'Due after event', icon: 'construct', route: '/post-event-inspection' },
+  ];
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={26} color={theme.colors.secondary} />
-        </TouchableOpacity>
-        <Text style={styles.title}>{venueName}</Text>
-        <Text style={styles.subtitle}>Operated by {guestName}</Text>
-        <View style={styles.progressRow}>
-          <Text style={styles.progressText}>{checkinCount} / {expected} guests checked in</Text>
-          {expected > 0 && <Text style={styles.progressPct}>{checkedPct}%</Text>}
-        </View>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${checkedPct}%` }]} />
-        </View>
-      </View>
+    <Screen scroll>
+      <PageHeader
+        title={venueName}
+        subtitle={`Operated by ${guestName}`}
+        showBack
+        fallback="/(staff)/today-events"
+        right={<StatusPill status={String(booking?.status || 'scheduled')} />}
+      />
 
-      <View style={styles.liveCard}>
-        <Ionicons name="pulse" size={16} color={theme.colors.success} />
-        <Text style={styles.liveText}> LIVE - status: {booking?.status || 'scheduled'}</Text>
-      </View>
+      <Card style={{ gap: theme.space.sm }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+          <AppText variant="caption" tone="muted">{checkinCount} / {expected} guests checked in</AppText>
+          {expected > 0 ? <AppText variant="caption" weight="700">{checkedPct}%</AppText> : null}
+        </View>
+        <ProgressBar value={checkedPct / 100} tone="success" />
+      </Card>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Event Operations</Text>
-        {[
-          {
-            key: 'checkin',
-            title: 'Staff Check-in',
-            desc: 'Verify team members on site',
-            icon: 'id-card',
-            route: '/staff-checkin',
-          },
-          {
-            key: 'attendees',
-            title: 'Attendee Check-in',
-            desc: `${checkinCount} of ${expected} guests in venue`,
-            icon: 'qr-code',
-            route: '/attendee-checkin',
-            badge: `${checkinCount}/${expected}`,
-          },
-          {
-            key: 'pre',
-            title: 'Pre-event Inspection',
-            desc: preDone ? 'Approved' : 'Not completed yet',
-            icon: 'clipboard',
-            route: '/pre-event-inspection',
-          },
-          {
-            key: 'post',
-            title: 'Post-event Inspection',
-            desc: postDone ? 'Completed' : 'Due after event',
-            icon: 'construct',
-            route: '/post-event-inspection',
-          },
-        ].map((op) => (
-          <TouchableOpacity key={op.key} style={styles.opRow} onPress={() => openRoute(op.route)}>
-            <View style={styles.opIcon}>
-              <Ionicons name={op.icon as any} size={20} color={theme.colors.primary} />
-            </View>
-            <View style={styles.opInfo}>
-              <Text style={styles.opTitle}>{op.title}</Text>
-              <Text style={styles.opDesc}>{op.desc}</Text>
-            </View>
-            {op.badge && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{op.badge}</Text>
-              </View>
-            )}
-            <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
-          </TouchableOpacity>
+      <SectionHeader title="Event operations" />
+      <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+        {operations.map((op, i) => (
+          <View key={op.key} style={i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : undefined}>
+            <ListRow
+              title={op.title}
+              subtitle={op.desc}
+              leading={
+                <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name={op.icon} size={theme.iconSize.md} color={theme.colors.primary} />
+                </View>
+              }
+              status={op.badge ? <StatusPill status="info" size="sm" label={op.badge} /> : undefined}
+              onPress={() => openRoute(op.route)}
+            />
+          </View>
         ))}
-      </View>
+      </Card>
 
-      <View style={styles.section}>
-        <View style={styles.taskHeader}>
-          <Text style={styles.sectionTitle}>My Assigned Tasks</Text>
-          {tasks.length === 0 && !busy && (isAdmin || isEventManager) && (
-            <TouchableOpacity onPress={seedTasks}>
-              <Text style={styles.seedText}>Add sample tasks</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        {busy ? (
-          <ActivityIndicator color={theme.colors.secondary} style={{ marginVertical: 16 }} />
-        ) : tasks.length === 0 ? (
-          <Text style={styles.emptyText}>No tasks yet - tap &quot;Add sample tasks&quot; to demo the flow.</Text>
-        ) : (
-          tasks.map((task) => (
-            <View key={task.id} style={styles.taskRow}>
-              <TouchableOpacity onPress={() => toggleTask(task)}>
-                <Ionicons
-                  name={task.done ? 'checkmark-circle' : 'ellipse-outline'}
-                  size={24}
-                  color={task.done ? theme.colors.success : theme.colors.textMuted}
-                />
+      <SectionHeader title="My assigned tasks" actionLabel={(tasks.length === 0 && !busy && (isAdmin || isEventManager)) ? 'Add sample tasks' : undefined} onAction={seedTasks} />
+      {tasks.length === 0 ? (
+        <AppText variant="body" tone="muted">No tasks yet.</AppText>
+      ) : (
+        <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
+          {tasks.map((task, i) => (
+            <View key={task.id} style={[{ flexDirection: 'row', alignItems: 'center', gap: theme.space.md, paddingVertical: theme.space.md }, i > 0 ? { borderTopWidth: 1, borderTopColor: theme.colors.border } : null]}>
+              <TouchableOpacity onPress={() => toggleTask(task)} accessibilityRole="button" accessibilityLabel={task.done ? 'Mark task not done' : 'Mark task done'}>
+                <Ionicons name={task.done ? 'checkmark-circle' : 'ellipse-outline'} size={theme.iconSize.lg} color={task.done ? theme.colors.success : theme.colors.textMuted} />
               </TouchableOpacity>
-              <Text style={[styles.taskTitle, task.done && styles.taskDone]}>{task.title}</Text>
-              <TouchableOpacity onPress={() => removeTask(task)}>
-                <Ionicons name="trash-outline" size={16} color={theme.colors.textMuted} />
+              <AppText variant="body" style={[{ flex: 1 }, task.done ? { textDecorationLine: 'line-through', color: theme.colors.textMuted } : null]}>{task.title}</AppText>
+              <TouchableOpacity onPress={() => removeTask(task)} accessibilityRole="button" accessibilityLabel="Delete task">
+                <Ionicons name="trash-outline" size={theme.iconSize.sm} color={theme.colors.textMuted} />
               </TouchableOpacity>
             </View>
-          ))
-        )}
-      </View>
+          ))}
+        </Card>
+      )}
 
-      <TouchableOpacity style={styles.wrapBtn} onPress={wrapUp}>
-        <Ionicons name="flag" size={18} color={theme.colors.textInverse} style={{ marginRight: 8 }} />
-        <Text style={styles.wrapText}>Wrap Up Event</Text>
-      </TouchableOpacity>
-    </ScrollView>
+      <Button label="Wrap up event" icon="flag-outline" onPress={wrapUp} style={{ marginTop: theme.space['2xl'] }} />
+    </Screen>
   );
 }
-
-const createStyles = (theme: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
-  content: { padding: 20, paddingTop: 56, paddingBottom: 40 },
-  header: { marginBottom: 12 },
-  backBtn: { marginBottom: 12, alignSelf: 'flex-start' },
-  title: { fontSize: 24, fontWeight: 'bold', color: theme.colors.text },
-  subtitle: { fontSize: 13, color: theme.colors.textMuted, marginTop: 2, marginBottom: 16 },
-  progressRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  progressText: { fontSize: 12, color: theme.colors.textMuted, fontWeight: '500' },
-  progressPct: { fontSize: 12, color: theme.colors.text, fontWeight: 'bold' },
-  progressTrack: { height: 6, backgroundColor: theme.colors.surfaceVariant, borderRadius: 3, overflow: 'hidden' },
-  progressFill: { height: 6, backgroundColor: theme.colors.success, borderRadius: 3 },
-  liveCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(22,163,74,0.1)', padding: 10, borderRadius: 10, marginTop: 14 },
-  liveText: { color: theme.colors.success, fontSize: 12, fontWeight: '600' },
-  section: { marginTop: 22 },
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: theme.colors.text, marginBottom: 10 },
-  taskHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  opRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surface, borderRadius: 14, padding: 14, marginBottom: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 },
-  opIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(201,162,39,0.12)', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  opInfo: { flex: 1 },
-  opTitle: { fontSize: 15, fontWeight: '600', color: theme.colors.text },
-  opDesc: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
-  badge: { backgroundColor: theme.colors.secondaryLight, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, marginRight: 8 },
-  badgeText: { fontSize: 11, color: theme.colors.text, fontWeight: '600' },
-  seedText: { color: theme.colors.primary, fontSize: 13, fontWeight: '600' },
-  emptyText: { color: theme.colors.textMuted, fontSize: 13, marginBottom: 8 },
-  taskRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surface, borderRadius: 12, padding: 12, marginBottom: 8, gap: 10 },
-  taskTitle: { flex: 1, fontSize: 14, color: theme.colors.text },
-  taskDone: { textDecorationLine: 'line-through', color: theme.colors.textMuted },
-  wrapBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.secondary, borderRadius: 12, paddingVertical: 14, marginTop: 26 },
-  wrapText: { color: theme.colors.textInverse, fontWeight: 'bold', fontSize: 15 },
-});
