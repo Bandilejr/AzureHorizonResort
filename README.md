@@ -1,5 +1,12 @@
 # Welcome to your Expo app 👋
 
+> ⚠️ **PERSONAL-USE APK ONLY.** The Gemini API key is embedded in this build
+> (read from `EXPO_PUBLIC_GEMINI_API_KEY` at build time). **Do not distribute
+> this APK.** This is an approved exception for personal use only; a production
+> build must move the key behind a server-side proxy. See `src/services/gemini-food.ts`.
+> Cloud Functions cannot be deployed on the free Spark plan, so the app talks to
+> the Gemini REST API directly.
+
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
 ## Get started

@@ -221,12 +221,17 @@ export default function DonationLogScreen() {
       ) : null}
 
       {!geminiBusy && geminiError && photoUri ? (
-        <Card style={{ backgroundColor: theme.colors.warningSoft, borderColor: theme.colors.warningSoft, flexDirection: 'row', alignItems: 'center', gap: theme.space.sm }}>
-          <Ionicons name="alert-circle-outline" size={theme.iconSize.md} color={theme.colors.warningStrong} />
-          <AppText variant="caption" color={theme.colors.warningStrong} style={{ flex: 1 }}>{geminiError}</AppText>
-          <TouchableOpacity onPress={() => runGeminiAnalysis(photoUri, photoBase64)} accessibilityRole="button">
-            <AppText variant="label" color={theme.colors.warningStrong} weight="700">Retry</AppText>
-          </TouchableOpacity>
+        <Card style={{ backgroundColor: theme.colors.warningSoft, borderColor: theme.colors.warningSoft, gap: theme.space.xs }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.sm }}>
+            <Ionicons name="alert-circle-outline" size={theme.iconSize.md} color={theme.colors.warningStrong} />
+            <AppText variant="bodyStrong" color={theme.colors.warningStrong} style={{ flex: 1 }}>AI assistance unavailable. Continue manually.</AppText>
+            <TouchableOpacity onPress={() => runGeminiAnalysis(photoUri, photoBase64)} accessibilityRole="button">
+              <AppText variant="label" color={theme.colors.warningStrong} weight="700">Retry</AppText>
+            </TouchableOpacity>
+          </View>
+          {geminiError && geminiError !== 'AI assistance unavailable. Continue manually.' ? (
+            <AppText variant="caption" color={theme.colors.warningStrong}>{geminiError}</AppText>
+          ) : null}
         </Card>
       ) : null}
 
