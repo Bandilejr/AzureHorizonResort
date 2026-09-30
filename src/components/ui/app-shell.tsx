@@ -12,6 +12,7 @@ import { Avatar } from './avatar';
 import { IconButton } from './icon-button';
 import { Screen } from './screen';
 import { SyncIndicator } from './sync-indicator';
+import { FadeSlideIn } from './motion';
 
 export function greetingFor(d: Date = new Date()): string {
   const h = d.getHours();
@@ -145,7 +146,7 @@ export function AppShell({
           />
         </View>
       </View>
-      {children}
+      <FadeSlideIn>{children}</FadeSlideIn>
     </Screen>
   );
 }

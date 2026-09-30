@@ -11,6 +11,7 @@ export { StatusPill, StatusRow } from './status-pill';
 export { ListRow, DetailRow, DetailSection } from './list-row';
 export { MetricCard } from './metric-card';
 export { EmptyState, ErrorState, Skeleton, ListSkeleton } from './states';
+export { FadeSlideIn } from './motion';
 export { ProgressBar, ProgressRing } from './progress';
 export { Timeline, ActivityItem } from './timeline';
 export { SearchField, Field } from './inputs';

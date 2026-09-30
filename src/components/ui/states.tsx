@@ -5,8 +5,10 @@ import React, { useEffect, useState } from 'react';
 import { View, Animated, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '@/design/use-app-theme';
+import { useReducedMotion } from '@/design/use-reduced-motion';
 import { AppText } from './text';
 import { Button } from './button';
+import { FadeSlideIn } from './motion';
 
 export interface EmptyStateProps {
   icon?: React.ComponentProps<typeof Ionicons>['name'];
@@ -20,7 +22,7 @@ export interface EmptyStateProps {
 export function EmptyState({ icon = 'file-tray-outline', title, message, actionLabel, onAction, style }: EmptyStateProps) {
   const theme = useAppTheme();
   return (
-    <View style={[styles.center, { paddingVertical: theme.space['4xl'], gap: theme.space.sm }, style]}>
+    <FadeSlideIn style={[styles.center, { paddingVertical: theme.space['4xl'], gap: theme.space.sm }, style]}>
       <Ionicons name={icon} size={36} color={theme.colors.textMuted} />
       <AppText variant="subtitle" align="center">
         {title}
@@ -33,7 +35,7 @@ export function EmptyState({ icon = 'file-tray-outline', title, message, actionL
       {actionLabel && onAction ? (
         <Button label={actionLabel} onPress={onAction} fullWidth={false} variant="secondary" style={{ marginTop: theme.space.md }} />
       ) : null}
-    </View>
+    </FadeSlideIn>
   );
 }
 
@@ -80,8 +82,10 @@ export function Skeleton({
   style?: StyleProp<ViewStyle>;
 }) {
   const theme = useAppTheme();
+  const reduced = useReducedMotion();
   const [opacity] = useState(() => new Animated.Value(0.5));
   useEffect(() => {
+    if (reduced) { opacity.setValue(0.7); return; }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
@@ -90,7 +94,7 @@ export function Skeleton({
     );
     loop.start();
     return () => loop.stop();
-  }, [opacity]);
+  }, [opacity, reduced]);
   return (
     <Animated.View
       style={[

@@ -1,9 +1,10 @@
 // src/components/ui/button.tsx — one button family. Contextual labels are the
 // caller's responsibility ("Confirm Allocation", never "Submit").
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Pressable,
   View,
+  Animated,
   ActivityIndicator,
   StyleSheet,
   type StyleProp,
@@ -11,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '@/design/use-app-theme';
+import { useReducedMotion } from '@/design/use-reduced-motion';
 import { AppText } from './text';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
@@ -42,8 +44,19 @@ export function Button({
   accessibilityLabel,
 }: ButtonProps) {
   const theme = useAppTheme();
+  const reduced = useReducedMotion();
+  const [scale] = useState(() => new Animated.Value(1));
   const height = size === 'lg' ? 54 : 48;
   const isDisabled = disabled || loading;
+
+  const pressIn = () => {
+    if (reduced) return;
+    Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
+  };
+  const pressOut = () => {
+    if (reduced) return;
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
+  };
 
   const palette = {
     primary: { bg: theme.colors.primary, fg: theme.colors.textInverse, border: 'transparent' },
@@ -56,6 +69,8 @@ export function Button({
   return (
     <Pressable
       onPress={onPress}
+      onPressIn={pressIn}
+      onPressOut={pressOut}
       disabled={isDisabled}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
@@ -68,23 +83,25 @@ export function Button({
           borderColor: p.border,
           borderWidth: variant === 'secondary' ? 1 : 0,
           borderRadius: theme.radius.md,
-          opacity: isDisabled ? 0.5 : pressed ? 0.85 : 1,
+          opacity: isDisabled ? 0.5 : pressed ? 0.9 : 1,
           alignSelf: fullWidth ? 'stretch' : 'flex-start',
           paddingHorizontal: fullWidth ? 0 : theme.space.xl,
         },
         style,
       ]}
     >
-      {loading ? (
-        <ActivityIndicator color={p.fg} />
-      ) : (
-        <View style={[styles.content, { gap: theme.space.sm }]}>
-          {icon ? <Ionicons name={icon} size={theme.iconSize.md} color={p.fg} /> : null}
-          <AppText variant="bodyStrong" color={p.fg} numberOfLines={1}>
-            {label}
-          </AppText>
-        </View>
-      )}
+      <Animated.View style={[styles.content, { gap: theme.space.sm, transform: [{ scale }] }]}>
+        {loading ? (
+          <ActivityIndicator color={p.fg} />
+        ) : (
+          <>
+            {icon ? <Ionicons name={icon} size={theme.iconSize.md} color={p.fg} /> : null}
+            <AppText variant="bodyStrong" color={p.fg} numberOfLines={1}>
+              {label}
+            </AppText>
+          </>
+        )}
+      </Animated.View>
     </Pressable>
   );
 }
