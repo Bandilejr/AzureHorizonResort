@@ -1,14 +1,12 @@
+// src/components/CustomAlertModal.tsx — global alert dialog, now token-driven.
+// Public API unchanged (AlertConfig + onClose) so existing call sites keep
+// working; the chrome is light-first and theme-aware.
 import React from 'react';
-import {
-  Modal,
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  useColorScheme,
-} from 'react-native';
+import { Modal, View, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { getTheme } from '@/constants/theme';
+import { useAppTheme } from '@/design/use-app-theme';
+import { AppText } from '@/components/ui/text';
+import { Button } from '@/components/ui/button';
 
 export interface AlertConfig {
   visible: boolean;
@@ -27,176 +25,97 @@ interface CustomAlertModalProps {
 }
 
 export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({ config, onClose }) => {
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const styles = createStyles(theme);
-
+  const theme = useAppTheme();
   if (!config.visible) return null;
 
-  const getIcon = () => {
+  const getIcon = (): { name: React.ComponentProps<typeof Ionicons>['name']; fg: string; bg: string } => {
     switch (config.type) {
       case 'success':
-        return { name: 'checkmark-circle-sharp', color: '#16a34a', bg: '#dcfce7' };
+        return { name: 'checkmark-circle', fg: theme.colors.successStrong, bg: theme.colors.successSoft };
       case 'warning':
-        return { name: 'warning-sharp', color: '#d97706', bg: '#fef3c7' };
+        return { name: 'warning', fg: theme.colors.warningStrong, bg: theme.colors.warningSoft };
       case 'error':
-        return { name: 'alert-circle-sharp', color: '#dc2626', bg: '#fef2f2' };
+        return { name: 'alert-circle', fg: theme.colors.errorStrong, bg: theme.colors.errorSoft };
       case 'biometric':
-        return { name: 'finger-print-sharp', color: '#c9a227', bg: '#fef9e7' };
+        return { name: 'finger-print', fg: theme.colors.primary, bg: theme.colors.primarySoft };
       case 'nfc':
-        return { name: 'wifi-sharp', color: '#1e3a5f', bg: '#e8ecf3' };
+        return { name: 'wifi', fg: theme.colors.accent, bg: theme.colors.accentSoft };
       case 'info':
       default:
-        return { name: 'information-circle-sharp', color: '#2563eb', bg: '#dbeafe' };
+        return { name: 'information-circle', fg: theme.colors.infoStrong, bg: theme.colors.infoSoft };
     }
   };
 
-  const iconInfo = getIcon();
-
+  const icon = getIcon();
   const handleConfirm = () => {
     onClose();
-    if (config.onConfirm) config.onConfirm();
+    config.onConfirm?.();
   };
-
   const handleCancel = () => {
     onClose();
-    if (config.onCancel) config.onCancel();
+    config.onCancel?.();
   };
 
   return (
-    <Modal
-      visible={config.visible}
-      transparent
-      animationType="fade"
-      onRequestClose={handleCancel}
-    >
-      <TouchableOpacity
-        style={styles.overlay}
-        activeOpacity={1}
-        onPress={handleCancel}
-      >
-        <TouchableOpacity
-          activeOpacity={1}
-          style={styles.card}
-          onPress={(e) => e.stopPropagation()}
-        >
-          {/* Header Icon */}
-          <View style={[styles.iconContainer, { backgroundColor: iconInfo.bg }]}>
-            <Ionicons name={iconInfo.name as any} size={36} color={iconInfo.color} />
+    <Modal visible transparent animationType="fade" onRequestClose={handleCancel} statusBarTranslucent>
+      <Pressable style={styles.overlay} onPress={handleCancel}>
+        <Pressable style={styles.stop} onPress={() => { /* swallow */ }}>
+          <View
+            style={[
+              styles.card,
+              {
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+                borderRadius: theme.radius['2xl'],
+                padding: theme.space['2xl'],
+                gap: theme.space.md,
+              },
+            ]}
+          >
+            <View style={[styles.iconWrap, { backgroundColor: icon.bg }]}>
+              <Ionicons name={icon.name} size={30} color={icon.fg} />
+            </View>
+            <AppText variant="title" align="center">
+              {config.title}
+            </AppText>
+            <AppText variant="body" tone="secondary" align="center">
+              {config.message}
+            </AppText>
+            <View style={[styles.actions, { gap: theme.space.sm, marginTop: theme.space.sm }]}>
+              {config.onCancel ? (
+                <Button
+                  label={config.cancelText || 'Cancel'}
+                  onPress={handleCancel}
+                  variant="secondary"
+                  fullWidth={false}
+                  style={{ flex: 1 }}
+                />
+              ) : null}
+              <Button
+                label={config.confirmText || 'OK'}
+                onPress={handleConfirm}
+                variant={config.type === 'error' ? 'danger' : 'primary'}
+                fullWidth={false}
+                style={{ flex: 1 }}
+              />
+            </View>
           </View>
-
-          {/* Title & Message */}
-          <Text style={styles.title}>{config.title}</Text>
-          <Text style={styles.message}>{config.message}</Text>
-
-          {/* Buttons */}
-          <View style={styles.buttonRow}>
-            {config.onCancel && (
-              <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
-                <Text style={styles.cancelButtonText}>{config.cancelText || 'Cancel'}</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={[
-                styles.confirmButton,
-                !config.onCancel && { flex: 1 },
-                config.type === 'error' && { backgroundColor: '#dc2626' },
-              ]}
-              onPress={handleConfirm}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.confirmButtonText}>{config.confirmText || 'OK'}</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </TouchableOpacity>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 };
 
-const createStyles = (theme: any) =>
-  StyleSheet.create({
-    overlay: {
-      flex: 1,
-      backgroundColor: 'rgba(15, 23, 42, 0.75)',
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: 24,
-    },
-    card: {
-      width: '100%',
-      maxWidth: 380,
-      backgroundColor: '#0f172a',
-      borderRadius: 24,
-      padding: 24,
-      alignItems: 'center',
-      borderWidth: 1.5,
-      borderColor: '#c9a227',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 10 },
-      shadowOpacity: 0.4,
-      shadowRadius: 20,
-      elevation: 10,
-    },
-    iconContainer: {
-      width: 68,
-      height: 68,
-      borderRadius: 34,
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginBottom: 16,
-    },
-    title: {
-      fontSize: 20,
-      fontWeight: '800',
-      color: '#ffffff',
-      textAlign: 'center',
-      marginBottom: 8,
-      letterSpacing: 0.3,
-    },
-    message: {
-      fontSize: 14,
-      color: '#cbd5e1',
-      textAlign: 'center',
-      lineHeight: 20,
-      marginBottom: 24,
-    },
-    buttonRow: {
-      flexDirection: 'row',
-      gap: 12,
-      width: '100%',
-    },
-    cancelButton: {
-      flex: 1,
-      paddingVertical: 14,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: '#334155',
-      backgroundColor: '#1e293b',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    cancelButtonText: {
-      color: '#cbd5e1',
-      fontSize: 15,
-      fontWeight: '600',
-    },
-    confirmButton: {
-      flex: 1,
-      paddingVertical: 14,
-      borderRadius: 14,
-      backgroundColor: '#c9a227',
-      alignItems: 'center',
-      justifyContent: 'center',
-      shadowColor: '#c9a227',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.3,
-      shadowRadius: 6,
-      elevation: 4,
-    },
-    confirmButtonText: {
-      color: '#0f172a',
-      fontSize: 15,
-      fontWeight: '800',
-    },
-  });
+const styles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(16, 24, 40, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  stop: { width: '100%', alignItems: 'center' },
+  card: { width: '100%', maxWidth: 380, borderWidth: 1 },
+  iconWrap: { width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
+  actions: { flexDirection: 'row', width: '100%' },
+});
