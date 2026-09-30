@@ -1,13 +1,31 @@
-// UC39 mobile — Donation collection scan. Reuses CameraView + donation QR chain.
+// UC39 mobile — Donation collection scan. Layer 10: token-based UI with a
+// dedicated scan surface and explicit [Complete Collection]. The verification
+// call and offline queue payload are UNCHANGED; result states map only to what
+// verifyCollectionFromMobile actually returns.
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, useColorScheme, TextInput, Switch } from 'react-native';
+import { View, TouchableOpacity, TextInput, Switch } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, Camera } from 'expo-camera';
 import { verifyCollectionFromMobile } from '@/services/increment2-services';
-import { getTheme } from '@/constants/theme';
-import { CustomAlertModal, AlertConfig } from '@/components/CustomAlertModal';
-import { goBack } from '@/utils/navigation';
-import { useRouter } from 'expo-router';
+import { useAppTheme } from '@/design/use-app-theme';
+import { Screen, PageHeader, SectionHeader } from '@/components/ui/screen';
+import { Card } from '@/components/ui/surface';
+import { StatusPill } from '@/components/ui/status-pill';
+import { Button } from '@/components/ui/button';
+import { AppText } from '@/components/ui/text';
+
+type ResultState = 'verified' | 'invalid' | 'expired' | 'stale' | 'already_used' | 'offline';
+
+// Maps ONLY the messages verifyCollectionFromMobile returns to one of the
+// existing result states. No new states are invented.
+function classifyResult(message: string): ResultState {
+  const m = (message || '').toLowerCase();
+  if (/already collected|already used|already recorded/.test(m)) return 'already_used';
+  if (/expired/.test(m)) return 'expired';
+  if (/no longer current|another loading bay|not opened yet/.test(m)) return 'stale';
+  if (/invalid|seal integrity|signature|required|courier name/.test(m)) return 'invalid';
+  return 'invalid';
+}
 
 function hashStr(s: string): string {
   let h = 0;
@@ -16,10 +34,7 @@ function hashStr(s: string): string {
 }
 
 export default function DonationScanScreen() {
-  const router = useRouter();
-  const colorScheme = useColorScheme();
-  const theme = getTheme(colorScheme as any);
-  const styles = createStyles(theme);
+  const theme = useAppTheme();
 
   const [hasPermission, setHasPermission] = useState<null | boolean>(null);
   const [scanned, setScanned] = useState(false);
@@ -28,8 +43,7 @@ export default function DonationScanScreen() {
   const [signature, setSignature] = useState('');
   const [seal, setSeal] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [alertConfig, setAlertConfig] = useState<AlertConfig>({ visible: false, title: '', message: '' });
-  const showAlert = (config: Omit<AlertConfig, 'visible'>) => setAlertConfig({ ...config, visible: true });
+  const [result, setResult] = useState<{ state: ResultState; message: string } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -46,19 +60,20 @@ export default function DonationScanScreen() {
     if (scanned) return;
     setScanned(true);
     setQr(data);
+    setResult(null);
   };
 
   const verify = async () => {
-    if (!qr.trim()) { showAlert({ title: 'QR required', message: 'Scan or paste the collection pass.', type: 'error' }); return; }
-    if (!seal) { showAlert({ title: 'Seal check required', message: 'Confirm physical seal integrity before dispatch.', type: 'error' }); return; }
+    if (!qr.trim()) { setResult({ state: 'invalid', message: 'Scan or paste the collection pass first.' }); return; }
+    if (!seal) { setResult({ state: 'invalid', message: 'Confirm physical seal integrity before dispatch.' }); return; }
     setLoading(true);
+    setResult(null);
     // Offline-first: no connectivity → queue server-ready payload (no file URIs)
-    // with deterministic idempotency key; replay collapses on reconnect.
+    // with a deterministic idempotency key; replay collapses on reconnect.
     try {
       const NetInfo = (await import('@react-native-community/netinfo')).default;
       const net = await NetInfo.fetch();
       if (!net.isConnected) {
-        // Deterministic key: same QR re-queued offline collapses (no duplicates).
         let key = `scan_${hashStr(qr.trim())}`;
         try {
           const p = JSON.parse(qr.trim());
@@ -69,7 +84,7 @@ export default function DonationScanScreen() {
         await offlineQueue.enqueue('donation_collection', {
           qrPayload: qr.trim(), sealVerified: seal, courierName: courier, signature, idempotencyKey: key,
         });
-        showAlert({ title: 'Queued offline', message: 'No connection — verification will replay automatically on reconnect.', type: 'info' });
+        setResult({ state: 'offline', message: 'Queued 14:31 — will sync when connection returns.' });
         return;
       }
     } catch { /* fall through to live verify */ }
@@ -77,77 +92,80 @@ export default function DonationScanScreen() {
       const res = await verifyCollectionFromMobile({
         qrPayload: qr.trim(), sealVerified: seal, courierName: courier, signature,
       });
-      showAlert({
-        title: res.ok ? 'Dispatch complete' : 'Verification failed',
-        message: res.message,
-        type: res.ok ? 'success' : 'error',
-        onConfirm: () => { if (res.ok) { setQr(''); setScanned(false); } },
-      });
+      setResult({ state: res.ok ? 'verified' : classifyResult(res.message), message: res.message });
+      if (res.ok) { setQr(''); setScanned(false); setSignature(''); setSeal(false); }
     } catch (e: any) {
-      showAlert({ title: 'Verification failed', message: e?.message || 'Could not verify.', type: 'error' });
+      setResult({ state: 'invalid', message: e?.message || 'Could not verify the pass.' });
     } finally {
       setLoading(false);
     }
   };
 
+  const resultTone = result?.state === 'verified' ? 'success' : result?.state === 'offline' ? 'info' : 'error';
+
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => goBack(router, '/(kitchen)/dashboard')}><Ionicons name="arrow-back" size={24} color={theme.colors.text} /></TouchableOpacity>
-        <Text style={styles.title}>Donation Collection Scan</Text>
-      </View>
+    <Screen scroll>
+      <PageHeader title="Scan collection pass" subtitle="Verify a collection" showBack fallback="/(kitchen)/dashboard" />
+
       {hasPermission ? (
-        <View style={styles.scannerBox}>
-          <CameraView style={styles.scanner} facing="back" onBarcodeScanned={scanned ? undefined : handleScan} barcodeScannerSettings={{ barcodeTypes: ['qr'] }} />
-          {scanned && (
-            <TouchableOpacity style={styles.rescan} onPress={() => setScanned(false)}>
-              <Text style={styles.rescanText}>Tap to scan again</Text>
+        <View style={{ height: 260, borderRadius: theme.radius.lg, overflow: 'hidden', marginBottom: theme.space.md, backgroundColor: '#000' }}>
+          <CameraView style={{ flex: 1 }} facing="back" onBarcodeScanned={scanned ? undefined : handleScan} barcodeScannerSettings={{ barcodeTypes: ['qr'] }} />
+          {scanned ? (
+            <TouchableOpacity style={{ position: 'absolute', bottom: 12, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: theme.radius.sm }} onPress={() => { setScanned(false); setQr(''); setResult(null); }}>
+              <AppText variant="caption" color={theme.colors.textInverse}>Tap to scan again</AppText>
             </TouchableOpacity>
-          )}
+          ) : null}
         </View>
       ) : (
-        <View style={styles.deniedBox}>
+        <Card style={{ alignItems: 'center', gap: theme.space.sm, marginBottom: theme.space.md }}>
           <Ionicons name="camera-outline" size={28} color={theme.colors.textMuted} />
-          <Text style={styles.hint}>Camera unavailable — use manual entry below.</Text>
-          {hasPermission === false && (
-            <TouchableOpacity style={styles.settingsBtn} onPress={async () => { const Linking = await import('expo-linking'); Linking.openSettings(); }}>
-              <Text style={styles.settingsBtnText}>Open app settings</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+          <AppText variant="body" tone="secondary" align="center">Camera access is unavailable. You can still enter the pass manually.</AppText>
+          {hasPermission === false ? (
+            <Button label="Open settings" variant="secondary" fullWidth={false} onPress={async () => { const Linking = await import('expo-linking'); Linking.openSettings(); }} />
+          ) : null}
+        </Card>
       )}
-      <TextInput style={styles.input} value={qr} onChangeText={setQr} placeholder="Collection pass (manual entry)" placeholderTextColor={theme.colors.textMuted} multiline />
-      <TextInput style={styles.input} value={courier} onChangeText={setCourier} placeholder="Courier name *" placeholderTextColor={theme.colors.textMuted} />
-      <TextInput style={styles.input} value={signature} onChangeText={setSignature} placeholder="Courier signature (type full name) *" placeholderTextColor={theme.colors.textMuted} />
-      <View style={styles.row}>
-        <Text style={styles.label}>Seal integrity confirmed</Text>
-        <Switch value={seal} onValueChange={setSeal} />
+
+      <SectionHeader title="Pass & courier" />
+      <View style={{ gap: theme.space.sm }}>
+        <Card padding="md">
+          <TextInput
+            value={qr}
+            onChangeText={(v) => { setQr(v); setResult(null); }}
+            placeholder="Collection pass (scan or paste)"
+            placeholderTextColor={theme.colors.textMuted}
+            multiline
+            style={{ color: theme.colors.text, fontSize: theme.fontSize.body, minHeight: 48 }}
+          />
+        </Card>
+        <Card padding="md">
+          <TextInput value={courier} onChangeText={setCourier} placeholder="Courier name *" placeholderTextColor={theme.colors.textMuted} style={{ color: theme.colors.text, fontSize: theme.fontSize.body }} />
+        </Card>
+        <Card padding="md">
+          <TextInput value={signature} onChangeText={setSignature} placeholder="Courier signature (type full name) *" placeholderTextColor={theme.colors.textMuted} style={{ color: theme.colors.text, fontSize: theme.fontSize.body }} />
+        </Card>
+        <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space.md }}>
+          <AppText variant="body" style={{ flex: 1 }}>Seal integrity confirmed</AppText>
+          <Switch value={seal} onValueChange={setSeal} />
+        </Card>
       </View>
-      {loading ? <ActivityIndicator size="large" color={theme.colors.primary} /> : (
-        <TouchableOpacity style={styles.button} onPress={verify}>
-          <Text style={styles.buttonText}>Verify & complete dispatch</Text>
-        </TouchableOpacity>
-      )}
-      <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
-    </View>
+
+      {result ? (
+        <Card style={{ marginTop: theme.space.md, gap: theme.space.sm, borderColor: result.state === 'verified' ? theme.colors.success : result.state === 'offline' ? theme.colors.info : theme.colors.error }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.sm }}>
+            <StatusPill status={result.state} />
+            <AppText variant="bodyStrong" tone={resultTone as any}>{result.state === 'verified' ? 'Pass verified' : result.state === 'offline' ? 'Working offline' : 'Not verified'}</AppText>
+          </View>
+          <AppText variant="body" tone="secondary">{result.message}</AppText>
+          {result.state === 'verified' ? <AppText variant="caption" tone="muted">Dispatch complete. The donation batch is marked collected.</AppText> : null}
+        </Card>
+      ) : null}
+
+      <Button label="Complete Collection" icon="checkmark-done-outline" size="lg" onPress={verify} loading={loading} disabled={!qr.trim() || !seal} style={{ marginTop: theme.space.lg }} />
+      <AppText variant="micro" tone="muted" align="center" style={{ marginTop: theme.space.sm }}>
+        Completing a collection is final — it marks the batch collected and consumes the pass.
+      </AppText>
+      <View style={{ height: theme.space['4xl'] }} />
+    </Screen>
   );
 }
-
-const createStyles = (theme: any) => StyleSheet.create({
-  deniedBox: { alignItems: 'center', gap: 8, backgroundColor: theme.colors.surface, borderRadius: 12, padding: 20, marginBottom: 12, borderWidth: 1, borderColor: theme.colors.border },
-  settingsBtn: { marginTop: 4, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, backgroundColor: theme.colors.primary },
-  settingsBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  container: { flex: 1, backgroundColor: theme.colors.background, padding: 16 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  title: { fontSize: 20, fontWeight: '700', color: theme.colors.text },
-  scannerBox: { height: 260, borderRadius: 12, overflow: 'hidden', marginBottom: 12, backgroundColor: '#000' },
-  scanner: { flex: 1 },
-  rescan: { position: 'absolute', bottom: 12, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 8 },
-  rescanText: { color: '#fff' },
-  hint: { color: theme.colors.textMuted, marginBottom: 8 },
-  input: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, padding: 12, color: theme.colors.text, marginBottom: 10, backgroundColor: theme.colors.surface },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  label: { color: theme.colors.text },
-  button: { backgroundColor: theme.colors.primary, padding: 14, borderRadius: 10, alignItems: 'center' },
-  buttonText: { color: '#fff', fontWeight: '700' },
-});
