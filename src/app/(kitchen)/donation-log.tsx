@@ -2,7 +2,7 @@
 // (What is it? / How much? / Safety / Photo & AI / Review). AI output is
 // advisory only and never blocks manual entry. logDonationFromMobile payload
 // unchanged (preparedAt/expiryAt ISO, safetyChecklist, photoUri).
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, TouchableOpacity, Switch, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -10,6 +10,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { auth } from '@/services/firebase-services';
 import { logDonationFromMobile, listenDonationBatches, listenNpoPartners } from '@/services/increment2-services';
 import { analyzeFoodImage, GeminiFoodResult, isGeminiConfigured, GEMINI_UNAVAILABLE_MESSAGE } from '@/services/gemini-food';
+import { geminiToDonationForm, mergeSuggestionIntoForm } from '@/utils/gemini-fill';
 import type { DonationBatch, NpoPartner, SafetyChecklist } from '@/types/increment2';
 import { usePermissions } from '@/context/PermissionsContext';
 import { useAppTheme } from '@/design/use-app-theme';
@@ -58,6 +59,14 @@ export default function DonationLogScreen() {
   const [gemini, setGemini] = useState<GeminiFoodResult | null>(null);
   const [geminiBusy, setGeminiBusy] = useState(false);
   const [geminiError, setGeminiError] = useState('');
+  // Fields the user has edited (AI must never overwrite these) and the fields
+  // the current AI suggestion actually filled (for the "AI suggestion" tag).
+  const [touched, setTouched] = useState<Set<string>>(new Set());
+  const [aiFields, setAiFields] = useState<Set<string>>(new Set());
+  // Monotonic request id: a late AI response is discarded after a retake or
+  // after leaving the screen.
+  const requestSeq = useRef(0);
+  const mounted = useRef(true);
   const [showExpiryPicker, setShowExpiryPicker] = useState(false);
   const [showPreparedPicker, setShowPreparedPicker] = useState(false);
   const [recent, setRecent] = useState<DonationBatch[]>([]);
@@ -84,32 +93,44 @@ export default function DonationLogScreen() {
 
   useEffect(() => listenNpoPartners(setNpos, undefined), []);
 
+  // Discard any in-flight AI response when the screen unmounts.
+  useEffect(() => () => { mounted.current = false; }, []);
+
+  const markTouched = (key: string) =>
+    setTouched((prev) => { const n = new Set(prev); n.add(key); return n; });
+
   const applyGeminiResult = (res: GeminiFoodResult) => {
     setGemini(res);
-    if (res.itemName) setItemName(res.itemName);
-    if (res.category) setMealCategory(res.category);
-    if (res.estimatedPortions) setPortions(String(res.estimatedPortions));
-    if (res.estimatedWeightKg) setWeight(String(res.estimatedWeightKg));
-    if (res.allergens?.length) setAllergens(res.allergens.join(', '));
-    if (res.expiryHoursFromNow) {
-      const exp = new Date(Date.now() + res.expiryHoursFromNow * 3600000);
-      setExpiryAt(isoLocal(exp));
-    }
+    const suggestion = geminiToDonationForm(res);
+    const current = { itemName, mealCategory, portions, weight, allergens, expiryAt };
+    const { next, applied } = mergeSuggestionIntoForm(current, suggestion, touched);
+    if (applied.includes('itemName')) setItemName(next.itemName);
+    if (applied.includes('mealCategory')) setMealCategory(next.mealCategory);
+    if (applied.includes('portions')) setPortions(next.portions);
+    if (applied.includes('weight')) setWeight(next.weight);
+    if (applied.includes('allergens')) setAllergens(next.allergens);
+    if (applied.includes('expiryAt')) setExpiryAt(next.expiryAt);
+    setAiFields(new Set(applied));
   };
 
   const runGeminiAnalysis = async (uri: string, base64?: string | null) => {
-    if (!uri || geminiBusy) return;
+    if (!uri) return;
+    const seq = ++requestSeq.current;
     setGemini(null);
     setGeminiError('');
     if (!isGeminiConfigured()) { setGeminiError(GEMINI_UNAVAILABLE_MESSAGE); return; }
     setGeminiBusy(true);
     try {
       const res = await analyzeFoodImage(uri, base64 ? { base64 } : undefined);
+      if (seq !== requestSeq.current || !mounted.current) return; // late response discarded
       if (res) applyGeminiResult(res);
       else setGeminiError(GEMINI_UNAVAILABLE_MESSAGE);
     } catch (e: any) {
+      if (seq !== requestSeq.current || !mounted.current) return;
       setGeminiError(e?.message || GEMINI_UNAVAILABLE_MESSAGE);
-    } finally { setGeminiBusy(false); }
+    } finally {
+      if (seq === requestSeq.current && mounted.current) setGeminiBusy(false);
+    }
   };
 
   const pickImage = async (camera: boolean) => {
@@ -128,9 +149,11 @@ export default function DonationLogScreen() {
       : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, ...opts });
     if (!result.canceled && result.assets?.[0]?.uri) {
       const asset = result.assets[0];
+      requestSeq.current++; // invalidate any in-flight analysis from the previous photo
       setPhotoUri(asset.uri);
       setPhotoBase64(asset.base64 || null);
       setGemini(null);
+      setAiFields(new Set());
       setGeminiError(isGeminiConfigured() ? '' : GEMINI_UNAVAILABLE_MESSAGE);
       if (isGeminiConfigured()) await runGeminiAnalysis(asset.uri, asset.base64 || null);
     }
@@ -282,18 +305,18 @@ export default function DonationLogScreen() {
       {/* WHAT IS IT? */}
       <SectionHeader title="What is it?" />
       <View style={{ gap: theme.space.sm }}>
-        <Field label="Food item *" value={itemName} onChangeText={setItemName} placeholder="e.g. Cooked chicken curry" />
-        <Field label="Meal category *" value={mealCategory} onChangeText={setMealCategory} placeholder="Cooked meals" />
+        <Field label="Food item *" value={itemName} onChangeText={(v) => { markTouched('itemName'); setItemName(v); }} placeholder="e.g. Cooked chicken curry" hint={aiFields.has('itemName') ? <AiTag /> : undefined} />
+        <Field label="Meal category *" value={mealCategory} onChangeText={(v) => { markTouched('mealCategory'); setMealCategory(v); }} placeholder="Cooked meals" hint={aiFields.has('mealCategory') ? <AiTag /> : undefined} />
       </View>
 
       {/* HOW MUCH? */}
       <SectionHeader title="How much?" />
       <View style={{ gap: theme.space.sm }}>
         <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
-          <View style={{ flex: 1 }}><Field label="Portions *" value={portions} onChangeText={setPortions} keyboardType="numeric" placeholder="10" /></View>
-          <View style={{ flex: 1 }}><Field label="Weight kg *" value={weight} onChangeText={setWeight} keyboardType="numeric" placeholder="5" /></View>
+          <View style={{ flex: 1 }}><Field label="Portions *" value={portions} onChangeText={(v) => { markTouched('portions'); setPortions(v); }} keyboardType="numeric" placeholder="10" hint={aiFields.has('portions') ? <AiTag /> : undefined} /></View>
+          <View style={{ flex: 1 }}><Field label="Weight kg *" value={weight} onChangeText={(v) => { markTouched('weight'); setWeight(v); }} keyboardType="numeric" placeholder="5" hint={aiFields.has('weight') ? <AiTag /> : undefined} /></View>
         </View>
-        <Field label="Allergens (comma-separated)" value={allergens} onChangeText={setAllergens} placeholder="e.g. dairy, nuts" />
+        <Field label="Allergens (comma-separated)" value={allergens} onChangeText={(v) => { markTouched('allergens'); setAllergens(v); }} placeholder="e.g. dairy, nuts" hint={aiFields.has('allergens') ? <AiTag /> : undefined} />
       </View>
 
       {/* SAFETY */}
@@ -307,13 +330,16 @@ export default function DonationLogScreen() {
         </TouchableOpacity>
         <TouchableOpacity style={{ flex: 1 }} onPress={() => setShowExpiryPicker(true)}>
           <Card padding="md" style={{ alignItems: 'center' }}>
-            <AppText variant="micro" tone="muted">USE BY</AppText>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <AppText variant="micro" tone="muted">USE BY</AppText>
+              {aiFields.has('expiryAt') ? <AiTag /> : null}
+            </View>
             <AppText variant="bodyStrong">{expiryAt ? new Date(expiryAt).toLocaleString('en-ZA', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Pick'}</AppText>
           </Card>
         </TouchableOpacity>
       </View>
       {showPreparedPicker ? <DateTimePicker value={preparedAt ? new Date(preparedAt) : new Date()} mode="datetime" display="default" onChange={(_, d) => { setShowPreparedPicker(false); if (d) setPreparedAt(isoLocal(d)); }} /> : null}
-      {showExpiryPicker ? <DateTimePicker value={expiryAt ? new Date(expiryAt) : new Date(Date.now() + 24 * 3600000)} mode="datetime" display="default" onChange={(_, d) => { setShowExpiryPicker(false); if (d) setExpiryAt(isoLocal(d)); }} /> : null}
+      {showExpiryPicker ? <DateTimePicker value={expiryAt ? new Date(expiryAt) : new Date(Date.now() + 24 * 3600000)} mode="datetime" display="default" onChange={(_, d) => { setShowExpiryPicker(false); if (d) { markTouched('expiryAt'); setExpiryAt(isoLocal(d)); } }} /> : null}
 
       <Card padding="none" style={{ paddingHorizontal: theme.space.lg }}>
         {CHECKS.map((c, i) => (
@@ -402,4 +428,9 @@ export default function DonationLogScreen() {
       <CustomAlertModal config={alertConfig} onClose={() => setAlertConfig((p) => ({ ...p, visible: false }))} />
     </Screen>
   );
+}
+
+// Small tag shown next to fields that were pre-filled by the AI (advisory only).
+function AiTag() {
+  return <AppText variant="micro" tone="primary" weight="600">AI suggestion</AppText>;
 }

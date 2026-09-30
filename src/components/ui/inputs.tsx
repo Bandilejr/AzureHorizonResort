@@ -56,15 +56,20 @@ export interface FieldProps {
   multiline?: boolean;
   keyboardType?: 'default' | 'numeric' | 'email-address' | 'phone-pad';
   style?: StyleProp<ViewStyle>;
+  /** Optional trailing element on the label row (e.g. an "AI suggestion" tag). */
+  hint?: React.ReactNode;
 }
 
-export function Field({ label, value, onChangeText, placeholder, multiline, keyboardType, style }: FieldProps) {
+export function Field({ label, value, onChangeText, placeholder, multiline, keyboardType, style, hint }: FieldProps) {
   const theme = useAppTheme();
   return (
     <View style={[{ gap: theme.space.xs }, style]}>
-      <AppText variant="label" tone="secondary" weight="600">
-        {label}
-      </AppText>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space.sm }}>
+        <AppText variant="label" tone="secondary" weight="600">
+          {label}
+        </AppText>
+        {hint}
+      </View>
       <TextInput
         value={value}
         onChangeText={onChangeText}

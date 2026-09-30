@@ -14,6 +14,7 @@
 
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Image } from 'react-native';
+import { GEMINI_FOOD_PROMPT } from '@/utils/gemini-prompt';
 
 // Newer Gemini models are recommended for new development. Default to the
 // current Flash-Lite (fast, cheap, reliable); override with EXPO_PUBLIC_GEMINI_MODEL
@@ -53,20 +54,6 @@ export interface GeminiFoodResult {
   confidence: number | null;
   notes: string;
 }
-
-const PROMPT = `You are a food-rescue intake assistant for a hotel kitchen donating surplus food to charities.
-Analyse the food-safety photo and return ONLY a JSON object with these fields:
-{
-  "itemName": string,            // short human name, e.g. "Cooked chicken curry"
-  "category": string,            // one of: Cooked meals, Fresh produce, Bakery, Dairy, Packaged goods, Beverages, Other
-  "estimatedPortions": number|null,
-  "estimatedWeightKg": number|null,
-  "expiryHoursFromNow": number|null, // best estimate of hours until unsafe
-  "allergens": string[],         // visible or likely allergens, e.g. ["nuts","dairy"]
-  "confidence": number,          // 0..1 how sure you are overall
-  "notes": string                // one short sentence for the kitchen staff
-}
-Be conservative: if quantity is unclear return null and lower confidence. Never invent allergens that are not visible or strongly implied.`;
 
 export function isGeminiConfigured(): boolean {
   return !!GEMINI_API_KEY;
@@ -129,7 +116,7 @@ async function callGeminiRest(base64: string, mimeType: string): Promise<GeminiF
   // (e.g. Flash-Lite). Omitting it keeps this model-agnostic across the
   // EXPO_PUBLIC_GEMINI_MODEL setting.
   const body = {
-    contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
+    contents: [{ parts: [{ text: GEMINI_FOOD_PROMPT }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
     generationConfig: { temperature: 0.2, responseMimeType: 'application/json' },
   };
   const controller = new AbortController();
