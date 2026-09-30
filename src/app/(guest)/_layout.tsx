@@ -66,7 +66,6 @@ export default function GuestLayout() {
       <Tabs.Screen name="event-catering" options={{ href: null }} />
       <Tabs.Screen name="event-feedback" options={{ href: null }} />
       <Tabs.Screen name="event-invitations" options={{ href: null }} />
-      <Tabs.Screen name="explore" options={{ href: null }} />
       <Tabs.Screen name="live-complaint" options={{ href: null }} />
       <Tabs.Screen name="leave-review" options={{ href: null }} />
       <Tabs.Screen name="my-orders" options={{ href: null }} />
