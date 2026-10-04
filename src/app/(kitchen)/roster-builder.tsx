@@ -6,7 +6,7 @@ import { View, TouchableOpacity } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { listenAllAvailability, listenLeaveRequests, listenShiftRosters, saveRosterMobile, publishRosterMobile } from '@/services/increment2-services';
-import { todayISO, addDaysISO, parseISOLocal } from '@/utils/dates';
+import { todayISO, addDaysISO, parseISOLocal, weekStartISO } from '@/utils/dates';
 import { dateToStored, timeToStored, storedDateToDate, storedTimeToDate } from '@/utils/datetime-input';
 import { usePermissions } from '@/context/PermissionsContext';
 import type { RosterShift, ShiftRoster, StaffAvailability, LeaveRequest } from '@/types/increment2';
@@ -226,8 +226,8 @@ export default function KitchenRosterBuilderScreen() {
             <Field label="Required skill (optional)" value={draft.skill} onChangeText={(v) => setDraft((p) => ({ ...p, skill: v }))} placeholder="e.g. Food safety" />
           </View>
 
-          {picker === 'week' ? <DateTimePicker value={storedDateToDate(weekStart)} mode="date" display="default" onChange={(_, d) => { setPicker(null); if (d) setWeekStart(dateToStored(d)); }} /> : null}
-          {picker === 'date' ? <DateTimePicker value={storedDateToDate(draft.date)} mode="date" display="default" onChange={(_, d) => { setPicker(null); if (d) setDraft((p) => ({ ...p, date: dateToStored(d) })); }} /> : null}
+          {picker === 'week' ? <DateTimePicker value={storedDateToDate(weekStart)} minimumDate={parseISOLocal(weekStartISO())} mode="date" display="default" onChange={(_, d) => { setPicker(null); if (d) setWeekStart(dateToStored(d)); }} /> : null}
+          {picker === 'date' ? <DateTimePicker value={storedDateToDate(draft.date)} minimumDate={parseISOLocal(todayISO())} mode="date" display="default" onChange={(_, d) => { setPicker(null); if (d) setDraft((p) => ({ ...p, date: dateToStored(d) })); }} /> : null}
           {picker === 'start' ? <DateTimePicker value={storedTimeToDate(draft.startTime)} mode="time" is24Hour display="default" onChange={(_, d) => { setPicker(null); if (d) setDraft((p) => ({ ...p, startTime: timeToStored(d) })); }} /> : null}
           {picker === 'end' ? <DateTimePicker value={storedTimeToDate(draft.endTime)} mode="time" is24Hour display="default" onChange={(_, d) => { setPicker(null); if (d) setDraft((p) => ({ ...p, endTime: timeToStored(d) })); }} /> : null}
 

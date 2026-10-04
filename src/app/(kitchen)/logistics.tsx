@@ -160,6 +160,7 @@ export default function KitchenLogisticsScreen() {
             {picker === 'date' ? (
               <DateTimePicker
                 value={storedDateToDate(form.date)}
+                minimumDate={parseISOLocal(todayISO())}
                 mode="date" display="default"
                 onChange={(_, d) => { setPicker(null); if (d) setForm((p) => ({ ...p, date: dateToStored(d) })); }}
               />

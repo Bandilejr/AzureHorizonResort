@@ -9,6 +9,7 @@ import { listenOpenShifts, createOpenShiftMobile } from '@/services/increment2-s
 import type { OpenShift } from '@/types/increment2';
 import { useAppTheme } from '@/design/use-app-theme';
 import { dateToStored, timeToStored, storedDateToDate, storedTimeToDate } from '@/utils/datetime-input';
+import { todayISO, parseISOLocal } from '@/utils/dates';
 import { Screen, PageHeader, SectionHeader } from '@/components/ui/screen';
 import { Card } from '@/components/ui/surface';
 import { ListRow } from '@/components/ui/list-row';
@@ -111,7 +112,7 @@ export default function KitchenOpenShiftsScreen() {
             </View>
           </View>
 
-          {picker === 'date' ? <DateTimePicker value={storedDateToDate(form.date)} mode="date" display="default" onChange={(_, d) => { setPicker(null); if (d) setForm((p) => ({ ...p, date: dateToStored(d) })); }} /> : null}
+          {picker === 'date' ? <DateTimePicker value={storedDateToDate(form.date)} minimumDate={parseISOLocal(todayISO())} mode="date" display="default" onChange={(_, d) => { setPicker(null); if (d) setForm((p) => ({ ...p, date: dateToStored(d) })); }} /> : null}
           {picker === 'start' ? <DateTimePicker value={storedTimeToDate(form.startTime)} mode="time" is24Hour display="default" onChange={(_, d) => { setPicker(null); if (d) setForm((p) => ({ ...p, startTime: timeToStored(d) })); }} /> : null}
           {picker === 'end' ? <DateTimePicker value={storedTimeToDate(form.endTime)} mode="time" is24Hour display="default" onChange={(_, d) => { setPicker(null); if (d) setForm((p) => ({ ...p, endTime: timeToStored(d) })); }} /> : null}
 

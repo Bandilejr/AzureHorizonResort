@@ -12,7 +12,7 @@ import { logDonationFromMobile, listenDonationBatches, listenNpoPartners } from 
 import { analyzeFoodImage, GeminiFoodResult, isGeminiConfigured, GEMINI_UNAVAILABLE_MESSAGE } from '@/services/gemini-food';
 import { geminiToDonationForm, mergeSuggestionIntoForm } from '@/utils/gemini-fill';
 import type { DonationBatch, NpoPartner, SafetyChecklist } from '@/types/increment2';
-import { parseLocalDateTime, isValidDate, localDateTimeISO, pickerDate, formatLocalDateTime } from '@/utils/dates';
+import { parseLocalDateTime, isValidDate, localDateISO, localDateTimeISO, pickerDate, formatLocalDateTime, todayISO } from '@/utils/dates';
 import { usePermissions } from '@/context/PermissionsContext';
 import { useAppTheme } from '@/design/use-app-theme';
 import { formatStatus } from '@/utils/status-labels';
@@ -412,7 +412,9 @@ export default function DonationLogScreen() {
           value={pickerValue}
           mode={picker.step === 'date' ? 'date' : 'time'}
           display="default"
-          {...(picker.step === 'time' ? { is24Hour: true } : {})}
+          {...(picker.step === 'time'
+            ? { is24Hour: true }
+            : { minimumDate: parseLocalDateTime(`${picker.field === 'expiryAt' && preparedAt ? localDateISO(new Date(preparedAt)) : todayISO()}T00:00`) })}
           onChange={onPickerChange}
         />
       ) : null}

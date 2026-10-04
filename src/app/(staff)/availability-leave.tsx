@@ -18,7 +18,7 @@ import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states';
 import { AppText } from '@/components/ui/text';
 import { CustomAlertModal, type AlertConfig } from '@/components/CustomAlertModal';
 import { LiveErrorBanner } from '@/components/detail-kit';
-import { todayISO, localDateISO, parseISOLocal } from '@/utils/dates';
+import { todayISO, localDateISO, parseISOLocal, weekStartISO } from '@/utils/dates';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const LEAVE_TYPES = [
@@ -132,7 +132,7 @@ export default function AvailabilityLeaveScreen() {
             </Card>
           </TouchableOpacity>
           {showWeekPicker ? (
-            <DateTimePicker value={weekStart ? parseISOLocal(weekStart) : new Date()} mode="date" display="default" onChange={(_, d) => { setShowWeekPicker(false); if (d) setWeekStart(localDateISO(d)); }} />
+            <DateTimePicker value={weekStart ? parseISOLocal(weekStart) : new Date()} minimumDate={parseISOLocal(weekStartISO())} mode="date" display="default" onChange={(_, d) => { setShowWeekPicker(false); if (d) setWeekStart(localDateISO(d)); }} />
           ) : null}
 
           <View style={{ flexDirection: 'row', gap: 6, marginTop: theme.space.md, flexWrap: 'wrap' }}>
@@ -229,8 +229,8 @@ export default function AvailabilityLeaveScreen() {
               <AppText variant="body" tone={leaveEnd ? 'default' : 'muted'}>{leaveEnd || 'End date'}</AppText>
             </TouchableOpacity>
           </View>
-          {showLeaveStart ? <DateTimePicker value={leaveStart ? parseISOLocal(leaveStart) : new Date()} mode="date" display="default" onChange={(_, d) => { setShowLeaveStart(false); if (d) setLeaveStart(localDateISO(d)); }} /> : null}
-          {showLeaveEnd ? <DateTimePicker value={leaveEnd ? parseISOLocal(leaveEnd) : new Date()} mode="date" display="default" onChange={(_, d) => { setShowLeaveEnd(false); if (d) setLeaveEnd(localDateISO(d)); }} /> : null}
+          {showLeaveStart ? <DateTimePicker value={leaveStart ? parseISOLocal(leaveStart) : new Date()} minimumDate={parseISOLocal(todayISO())} mode="date" display="default" onChange={(_, d) => { setShowLeaveStart(false); if (d) setLeaveStart(localDateISO(d)); }} /> : null}
+          {showLeaveEnd ? <DateTimePicker value={leaveEnd ? parseISOLocal(leaveEnd) : new Date()} minimumDate={leaveStart ? parseISOLocal(leaveStart) : parseISOLocal(todayISO())} mode="date" display="default" onChange={(_, d) => { setShowLeaveEnd(false); if (d) setLeaveEnd(localDateISO(d)); }} /> : null}
           {leaveStart && leaveEnd ? (() => {
             const s = parseISOLocal(leaveStart), e = parseISOLocal(leaveEnd);
             const days = Math.max(0, Math.round((e.getTime() - s.getTime()) / 86400000) + 1);

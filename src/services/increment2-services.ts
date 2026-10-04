@@ -20,6 +20,38 @@ import type {
 
 const nowIso = () => new Date().toISOString();
 
+// ---------- Phase 1 (§26): forward-looking records can never carry past dates.
+// The UI disables past dates; these guards make the service the authority so a
+// stale picker value or a crafted call cannot create a historical "future" record.
+// Calendar dates are YYYY-MM-DD in local (Africa/Johannesburg) time — a lexical
+// compare against todayISO() is therefore correct (no UTC shift).
+function mondayISO(d: Date = new Date()): string {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const shift = (x.getDay() + 6) % 7; // Mon=0 .. Sun=6
+  x.setDate(x.getDate() - shift);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())}`;
+}
+
+function assertNotPast(dateISO: string, label: string): void {
+  if (!dateISO) return;
+  if (dateISO < todayISO()) throw new Error(`${label} cannot be in the past.`);
+}
+
+function assertCurrentOrFutureWeek(weekStart: string, label: string): void {
+  if (!weekStart) return;
+  if (weekStart < mondayISO()) throw new Error(`${label} cannot be in a past week.`);
+}
+
+function assertNotPastInstant(iso: string, label: string): void {
+  if (!iso) return;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) throw new Error(`${label} is not a valid date.`);
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  if (t < startOfToday.getTime()) throw new Error(`${label} cannot be in the past.`);
+}
+
 function requireAuth() {
   const user = auth.currentUser;
   if (!user?.email) throw new Error('You must be signed in to perform this action.');
@@ -299,6 +331,7 @@ export async function logDonationFromMobile(input: {
     throw new Error('Valid preparation and expiry dates are required.');
   if (new Date(input.expiryAt).getTime() <= new Date(input.preparedAt).getTime())
     throw new Error('Expiry must be after preparation time.');
+  assertNotPastInstant(input.preparedAt, 'Preparation date');
   // Reuse existing pipeline: Storage upload, never a raw file:// in Firestore.
   const photoUrl = await uploadImage(input.photoUri, 'donation-safety');
   const batchId = `DON-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
@@ -455,6 +488,7 @@ export async function submitAvailabilityMobile(input: {
 }): Promise<string> {
   const user = requireAuth();
   if (!input.weekStart) throw new Error('Week start is required.');
+  assertCurrentOrFutureWeek(input.weekStart, 'Availability week');
   for (const a of input.availability || []) {
     if (a.startTime && a.endTime && a.startTime >= a.endTime)
       throw new Error(`Invalid hours for ${a.day}: start must be before end.`);
@@ -512,6 +546,7 @@ export async function submitLeaveMobile(input: {
     throw new Error('Valid leave start and end dates are required.');
   if (new Date(input.endDate).getTime() < new Date(input.startDate).getTime())
     throw new Error('Leave end date must be on or after start date.');
+  assertNotPast(input.startDate, 'Leave start date');
   const days = Math.round((new Date(input.endDate).getTime() - new Date(input.startDate).getTime()) / 86400000) + 1;
   if (days > 30) throw new Error('Leave request exceeds the 30-day single-request limit.');
   // Overlap guard: no second live request covering the same dates.
@@ -1015,6 +1050,10 @@ export async function scheduleDonationCollectionMobile(args: {
   if (new Date(args.windowEnd).getTime() <= new Date(args.windowStart).getTime())
     throw new Error('Window end must be after window start.');
   if (!args.loadingBay.trim()) throw new Error('Loading bay is required.');
+  assertNotPast(args.pickupDate, 'Pickup date');
+  const windowEndMs = new Date(args.windowEnd).getTime();
+  if (Number.isFinite(windowEndMs) && windowEndMs <= Date.now())
+    throw new Error('The pickup window has already passed.');
   const ref = doc(db, 'donation_batches', args.batchDocId);
   // Pre-read for QR payload fields; the transaction below re-validates status
   // (concurrent schedulers both produce valid scheduled states; last QR wins).
@@ -1140,6 +1179,7 @@ export async function saveRosterMobile(input: {
   await requireManager('save rosters');
   if (!input.weekStart) throw new Error('Week start is required.');
   if (!input.department.trim()) throw new Error('Department is required.');
+  assertCurrentOrFutureWeek(input.weekStart, 'Roster week');
   const seen = new Set<string>();
   for (const s of input.shifts) {
     if (!s.shiftId || seen.has(s.shiftId)) throw new Error('Every shift needs a unique shift ID.');
@@ -1224,6 +1264,7 @@ export async function createOpenShiftMobile(input: {
   await requireManager('publish open shifts');
   if (!input.department.trim() || !input.date || !input.role.trim())
     throw new Error('Department, date and role are required.');
+  assertNotPast(input.date, 'Open shift date');
   const toM = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); };
   const hrs = (toM(input.endTime) - toM(input.startTime)) / 60;
   if (!(hrs > 0)) throw new Error('Shift end must be after start.');
