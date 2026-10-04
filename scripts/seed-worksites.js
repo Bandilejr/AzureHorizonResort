@@ -1,6 +1,9 @@
 /**
- * Seed worksite + attendance_config (idempotent). Safe to re-run.
+ * Seed the three DUT campus worksites + attendance settings (idempotent).
  *   node scripts/seed-worksites.js
+ *
+ * Coordinates/radii: smallest OSM circle containing each campus' buildings
+ * (+25 m pad) — see CAMPUSES in scripts/seed-demo-data.js for the source ways.
  */
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
@@ -16,21 +19,29 @@ if (!fs.existsSync(KEY)) {
 const app = initializeApp({ credential: cert(require(KEY)) });
 const db = getFirestore(app);
 
+const CAMPUSES = [
+  { id: 'dut_ml_sultan', name: 'DUT ML Sultan Campus', lat: -29.8496752, lng: 31.0094640, radiusM: 205, address: 'M.L. Sultan Road, Durban, 4001' },
+  { id: 'dut_ritson', name: 'DUT Ritson Campus', lat: -29.8510602, lng: 31.0078848, radiusM: 200, address: 'Steve Biko Road, Musgrave, Durban, 4083' },
+  { id: 'dut_steve_biko', name: 'DUT Steve Biko Campus', lat: -29.8536620, lng: 31.0064374, radiusM: 355, address: 'Chris Ntuli Road, Berea, Durban, 4083' },
+];
+
 async function main() {
-  await db.collection('worksites').doc('dut_ritson').set({
-    id: 'dut_ritson',
-    name: 'DUT Ritson Campus',
-    lat: -29.8606,
-    lng: 30.9803,
-    radiusM: 400,
-    address: 'Steve Biko Rd, Durban, 4001',
-    timezone: 'Africa/Johannesburg',
-    maxAccuracyM: 100,
-    maxFixAgeMs: 60000,
-    active: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  }, { merge: true });
+  const now = new Date().toISOString();
+  for (const c of CAMPUSES) {
+    await db.collection('worksites').doc(c.id).set({
+      id: c.id,
+      name: c.name,
+      lat: c.lat,
+      lng: c.lng,
+      radiusM: c.radiusM,
+      address: c.address,
+      timezone: 'Africa/Johannesburg',
+      maxAccuracyM: 100,
+      maxFixAgeMs: 60000,
+      active: true,
+      updatedAt: now,
+    }, { merge: true });
+  }
 
   await db.collection('settings').doc('attendance_config').set({
     timezone: 'Africa/Johannesburg',
@@ -39,10 +50,21 @@ async function main() {
     autoCloseGraceMinutes: 120,
     maxAccuracyM: 100,
     maxFixAgeMs: 60000,
-    updatedAt: new Date().toISOString(),
+    updatedAt: now,
   }, { merge: true });
 
-  console.log('Seeded worksites/dut_ritson and settings/attendance_config');
+  // Single-fence fallback — only read when a punch carries no worksiteId.
+  const primary = CAMPUSES.find((c) => c.id === 'dut_ritson');
+  await db.collection('settings').doc('attendance_geofence').set({
+    lat: primary.lat,
+    lng: primary.lng,
+    radiusM: primary.radiusM,
+    label: `${primary.name}, ${primary.address}`,
+    updatedAt: now,
+  }, { merge: true });
+
+  console.log('Seeded worksites:', CAMPUSES.map((c) => c.id).join(', '));
+  console.log('Seeded settings/attendance_config and settings/attendance_geofence');
 }
 
 main().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });

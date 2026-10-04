@@ -558,7 +558,9 @@ export const processRefund = async (args: {
 
 // --- STAFF ATTENDANCE PUNCH (UC29) ---
 
-const DEFAULT_GEOFENCE = { lat: -29.8606, lng: 30.9803, radiusM: 400 }; // DUT Ritson Campus, Steve Biko Rd, Durban
+// Fallback only (used when a punch carries neither a geofence nor a worksiteId).
+// Points at the default DUT Ritson Campus perimeter — never stale coordinates.
+const DEFAULT_GEOFENCE = { lat: -29.8510602, lng: 31.0078848, radiusM: 200 };
 
 export const recordAttendancePunch = async (args: {
   punchType: "in" | "out";

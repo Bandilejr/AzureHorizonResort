@@ -23,9 +23,10 @@ import {
   autoCloseOverdueSessions,
 } from '@/services/attendance-sessions';
 import { ensureDeviceEnrollment, requestDeviceReset } from '@/services/device';
-import { getDefaultWorksite, getAttendanceConfig, evaluateGeofence } from '@/services/worksites';
+import { listActiveWorksites, getAttendanceConfig, evaluateGeofence } from '@/services/worksites';
+import { mergeWorkforceProfile } from '@/services/identity';
 import { DEFAULT_ATTENDANCE_CONFIG, type AttendanceSession, type Worksite, type AttendanceConfig } from '@/types/workforce';
-import { WorksiteMap } from '@/components/WorksiteMap';
+import { WorksiteMap, shortCampusName } from '@/components/WorksiteMap';
 import { AppText } from '@/components/ui/text';
 import { Card } from '@/components/ui/surface';
 import { Button } from '@/components/ui/button';
@@ -36,7 +37,7 @@ type BlockKind = 'offsite' | 'stale' | 'inaccurate' | 'unavailable' | 'denied' |
 interface Block { kind: BlockKind; message: string }
 
 const BLOCK_TITLE: Record<BlockKind, string> = {
-  offsite: 'You are off site',
+  offsite: 'Outside all campuses',
   stale: 'Location is stale',
   inaccurate: 'GPS is inaccurate',
   unavailable: 'Location unavailable',
@@ -48,7 +49,7 @@ const BLOCK_TITLE: Record<BlockKind, string> = {
 
 function nextStepFor(kind: BlockKind, config: AttendanceConfig | null): string {
   switch (kind) {
-    case 'offsite': return 'Move within the worksite area and try again.';
+    case 'offsite': return 'Move inside one of the campus perimeters and try again.';
     case 'stale': return 'Wait a moment and refresh your location.';
     case 'inaccurate': return 'Move to open sky, then try again.';
     case 'unavailable': return 'Enable GPS and try again.';
@@ -95,13 +96,14 @@ export default function ClockInPanel() {
 
   const [punches, setPunches] = useState<PunchRecord[]>([]);
   const [session, setSession] = useState<AttendanceSession | null>(null);
-  const [worksite, setWorksite] = useState<Worksite | null>(null);
+  const [worksites, setWorksites] = useState<Worksite[]>([]);
   const [config, setConfig] = useState<AttendanceConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [booting, setBooting] = useState(true);
   const [myDistance, setMyDistance] = useState<number | null>(null);
   const [myFix, setMyFix] = useState<PositionFix | null>(null);
   const [myFixAt, setMyFixAt] = useState<number | null>(null);
+  const [locating, setLocating] = useState(false);
   const [deviceNote, setDeviceNote] = useState('');
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [blocked, setBlocked] = useState<Block | null>(null);
@@ -113,7 +115,10 @@ export default function ClockInPanel() {
   const identityName = profile?.displayName || user?.displayName || 'Staff Member';
   const employeeId = profile?.employeeId || '—';
 
-  const loadLocation = useCallback(async (ws: Worksite) => {
+  // `list` is passed explicitly so the first fix after boot can already
+  // measure against every campus (state has not committed yet at that point).
+  const loadLocation = useCallback(async (list: Worksite[]) => {
+    setLocating(true);
     try {
       // Ask for permission at most once per session; later refreshes rely on the
       // already-granted permission (or surface the denied state).
@@ -126,25 +131,31 @@ export default function ClockInPanel() {
       const pos = await getCurrentPosition();
       setMyFix(pos);
       setMyFixAt(Date.now());
-      setMyDistance(haversineMeters(pos.lat, pos.lng, ws.lat, ws.lng));
+      let nearest = Infinity;
+      for (const w of list) {
+        nearest = Math.min(nearest, haversineMeters(pos.lat, pos.lng, w.lat, w.lng));
+      }
+      setMyDistance(Number.isFinite(nearest) ? nearest : null);
     } catch (e: any) {
       setMyFix(null);
       setMyFixAt(null);
       setMyDistance(null);
       const m = String(e?.message || '');
       if (/permission|denied|not granted/i.test(m)) setBlocked({ kind: 'denied', message: 'Location permission is off.' });
+    } finally {
+      setLocating(false);
     }
   }, []);
 
   const bootstrap = useCallback(async () => {
     setBooting(true);
     try {
-      const [ws, cfg, sess] = await Promise.all([
-        getDefaultWorksite(),
+      const [wsList, cfg, sess] = await Promise.all([
+        listActiveWorksites(),
         getAttendanceConfig(),
         getTodaysSession().catch(() => null),
       ]);
-      setWorksite(ws);
+      setWorksites(wsList);
       setConfig(cfg);
       setSession(sess);
       autoCloseOverdueSessions().catch(() => {});
@@ -154,7 +165,7 @@ export default function ClockInPanel() {
       } catch (e: any) {
         setDeviceNote(e?.message || 'Device not authorized.');
       }
-      if (ws) await loadLocation(ws);
+      if (wsList.length) await loadLocation(wsList);
     } catch (e: any) {
       showAlert({ title: 'Attendance unavailable', message: e?.message || 'Could not load attendance data.', type: 'error' });
     } finally {
@@ -185,14 +196,23 @@ export default function ClockInPanel() {
 
   const elapsedMs = clockedIn && session?.clockInAt ? nowMs - new Date(session.clockInAt).getTime() : 0;
 
-  const geofenceResult = useMemo(() => {
-    if (!worksite || !myFix || myFixAt == null) return null;
-    return evaluateGeofence(
-      { lat: worksite.lat, lng: worksite.lng, radiusM: worksite.radiusM },
-      { lat: myFix.lat, lng: myFix.lng, accuracyM: myFix.accuracyM, ageMs: Date.now() - myFixAt },
-      config || DEFAULT_ATTENDANCE_CONFIG,
-    );
-  }, [worksite, myFix, myFixAt, config]);
+  // Every active campus is checked with the same authoritative 4-check
+  // geofence. Inside any perimeter => that campus is the active one.
+  const campusResults = useMemo(() => {
+    if (!worksites.length || !myFix || myFixAt == null) return [];
+    const fixArg = { lat: myFix.lat, lng: myFix.lng, accuracyM: myFix.accuracyM, ageMs: Date.now() - myFixAt };
+    const limits = config || DEFAULT_ATTENDANCE_CONFIG;
+    return worksites.map((w) => ({ w, res: evaluateGeofence(w, fixArg, limits) }));
+  }, [worksites, myFix, myFixAt, config]);
+
+  const activeMatch = campusResults.find((c) => c.res.ok) ?? null;
+
+  const nearestCampus = useMemo(() => {
+    if (!campusResults.length) return null;
+    return campusResults.reduce((a, b) => (b.res.distanceM < a.res.distanceM ? b : a));
+  }, [campusResults]);
+
+  const geofenceResult = activeMatch?.res ?? nearestCampus?.res ?? null;
 
   const deviceUnauthorized = /not authorized|reset|different device/i.test(deviceNote);
 
@@ -206,7 +226,7 @@ export default function ClockInPanel() {
         : !geofenceResult.accuracyOk
           ? { status: 'pending', label: 'GPS inaccurate' }
           : !geofenceResult.withinRadius
-            ? { status: 'outside_geofence', label: 'Off site' }
+            ? { status: 'outside_geofence', label: 'Outside campuses' }
             : geofenceResult.ok
               ? { status: 'verified', label: 'On site' }
               : { status: 'pending', label: 'Location unclear' };
@@ -220,17 +240,21 @@ export default function ClockInPanel() {
         : geofenceResult && !geofenceResult.accuracyOk
           ? { kind: 'inaccurate', message: geofenceResult.blockedReason || 'GPS accuracy is too low.' }
           : geofenceResult && !geofenceResult.withinRadius
-            ? { kind: 'offsite', message: geofenceResult.blockedReason || 'You are off site.' }
+            ? {
+                kind: 'offsite',
+                message: nearestCampus
+                  ? `You are ${Math.round(nearestCampus.res.distanceM)}m from ${nearestCampus.w.name} (max ${nearestCampus.w.radiusM}m). Clock-in is only allowed inside the campus perimeters.`
+                  : geofenceResult.blockedReason || 'You are off site.',
+              }
             : null
     : null;
 
   const activeBlock = clockedIn ? null : (blocked ?? proactive);
 
   const refreshLocation = useCallback(async () => {
-    if (!worksite) return;
     setBlocked(null);
-    await loadLocation(worksite);
-  }, [worksite, loadLocation]);
+    await loadLocation(worksites);
+  }, [worksites, loadLocation]);
 
   const doPunch = async (type: 'in' | 'out') => {
     if (busy) return;
@@ -239,12 +263,19 @@ export default function ClockInPanel() {
     setBlocked(null);
     try {
       if (type === 'in') {
+        // attendance-sessions validates the punch against the campus assigned to
+        // the account, so point that assignment at the campus whose perimeter the
+        // fix is inside. Same field the punch itself writes on success; the
+        // distance check still runs against that campus afterwards.
+        if (activeMatch && profile?.worksiteId !== activeMatch.w.id) {
+          await mergeWorkforceProfile({ worksiteId: activeMatch.w.id }).catch(() => {});
+        }
         const res = await clockIn();
         setSession(res.session);
         setMyDistance(res.distanceM);
         showAlert({
           title: 'Clocked In',
-          message: `You're clocking in as ${identityName} (${employeeId}).\nDistance: ${formatDistance(res.distanceM)} from ${worksite?.name || 'worksite'}.`,
+          message: `You're clocking in as ${identityName} (${employeeId}).\nDistance: ${formatDistance(res.distanceM)} from ${activeMatch?.w.name || 'the campus'}.`,
           type: 'success',
         });
       } else {
@@ -323,9 +354,19 @@ export default function ClockInPanel() {
       </Card>
 
       <Card style={{ gap: theme.space.sm }}>
-        <AppText variant="bodyStrong">{worksite?.name || 'Worksite not configured'}</AppText>
+        <AppText variant="bodyStrong">
+          {activeMatch
+            ? `${activeMatch.w.name} — inside perimeter`
+            : worksites.length
+              ? `${worksites.length} campus perimeters`
+              : 'Worksite not configured'}
+        </AppText>
         <AppText variant="caption" tone="secondary">
-          {worksite ? `Geofence ${worksite.radiusM}m • ${config?.timezone || 'Africa/Johannesburg'}` : 'Contact your administrator to assign a worksite.'}
+          {worksites.length
+            ? `Clock-in allowed inside: ${worksites
+                .map((w) => `${shortCampusName(w.name)} ${w.radiusM}m`)
+                .join(' · ')} • ${config?.timezone || 'Africa/Johannesburg'}`
+            : 'Contact your administrator to assign a worksite.'}
         </AppText>
         <AppText variant="caption" tone="secondary">
           Clock window: {config?.clockInBeforeMinutes ?? 15}m before → {config?.clockInAfterMinutes ?? 30}m after shift start
@@ -349,12 +390,14 @@ export default function ClockInPanel() {
         </Card>
       ) : null}
 
-      {worksite ? (
+      {worksites.length ? (
         <WorksiteMap
-          worksite={{ name: worksite.name, lat: worksite.lat, lng: worksite.lng, radiusM: worksite.radiusM }}
+          worksites={worksites.map((w) => ({ id: w.id, name: w.name, lat: w.lat, lng: w.lng, radiusM: w.radiusM }))}
+          activeWorksiteId={activeMatch?.w.id ?? null}
           fix={myFix ? { lat: myFix.lat, lng: myFix.lng, accuracyM: myFix.accuracyM, ageMs: myFixAt != null ? Date.now() - myFixAt : 0 } : null}
           result={geofenceResult}
           fixAgeMs={myFixAt != null ? Date.now() - myFixAt : undefined}
+          locating={locating}
         />
       ) : null}
 

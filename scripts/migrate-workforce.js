@@ -78,16 +78,24 @@ async function run() {
     if (APPLY) writes.push(doc.ref.set(updates, { merge: true }));
   }
 
-  const wsRef = db.collection('worksites').doc(DEFAULT_WORKSITE);
-  const ws = await wsRef.get();
-  if (!ws.exists) {
+  // Campus perimeters (fallback creation only — never overwrites existing docs).
+  // Radii hug each campus' OSM buildings, not the surrounding roads.
+  const CAMPUS_FALLBACKS = [
+    { id: 'dut_ml_sultan', name: 'DUT ML Sultan Campus', lat: -29.8496752, lng: 31.0094640, radiusM: 205, address: 'M.L. Sultan Road, Durban, 4001' },
+    { id: 'dut_ritson', name: 'DUT Ritson Campus', lat: -29.8510602, lng: 31.0078848, radiusM: 200, address: 'Steve Biko Road, Musgrave, Durban, 4083' },
+    { id: 'dut_steve_biko', name: 'DUT Steve Biko Campus', lat: -29.8536620, lng: 31.0064374, radiusM: 355, address: 'Chris Ntuli Road, Berea, Durban, 4083' },
+  ];
+  for (const c of CAMPUS_FALLBACKS) {
+    const wsRef = db.collection('worksites').doc(c.id);
+    const ws = await wsRef.get();
+    if (ws.exists) continue;
     const wsData = {
-      id: DEFAULT_WORKSITE,
-      name: 'DUT Ritson Campus',
-      lat: -29.8606,
-      lng: 30.9803,
-      radiusM: 400,
-      address: 'Steve Biko Rd, Durban, 4001',
+      id: c.id,
+      name: c.name,
+      lat: c.lat,
+      lng: c.lng,
+      radiusM: c.radiusM,
+      address: c.address,
       timezone: 'Africa/Johannesburg',
       maxAccuracyM: 100,
       maxFixAgeMs: 60000,
@@ -95,7 +103,7 @@ async function run() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    console.log(APPLY ? '[write]' : '[plan]', 'worksites/' + DEFAULT_WORKSITE, wsData);
+    console.log(APPLY ? '[write]' : '[plan]', 'worksites/' + c.id, wsData);
     if (APPLY) writes.push(wsRef.set(wsData));
     planned++;
   }
