@@ -37,6 +37,16 @@ const LABELS: Record<string, string> = {
   normal: 'Normal',
   urgent: 'Urgent',
   critical: 'Critical',
+  // Activity journal actions
+  npo_under_review: 'NPO moved to review',
+  npo_approved: 'NPO approved',
+  npo_rejected: 'NPO rejected',
+  donation_certified: 'Donation certified',
+  donation_allocated: 'Donation allocated',
+  donation_claimed: 'Donation claimed',
+  collection_completed: 'Collection completed',
+  impact_report_generated: 'Impact report generated',
+  exported: 'Exported',
 };
 
 export function formatStatus(status: string | null | undefined): string {

@@ -12,6 +12,8 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { signQrPayload, verifyQrSignature } from './qr-signing';
+import { writeAuditEntry } from './audit-services';
+import { AUDIT_ACTIONS } from '@/types/index';
 import type {
   NpoPartner, NpoVerificationStatus, DonationBatch, DonationStatus, SafetyChecklist,
   DonationCheckin, StaffAvailability, LeaveRequest, ShiftRoster, RosterShift,
@@ -222,6 +224,15 @@ export async function markNpoUnderReview(npoDocId: string): Promise<void> {
       lastDecision: { performedBy: user.uid, performedAt: nowIso(), action: 'npo_under_review', reason: null },
     });
   });
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.npoUnderReview,
+    entity: 'npo_partners',
+    entityId: npoDocId,
+    beforeStatus: 'pending',
+    afterStatus: 'under_review',
+    summary: 'NPO application moved to under review',
+    actorRole: me.role,
+  });
 }
 
 export async function reviewNpoApplication(args: {
@@ -233,12 +244,15 @@ export async function reviewNpoApplication(args: {
   if (!args.approve && !args.reason?.trim()) throw new Error('A rejection reason is required.');
   const reviewerUid = args.reviewerUid || user.uid;
   const ref = doc(db, 'npo_partners', args.npoDocId);
+  // Captured so the journal records the transition, not just the end state.
+  let priorStatus: NpoVerificationStatus | null = null;
   await runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists()) throw new Error('NPO application not found.');
     const data = snap.data() as Record<string, any>;
     const st = data.verificationStatus as NpoVerificationStatus;
     if (st === 'approved' || st === 'rejected') throw new Error('This application has already been reviewed.');
+    priorStatus = st;
     tx.update(ref, {
       verificationStatus: args.approve ? 'approved' : 'rejected',
       rejectionReason: args.approve ? null : args.reason,
@@ -252,6 +266,18 @@ export async function reviewNpoApplication(args: {
         reason: args.reason || null,
       },
     });
+  });
+  await writeAuditEntry({
+    action: args.approve ? AUDIT_ACTIONS.npoApproved : AUDIT_ACTIONS.npoRejected,
+    entity: 'npo_partners',
+    entityId: args.npoDocId,
+    beforeStatus: priorStatus,
+    afterStatus: args.approve ? 'approved' : 'rejected',
+    summary: args.approve
+      ? 'NPO application approved and partner activated'
+      : `NPO application rejected: ${args.reason || 'no reason recorded'}`,
+    metadata: { reason: args.reason || null },
+    actorRole: me.role,
   });
   // Notify NPO contact outside the transaction (best-effort, never fails the decision)
   try {
@@ -355,6 +381,22 @@ export async function logDonationBatch(input: {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   });
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.donationCertified,
+    entity: 'donation_batches',
+    entityId: ref.id,
+    beforeStatus: null,
+    afterStatus: 'safety_verified_unassigned',
+    summary: `Batch ${batchId} certified — ${input.portionCount} portions, ${input.estimatedWeightKg} kg of ${input.itemName.trim()}`,
+    metadata: {
+      batchId,
+      itemName: input.itemName.trim(),
+      portionCount: input.portionCount,
+      estimatedWeightKg: input.estimatedWeightKg,
+      allergens: input.allergens || [],
+      expiryAt: input.expiryAt,
+    },
+  });
   return { docId: ref.id, batchId };
 }
 
@@ -395,7 +437,7 @@ export async function allocateDonationBatch(args: {
   batchDocId: string; npoId: string; allocatorUid?: string;
 }) {
   const user = requireAuth();
-  await requireFoodManager('allocate donations');
+  const me = await requireFoodManager('allocate donations');
   // NPO must exist and be approved (previously client-display only).
   const npoSnap = await getDocs(query(collection(db, 'npo_partners'),
     where('npoId', '==', args.npoId), limit(1)));
@@ -421,6 +463,16 @@ export async function allocateDonationBatch(args: {
       });
     });
   } catch (e) { friendlyTxError(e, 'Allocation failed. The batch may have just been allocated.'); }
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.donationAllocated,
+    entity: 'donation_batches',
+    entityId: args.batchDocId,
+    beforeStatus: 'safety_verified_unassigned',
+    afterStatus: 'allocated_awaiting_claim',
+    summary: `Batch allocated to ${args.npoId} — awaiting claim`,
+    metadata: { npoId: args.npoId },
+    actorRole: me.role,
+  });
   try {
     const snap = await getDoc(ref);
     const data = snap.data() as Record<string, any> | undefined;
@@ -470,6 +522,16 @@ export async function claimDonationBatch(args: {
       });
     });
   } catch (e) { friendlyTxError(e, 'Claim failed. The allocation may have just been claimed.'); }
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.donationClaimed,
+    entity: 'donation_batches',
+    entityId: args.batchDocId,
+    beforeStatus: 'allocated_awaiting_claim',
+    afterStatus: 'claimed_ready_for_scheduling',
+    summary: `Allocation claimed by ${npoId} for ${args.receivingFacility.trim()}`,
+    metadata: { npoId, receivingFacility: args.receivingFacility.trim() },
+    actorRole: me.role,
+  });
   try {
     await notifyManagers({
       type: 'donation_claimed', title: 'Donation claimed by NPO',
@@ -501,7 +563,7 @@ export async function scheduleDonationCollection(args: {
   loadingBay: string; courierName?: string; schedulerUid?: string;
 }): Promise<string> {
   const user = requireAuth();
-  await requireFoodManager('schedule collections');
+  const me = await requireFoodManager('schedule collections');
   if (!args.windowStart || !args.windowEnd) throw new Error('Pickup window is required.');
   if (new Date(args.windowEnd).getTime() <= new Date(args.windowStart).getTime())
     throw new Error('Window end must be after window start.');
@@ -548,6 +610,22 @@ export async function scheduleDonationCollection(args: {
       updatedAt: nowIso(),
       lastDecision: { performedBy: user.uid, performedAt: nowIso(), action: 'collection_scheduled', reason: args.loadingBay },
     });
+  });
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.collectionScheduled,
+    entity: 'donation_batches',
+    entityId: args.batchDocId,
+    beforeStatus: preData.status,
+    afterStatus: 'collection_scheduled',
+    summary: `Collection scheduled ${args.windowStart} → ${args.windowEnd} at ${args.loadingBay.trim()}`,
+    metadata: {
+      batchId: String(preData.batchId),
+      pickupDate: args.pickupDate,
+      loadingBay: args.loadingBay.trim(),
+      courierName: args.courierName || null,
+      nonce: payload.nonce,
+    },
+    actorRole: me.role,
   });
   try {
     const done = await getDoc(ref);
@@ -639,6 +717,25 @@ export async function verifyCollectionQR(args: {
     });
     const snap = await getDoc(ref);
     const batch = { id: snap.id, ...(snap.data() as object) } as DonationBatch;
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.collectionCompleted,
+      entity: 'donation_batches',
+      entityId: String(batchDocId),
+      beforeStatus: 'collection_scheduled',
+      afterStatus: 'collected_completed',
+      summary: `Collection verified and dispatched via ${String(loadingBay)} — seal confirmed, signed by ${args.courierName.trim()}`,
+      metadata: {
+        batchId: String(batch.batchId),
+        npoId: String(snap.data()?.allocatedNpoId || npoId || ''),
+        courierName: args.courierName.trim(),
+        courierId: args.courierId || null,
+        loadingBay: String(loadingBay),
+        sealVerified: true,
+        signature: args.signature,
+        wasOffline: !!args.offline,
+        idempotencyKey: `${String(batchDocId)}:${String(nonce)}`,
+      },
+    });
     // Notify the claiming NPO user (best-effort; never fails the collection).
     try {
       const allocatedNpoId = String((snap.data() as Record<string, unknown> | undefined)?.allocatedNpoId || '');

@@ -19,15 +19,16 @@ import { DamageClaimResolutionPage } from '@/components/admin/DamageClaimResolut
 import { NpoVerificationQueue } from '@/components/admin/NpoVerificationQueue';
 import { ImpactReportView } from '@/components/admin/ImpactReportView';
 import { AttendanceLedger } from '@/components/admin/AttendanceLedger';
+import { AuditTrailView } from '@/components/admin/AuditTrailView';
 import { StaffQRTools } from '@/pages/StaffQRTools';
 
 import { 
   TrendingUp, Users, Hotel, DollarSign, AlertCircle, BarChart3,
   Download, Star, Building2, Loader2, Compass, UserCheck,
-  LayoutDashboard, Sparkles, MessageSquare, Gavel, ScanLine, Leaf, ClipboardCheck
+  LayoutDashboard, Sparkles, MessageSquare, Gavel, ScanLine, Leaf, ClipboardCheck, ScrollText
 } from 'lucide-react';
 
-type AdminTab = 'overview' | 'tour-management' | 'tour-checkin' | 'reviews' | 'refunds' | 'damage-claims' | 'qr-tools' | 'npo-verification' | 'impact' | 'attendance';
+type AdminTab = 'overview' | 'tour-management' | 'tour-checkin' | 'reviews' | 'refunds' | 'damage-claims' | 'qr-tools' | 'npo-verification' | 'impact' | 'attendance' | 'audit-trail';
 
 const ADMIN_TABS: { id: AdminTab; label: string; icon: React.ElementType }[] = [
   { id: 'overview',         label: 'Executive Overview',  icon: LayoutDashboard },
@@ -40,6 +41,7 @@ const ADMIN_TABS: { id: AdminTab; label: string; icon: React.ElementType }[] = [
   { id: 'npo-verification', label: 'NPO Verification',    icon: Building2 },
   { id: 'impact',           label: 'Impact Reports',      icon: Leaf },
   { id: 'attendance',       label: 'Attendance',          icon: ClipboardCheck },
+  { id: 'audit-trail',      label: 'Activity Trail',      icon: ScrollText },
 ];
 
 export function AdminDashboard() {
@@ -444,6 +446,7 @@ export function AdminDashboard() {
         {activeTab === 'npo-verification' && <NpoVerificationQueue />}
         {activeTab === 'impact' && <ImpactReportView />}
         {activeTab === 'attendance' && <AttendanceLedger />}
+        {activeTab === 'audit-trail' && <AuditTrailView />}
         
       </div>
 

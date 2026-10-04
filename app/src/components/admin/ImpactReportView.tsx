@@ -10,6 +10,8 @@ import {
   listenDonationBatches, listenDonationCheckins, computeImpactReport,
 } from '@/services/increment2-services';
 import { generatePDFFromHTML, getProfessionalPDFHTML } from '@/utils/pdfGenerator';
+import { writeAuditEntry } from '@/services/audit-services';
+import { AUDIT_ACTIONS } from '@/types/index';
 import { IMPACT_MEALS_PER_KG, IMPACT_CARBON_KG_PER_KG } from '@/types/increment2';
 import type { DonationBatch, DonationCheckin, ImpactReport } from '@/types/increment2';
 
@@ -52,6 +54,24 @@ export function ImpactReportView() {
         footer: 'Section 18A: donations to approved PBOs may qualify for tax certificates — confirm NPO PBO numbers with finance before issuing certificates. Metrics are estimates.',
       });
       await generatePDFFromHTML(html, `Impact_Report_${report.periodStart}_${report.periodEnd}.pdf`);
+      await writeAuditEntry({
+        action: AUDIT_ACTIONS.impactReportGenerated,
+        entity: 'impact_reports',
+        entityId: `${report.periodStart}_${report.periodEnd}`,
+        beforeStatus: null,
+        afterStatus: 'exported',
+        summary: `Impact report exported for ${report.periodStart} → ${report.periodEnd}`,
+        metadata: {
+          periodStart: report.periodStart,
+          periodEnd: report.periodEnd,
+          totalDonatedKg: report.totalDonatedKg,
+          totalCollectedKg: report.totalCollectedKg,
+          mealsDiverted: report.mealsDiverted,
+          carbonOffsetKg: report.carbonOffsetKg,
+          npoCount: report.npoCount,
+          batchCount: report.batchCount,
+        },
+      });
     } finally {
       setBusy(false);
     }

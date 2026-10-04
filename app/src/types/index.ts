@@ -270,3 +270,50 @@ export interface LoyaltyLogEntry {
   reason: string;
   createdAt: string;
 }
+
+/** Canonical action names for the append-only activity journal. */
+export const AUDIT_ACTIONS = {
+  npoUnderReview: 'npo_under_review',
+  npoApproved: 'npo_approved',
+  npoRejected: 'npo_rejected',
+  donationCertified: 'donation_certified',
+  donationAllocated: 'donation_allocated',
+  donationClaimed: 'donation_claimed',
+  collectionScheduled: 'collection_scheduled',
+  collectionCompleted: 'collection_completed',
+  impactReportGenerated: 'impact_report_generated',
+} as const;
+
+export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
+
+export interface AuditEntry {
+  id: string;
+  actorId: string | null;
+  actorEmail: string | null;
+  actorRole: string | null;
+  action: string;
+  /** Collection the change landed in, e.g. "npo_partners". */
+  entity: string;
+  entityId: string | null;
+  beforeStatus: string | null;
+  afterStatus: string | null;
+  /** Pre-rendered, human-readable line shown in the trail UI. */
+  summary: string;
+  metadata: Record<string, unknown> | null;
+  /** Server clock. Authoritative ordering. */
+  occurredAt: unknown;
+  /** Client clock at write time. Covered by the hash chain. */
+  clientAt: string;
+  /** Hash of the preceding entry; null for the first entry or a failed lookup. */
+  prevHash: string | null;
+  /** SHA-256 over prevHash + the canonical entry body. */
+  hash: string | null;
+}
+
+export interface AuditChainResult {
+  ok: boolean;
+  checked: number;
+  /** Index of the first entry that failed verification, if any. */
+  brokenAt: number | null;
+  reason: string | null;
+}
