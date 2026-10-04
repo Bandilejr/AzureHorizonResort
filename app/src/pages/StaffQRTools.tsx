@@ -237,7 +237,7 @@ export function StaffQRTools({ onBack }: { onBack?: () => void }) {
     { id: 'member', label: 'Member QR', icon: QrCode },
     { id: 'voucher', label: 'Voucher Redemption', icon: Ticket },
     { id: 'attendee', label: 'Attendee Check-In', icon: UserCheck },
-    { id: 'donation', label: 'Donation Collection (UC39)', icon: Truck },
+    { id: 'donation', label: 'Donation Collection', icon: Truck },
   ];
 
   return (
@@ -402,9 +402,9 @@ export function StaffQRTools({ onBack }: { onBack?: () => void }) {
           )}
 
           <div className="text-xs text-gray-400 flex flex-wrap gap-2 pt-1">
-            <Badge variant="outline" className="text-[10px] font-mono">UC21 · Loyalty Member QR (60s, signed)</Badge>
-            <Badge variant="outline" className="text-[10px] font-mono">UC22 · Voucher (held-points model)</Badge>
-            <Badge variant="outline" className="text-[10px] font-mono">UC27 · Invitation check-in</Badge>
+            <Badge variant="outline" className="text-[10px] font-mono">Loyalty Member QR (60s, signed)</Badge>
+            <Badge variant="outline" className="text-[10px] font-mono">Voucher (held-points model)</Badge>
+            <Badge variant="outline" className="text-[10px] font-mono">Invitation check-in</Badge>
           </div>
         </CardContent>
       </Card>

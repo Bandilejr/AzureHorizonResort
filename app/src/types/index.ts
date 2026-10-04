@@ -153,7 +153,7 @@ export interface IncidentalCharge {
 }
 
 // ==========================================
-// TOUR TYPES (UC14, UC15, UC17)
+// TOUR TYPES
 // ==========================================
 
 export interface TourScheduleSlot {

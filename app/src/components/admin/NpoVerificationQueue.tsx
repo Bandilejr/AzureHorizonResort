@@ -1,4 +1,4 @@
-// UC34 — NPO Verification Queue (admin). Reuses refund-review table/modal pattern.
+// NPO Verification Queue (admin). Reuses refund-review table/modal pattern.
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

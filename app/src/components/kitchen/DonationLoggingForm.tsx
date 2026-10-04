@@ -1,4 +1,4 @@
-// UC35 — Donation Logging Form (kitchen staff). 4-check + photo gate, DON- batch id.
+// Donation Logging Form (kitchen staff). 4-check + photo gate, DON- batch id.
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

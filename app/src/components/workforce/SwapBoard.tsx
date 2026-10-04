@@ -1,4 +1,4 @@
-// UC43 — Shift Swap: request → peer accept → manager approve (atomic both-assignment update).
+// Shift Swap: request → peer accept → manager approve (atomic both-assignment update).
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

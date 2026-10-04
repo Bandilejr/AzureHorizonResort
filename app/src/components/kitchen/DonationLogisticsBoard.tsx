@@ -1,4 +1,4 @@
-// UC38 — Donation Logistics Board: pickup window + bay + courier → signed QR pass.
+// Donation Logistics Board: pickup window + bay + courier → signed QR pass.
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

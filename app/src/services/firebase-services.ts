@@ -670,7 +670,7 @@ export const checkInGuest = async (bookingId: string, roomNumber: string, guestE
 };
 
 // ==========================================
-// TOUR SERVICES (UC14, UC15, UC17)
+// TOUR SERVICES
 // ==========================================
 
 import type { Tour, TourBooking } from '@/types';
@@ -1299,7 +1299,7 @@ const sendVoucherEmail = (data: any) => {
 };
 
 /**
- * UC22 — Redeem loyalty reward using the SAME model as the mobile app:
+ * Redeem loyalty reward using the SAME model as the mobile app:
  * points are HELD (loyaltyPoints stays unchanged) until a staff member scans
  * the voucher QR, then the spend is finalized. Vouchers live in
  * `loyalty_vouchers` with mobile-compatible fields so a web-generated voucher
@@ -1420,7 +1420,7 @@ async function hmacDigest(payload: any): Promise<string> {
 }
 
 /**
- * UC22 — Rotating signed loyalty member QR (same payload as mobile's
+ * Rotating signed loyalty member QR (same payload as mobile's
  * generateLoyaltyQR). Staff scan it with the loyalty scanner; valid for 60s.
  */
 export async function generateLoyaltyQR(): Promise<{ qrPayload: any; rotateInterval: number }> {
@@ -1448,7 +1448,7 @@ export async function generateLoyaltyQR(): Promise<{ qrPayload: any; rotateInter
 }
 
 /**
- * UC22 — Validate a loyalty member QR (same logic as mobile's validateLoyaltyQR).
+ * Validate a loyalty member QR (same logic as mobile's validateLoyaltyQR).
  */
 export async function validateLoyaltyQR(args: { qrPayload: string }): Promise<{ valid: boolean; guest?: any; reason?: string; message?: string }> {
   let payload: any;
@@ -1498,7 +1498,7 @@ export async function validateLoyaltyQR(args: { qrPayload: string }): Promise<{ 
 }
 
 /**
- * UC25 — Generate a signed event invitation QR pass (same payload as mobile's
+ * Generate a signed event invitation QR pass (same payload as mobile's
  * generateInvitationQR). Creates an `event_invitations` doc and stores the
  * signed payload so any staff scanner (web or mobile) can validate it.
  */
@@ -1553,7 +1553,7 @@ export async function generateInvitationQR(args: {
 }
 
 /**
- * UC27 — Validate an attendee QR pass and check the attendee in
+ * Validate an attendee QR pass and check the attendee in
  * (same logic as mobile's validateAttendeeQR). Used by staff on web AND mobile.
  */
 export async function validateAttendeeQR(args: {
@@ -1632,7 +1632,7 @@ export async function validateAttendeeQR(args: {
 }
 
 /**
- * UC22 — Staff-side voucher redemption (same logic as mobile's
+ * Staff-side voucher redemption (same logic as mobile's
  * redeemVoucherByStaff). Looks up `loyalty_vouchers` by code, finalizes the
  * held-points deduction and marks the voucher redeemed.
  */

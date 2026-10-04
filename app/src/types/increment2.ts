@@ -1,4 +1,4 @@
-// src/types/increment2.ts — Increment 2 (UC34–UC45) shared domain types.
+// src/types/increment2.ts — Increment 2 shared domain types.
 // D-DRIVE ONLY. Centralized status enums — never scatter raw strings.
 // Food Rescue chain: safety_verified_unassigned → allocated_awaiting_claim →
 //   claimed_ready_for_scheduling → collection_scheduled → collected_completed
@@ -257,7 +257,7 @@ export interface AttendanceException {
   createdAt: string;
 }
 
-// UC40 calculation constants — labelled estimates, never magic numbers elsewhere.
+// Impact calculation constants — labelled estimates, never magic numbers elsewhere.
 export const IMPACT_MEALS_PER_KG = 2.5;
 export const IMPACT_CARBON_KG_PER_KG = 2.5;
 

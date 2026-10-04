@@ -1,4 +1,4 @@
-// UC36 — Donation Allocation Workspace (kitchen manager). Ranked NPO matching + tx allocate.
+// Donation Allocation Workspace (kitchen manager). Ranked NPO matching + tx allocate.
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

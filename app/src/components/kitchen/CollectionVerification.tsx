@@ -1,4 +1,4 @@
-// UC39 — Collection verification: courier QR → verify window/bay/status → seal + sign → dispatch.
+// Collection verification: courier QR → verify window/bay/status → seal + sign → dispatch.
 // Reuses StaffQRTools html5-qrcode scanner pattern + manual entry fallback.
 import { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';

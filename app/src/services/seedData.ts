@@ -80,7 +80,7 @@ export const seedDatabase = async (opts: { silent?: boolean } = {}) => {
       wipeCollection('live_complaints'),
       wipeCollection('event_feedback'),
       wipeCollection('invoices'),
-      // Increment 2 (UC34–UC45) demo data — wiped + reseeded daily like the rest.
+      // Increment 2 demo data — wiped + reseeded daily like the rest.
       wipeCollection('npo_partners'),
       wipeCollection('donation_batches'),
       wipeCollection('donation_checkins'),
@@ -511,7 +511,7 @@ export const seedDatabase = async (opts: { silent?: boolean } = {}) => {
       // EV-1004 (upcoming — Wine evening)
       { id: 'INV-1012', eventId: 'EV-1004', inviteeEmail: 'h.venter@example.com', inviteeName: 'Helena Venter', status: 'accepted' },
       { id: 'INV-1013', eventId: 'EV-1004', inviteeEmail: 'd.okafor@example.com', inviteeName: 'Dike Okafor', status: 'accepted' },
-      // EV-1001 (today — more checked-in attendees for UC27 demo)
+      // EV-1001 (today — more checked-in attendees for demo)
       { id: 'INV-1014', eventId: 'EV-1001', inviteeEmail: 's.hlambisa@example.com', inviteeName: 'Sifundo Hlambisa', status: 'checked_in', checkedInAt: isoFor(todayStr, '17:10') },
       { id: 'INV-1015', eventId: 'EV-1001', inviteeEmail: 'b.maqeda@example.com', inviteeName: 'Bandile Maqeda', status: 'checked_in', checkedInAt: isoFor(todayStr, '17:12') },
       { id: 'INV-1016', eventId: 'EV-1001', inviteeEmail: 'l.gwala@example.com', inviteeName: 'Lunga Bradley Gwala', status: 'checked_in', checkedInAt: isoFor(todayStr, '17:15') },
@@ -994,7 +994,7 @@ export const seedDatabase = async (opts: { silent?: boolean } = {}) => {
     console.log(`✅ Added ${demoComplaints.length} live complaints`);
 
     // ==========================================
-    // 18. EVENT FEEDBACK (UC32 — past event)
+    // 18. EVENT FEEDBACK (past event)
     // Mirrors mobile submitEventFeedback (+ its
     // mirrored 'reviews' entry so Leave Review shows it).
     // ==========================================
@@ -1018,7 +1018,7 @@ export const seedDatabase = async (opts: { silent?: boolean } = {}) => {
     });
 
     // ==========================================
-    // 19. INCREMENT 2 — NPO PARTNERS (UC34: 1 pending, 2 approved)
+    // 19. INCREMENT 2 — NPO PARTNERS (1 pending, 2 approved)
     // ==========================================
     const seedNpos = [
       {
@@ -1052,7 +1052,7 @@ export const seedDatabase = async (opts: { silent?: boolean } = {}) => {
     console.log(`✅ Added ${seedNpos.length} NPO partners`);
 
     // ==========================================
-    // 20. INCREMENT 2 — DONATION BATCHES (UC35–UC39: 8 across statuses)
+    // 20. INCREMENT 2 — DONATION BATCHES (8 across statuses)
     // ==========================================
     const fullChecks = { coreTemperatureVerified: true, packagingIntegrityVerified: true, allergenLabelsVerified: true, safePreparationWindowVerified: true };
     const mkBatch = (batchId: string, item: string, cat: string, portions: number, kg: number, allergens: string[], status: string, extra: Record<string, unknown> = {}) => ({
@@ -1100,7 +1100,7 @@ export const seedDatabase = async (opts: { silent?: boolean } = {}) => {
     console.log(`✅ Added 8 donation batches + 1 collection record`);
 
     // ==========================================
-    // 21. INCREMENT 2 — WORKFORCE (UC41–UC45)
+    // 21. INCREMENT 2 — WORKFORCE
     // ==========================================
     await addDoc(collection(db, 'staff_availability'), {
       staffId: 'sibusiso_khoza', staffName: 'Chef Sibusiso Khoza', weekStart: todayStr,

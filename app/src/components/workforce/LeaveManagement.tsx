@@ -1,4 +1,4 @@
-// UC41 — Staff availability + leave (submit) and manager approval queue.
+// Staff availability + leave (submit) and manager approval queue.
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

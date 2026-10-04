@@ -183,7 +183,7 @@ export function LoyaltyStore({ onBack }: LoyaltyStoreProps) {
     setTimeout(() => setCopiedCode(null), 2000);
   };
 
-  // Build the exact voucher QR payload used by the mobile app (UC22) so a web
+  // Build the exact voucher QR payload used by the mobile app so a web
   // voucher scans identically in the mobile staff loyalty scanner.
   const buildVoucherQRPayload = (v: RedemptionVoucher) => JSON.stringify({
     voucherCode: v.voucherCode,

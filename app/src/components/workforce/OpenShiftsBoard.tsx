@@ -1,4 +1,4 @@
-// UC44 — Open Shifts Board: manager publishes surge shifts; eligible staff claim (tx).
+// Open Shifts Board: manager publishes surge shifts; eligible staff claim (tx).
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

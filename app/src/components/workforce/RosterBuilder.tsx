@@ -1,4 +1,4 @@
-// UC42 — Shift Roster Builder: weekly roster + validation (overtime/rest/availability/leave/skill) + publish.
+// Shift Roster Builder: weekly roster + validation (overtime/rest/availability/leave/skill) + publish.
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

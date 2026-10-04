@@ -1,4 +1,4 @@
-// UC37 — NPO Portal: my allocations → review → accept terms → claim.
+// NPO Portal: my allocations → review → accept terms → claim.
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

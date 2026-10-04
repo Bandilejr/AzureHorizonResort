@@ -1,4 +1,4 @@
-// UC40 — Food Rescue & Social Impact Report. Reuses getProfessionalPDFHTML pipeline.
+// Food Rescue & Social Impact Report. Reuses getProfessionalPDFHTML pipeline.
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

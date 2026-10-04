@@ -1,4 +1,4 @@
-// UC45 + §18 — Attendance Ledger / Exceptions Board (managers).
+// Attendance Ledger / Exceptions Board (managers).
 // Punches stay on device + punch_records (geofence flags, never auto-rejects);
 // this board derives exceptions vs shift_rosters and records verified hours with audit.
 import { useEffect, useRef, useState } from 'react';

@@ -1,4 +1,4 @@
-// src/services/increment2-services.ts — Increment 2 (UC34–UC45) Firestore layer.
+// src/services/increment2-services.ts — Increment 2 Firestore layer.
 // D-DRIVE ONLY. Extends existing Firebase/onSnapshot/QR/transaction substrate.
 // Reuses: memory-cache db, notifications inbox pattern, hmac QR chain,
 // held-state transaction pattern, getProfessionalPDFHTML pipeline.
@@ -171,7 +171,7 @@ export function listenUserNotifications(userId: string, cb: (items: any) => void
   return onSnapshot(q, (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) })) as any));
 }
 
-// ---------- UC34 — NPO verification ----------
+// ---------- NPO verification ----------
 
 export async function createNpoApplication(input: {
   organisationName: string; registrationNumber: string; pboNumber?: string;
@@ -259,7 +259,7 @@ export async function reviewNpoApplication(args: {
     const data = snap.data() as Record<string, any> | undefined;
     const contactEmail = String(data?.email || '').toLowerCase().trim();
     if (args.approve && contactEmail) {
-      // UC34: provision/associate the npo_rep account so the portal login works.
+      // provision/associate the npo_rep account so the portal login works.
       const profile = {
         name: String(data?.contactName || data?.organisationName || 'NPO Partner'),
         email: contactEmail,
@@ -303,7 +303,7 @@ export async function reviewNpoApplication(args: {
   void args.reviewerName;
 }
 
-// ---------- UC35 — Donation logging ----------
+// ---------- Donation logging ----------
 
 export function makeBatchId(): string {
   return `DON-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
@@ -366,7 +366,7 @@ export function listenDonationBatches(cb: (items: DonationBatch[]) => void, stat
     cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as DonationBatch)));
 }
 
-// ---------- UC36 — Allocation (transactional, held-state pattern) ----------
+// ---------- Allocation (transactional, held-state pattern) ----------
 
 export interface NpoMatchScore { npo: NpoPartner; score: number; reasons: string[] }
 
@@ -436,7 +436,7 @@ export async function allocateDonationBatch(args: {
   void args.allocatorUid;
 }
 
-// ---------- UC37 — Claim (transactional) ----------
+// ---------- Claim (transactional) ----------
 
 export async function claimDonationBatch(args: {
   batchDocId: string; npoId?: string; claimerUid?: string; receivingFacility: string; acceptTerms: boolean;
@@ -482,7 +482,7 @@ export async function claimDonationBatch(args: {
   void args.claimerUid;
 }
 
-// ---------- UC38 — Scheduling + signed collection QR ----------
+// ---------- Scheduling + signed collection QR ----------
 
 export interface CollectionPayload {
   type: 'DONATION_COLLECTION';
@@ -565,7 +565,7 @@ export async function scheduleDonationCollection(args: {
   return qr;
 }
 
-// ---------- UC39 — Verify + complete collection (transactional, single-use QR) ----------
+// ---------- Verify + complete collection (transactional, single-use QR) ----------
 
 export interface CollectionVerifyResult {
   valid: boolean; message: string; reason?: string;
@@ -664,7 +664,7 @@ export function listenDonationCheckins(cb: (items: DonationCheckin[]) => void) {
     cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as DonationCheckin)));
 }
 
-// ---------- UC40 — Impact report ----------
+// ---------- Impact report ----------
 
 export function computeImpactReport(batches: DonationBatch[], checkins: DonationCheckin[], start: string, end: string): ImpactReport {
   const s = new Date(start).getTime();
@@ -699,7 +699,7 @@ export function computeImpactReport(batches: DonationBatch[], checkins: Donation
   };
 }
 
-// ---------- UC41 — Availability & leave ----------
+// ---------- Availability & leave ----------
 
 export async function submitAvailability(input: {
   staffId: string; staffName?: string; weekStart: string;
@@ -836,7 +836,7 @@ export async function reviewLeaveRequest(args: {
   void args.reviewerUid;
 }
 
-// ---------- UC42 — Roster builder + validation ----------
+// ---------- Roster builder + validation ----------
 
 const toMin = (t: string) => {
   const [h, m] = t.split(':').map(Number);
@@ -984,7 +984,7 @@ export function listenShiftRosters(cb: (items: ShiftRoster[]) => void, weekStart
     cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as ShiftRoster)));
 }
 
-// ---------- UC43 — Shift swap (transactional) ----------
+// ---------- Shift swap (transactional) ----------
 
 export async function requestShiftSwap(input: {
   requesterStaffId: string; requesterShiftId: string; targetStaffId: string;
@@ -1142,7 +1142,7 @@ export function listenShiftSwaps(cb: (items: ShiftSwap[]) => void, status?: Swap
     cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as ShiftSwap)));
 }
 
-// ---------- UC44 — Open shifts (transactional claim) ----------
+// ---------- Open shifts (transactional claim) ----------
 
 export async function createOpenShift(input: {
   department: string; date: string; startTime: string; endTime: string; role: string;
@@ -1304,7 +1304,7 @@ export async function claimOpenShift(args: { openShiftDocId: string; claimerUid?
   });
 }
 
-// ---------- UC45 + Ledger — roster-tied attendance exceptions ----------
+// --------- Ledger — roster-tied attendance exceptions ----------
 
 export function deriveAttendanceExceptions(args: {
   punches: Array<{ staffUid: string; staffName?: string; punchType: string; isoTime: string; withinRadius?: boolean; id: string }>;

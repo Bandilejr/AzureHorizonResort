@@ -179,7 +179,7 @@ export default function EventCateringWeb() {
     validateBooking();
   }, [bookingId]);
 
-  // Aligned with Use Case 24 Flow 4 & 5: Tracks headcount and dietary needs per package
+  // Aligned with Flow 4 & 5: Tracks headcount and dietary needs per package
   const [selectedItems, setSelectedItems] = useState<Record<string, SelectedItemState>>({});
   const [activeGalleryImages, setActiveGalleryImages] = useState<string[] | null>(null);
   const [activeInfoItem, setActiveInfoItem] = useState<CateringItem | null>(null);

@@ -395,7 +395,7 @@ export function KitchenDisplay() {
                 </button>
                 <button onClick={() => setView('rescue')}
                   className={`px-3 py-1 rounded-md text-xs font-semibold ${view === 'rescue' ? 'bg-white text-[#1e3a5f]' : 'text-white/70 hover:text-white'}`}>
-                  Food Rescue (UC35–39)
+                  Food Rescue
                 </button>
               </div>
             </div>
