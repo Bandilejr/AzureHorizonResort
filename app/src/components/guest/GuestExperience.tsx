@@ -83,7 +83,8 @@ export function GuestExperience({ onBack }: GuestExperienceProps) {
 
     // Generate AI response
     try {
-      const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+      // Phase 1: Gemini key removed from client. Local keyword fallback only.
+      const GEMINI_API_KEY = '';
       let aiResponse = '';
 
       if (GEMINI_API_KEY) {

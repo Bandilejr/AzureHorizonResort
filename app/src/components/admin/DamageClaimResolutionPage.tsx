@@ -187,7 +187,9 @@ export const DamageClaimResolutionPage: React.FC = () => {
           title: '💰 Damage Invoice Issued',
           message: `Invoice ${invoiceNumber} of R ${(subtotal + tax).toLocaleString()} has been issued for venue damage after your event${claim.venueName ? ` at ${claim.venueName}` : ''}.`,
           referenceId: invoiceDocRef.id,
+          targetRoute: '/guest/my-bill',
           read: false,
+          readAt: null,
           createdAt: serverTimestamp(),
         });
       } catch { /* notification is best-effort */ }

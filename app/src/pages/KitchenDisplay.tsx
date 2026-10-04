@@ -8,6 +8,15 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertModal } from '@/components/ui/AlertModal';
+import { DonationLoggingForm } from '@/components/kitchen/DonationLoggingForm';
+import { DonationAllocationWorkspace } from '@/components/kitchen/DonationAllocationWorkspace';
+import { DonationLogisticsBoard } from '@/components/kitchen/DonationLogisticsBoard';
+import { CollectionVerification } from '@/components/kitchen/CollectionVerification';
+import { LeaveManagement } from '@/components/workforce/LeaveManagement';
+import { RosterBuilder } from '@/components/workforce/RosterBuilder';
+import { SwapBoard } from '@/components/workforce/SwapBoard';
+import { OpenShiftsBoard } from '@/components/workforce/OpenShiftsBoard';
+import { hasIncrement2Permission } from '@/services/permissions';
 import { 
   ChefHat, 
   Clock, 
@@ -25,6 +34,9 @@ import {
 
 export function KitchenDisplay() {
   const { user } = useAuth();
+  const canManageWorkforce =
+    (user?.role === 'kitchen_manager' || user?.role === 'admin') &&
+    hasIncrement2Permission(user?.role, 'ROSTER_MANAGEMENT');
   const currentTime = useCentralClock();
   const [orders, setOrders] = useState<FoodOrder[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<FoodOrder | null>(null);
@@ -46,6 +58,8 @@ export function KitchenDisplay() {
   const [notifications, setNotifications] = useState<FoodOrder[]>([]);
   const [showNotification, setShowNotification] = useState(false);
   const [newOrderCount, setNewOrderCount] = useState(0);
+  // Increment 2: toggle between order queue and food-rescue workspace
+  const [view, setView] = useState<'orders' | 'rescue'>('orders');
   const previousOrdersRef = useRef<FoodOrder[]>([]);
 
   // Create a simple beep sound using Web Audio API
@@ -374,6 +388,16 @@ export function KitchenDisplay() {
             <div>
               <h1 className="text-xl font-bold">Azure Horizon KDS</h1>
               <p className="text-xs text-white/60 uppercase tracking-widest font-medium italic">Resort Operations</p>
+              <div className="flex gap-1 mt-2 bg-black/20 p-1 rounded-lg w-fit">
+                <button onClick={() => setView('orders')}
+                  className={`px-3 py-1 rounded-md text-xs font-semibold ${view === 'orders' ? 'bg-white text-[#1e3a5f]' : 'text-white/70 hover:text-white'}`}>
+                  Orders
+                </button>
+                <button onClick={() => setView('rescue')}
+                  className={`px-3 py-1 rounded-md text-xs font-semibold ${view === 'rescue' ? 'bg-white text-[#1e3a5f]' : 'text-white/70 hover:text-white'}`}>
+                  Food Rescue (UC35–39)
+                </button>
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-8">
@@ -394,7 +418,27 @@ export function KitchenDisplay() {
         </div>
       </header>
 
-      {/* KANBAN BOARD */}
+      {/* KANBAN BOARD / FOOD-RESCUE WORKSPACE */}
+      {view === 'rescue' ? (
+        <div className="flex-1 p-6 overflow-y-auto">
+          <div className="max-w-5xl mx-auto space-y-6">
+            <DonationLoggingForm />
+            <DonationAllocationWorkspace />
+            <DonationLogisticsBoard />
+            <CollectionVerification />
+            {canManageWorkforce ? (
+              <>
+                <RosterBuilder />
+                <LeaveManagement managerView />
+                <SwapBoard managerView />
+                <OpenShiftsBoard managerView />
+              </>
+            ) : (
+              <p>Requires kitchen management access.</p>
+            )}
+          </div>
+        </div>
+      ) : (
       <div className="flex-1 p-6 overflow-hidden">
         <div className="grid grid-cols-3 gap-6 h-full">
           {/* PENDING COLUMN */}
@@ -443,6 +487,7 @@ export function KitchenDisplay() {
           />
         </div>
       </div>
+      )}
 
       {/* ORDER DETAIL MODAL */}
       <Dialog open={showOrderModal} onOpenChange={setShowOrderModal}>

@@ -14,6 +14,7 @@ import { TourGuideDashboard } from '@/pages/TourGuideDashboard';
 import { SpaDashboard } from '@/pages/SpaDashboard';
 import { EventManagerDashboard } from '@/pages/EventManagerDashboard';
 import { RegistrationPage } from '@/pages/RegistrationPage';
+import { NpoPortalPage } from '@/pages/NpoPortalPage';
 
 // Import Pages & Components
 import { PaymentPage } from '@/components/guest/PaymentPage'; 
@@ -61,7 +62,11 @@ function DashboardRouter() {
     case 'maintenance': return <MaintenancePortal />;
     case 'guest': return <GuestPortal />;
     case 'front_desk': return <FrontDeskDashboard />;
-    case 'chef': return <KitchenDisplay />;
+    case 'chef':
+    case 'kitchen_manager': return <KitchenDisplay />;
+    case 'npo_rep': return <NpoPortalPage />;
+    case 'staff': return <ServiceDashboard />;
+    case 'housekeeping':
     case 'waitstaff': 
     case 'delivery': return <ServiceDashboard />;
     case 'tour_guide': return <TourGuideDashboard />;
@@ -106,7 +111,7 @@ function RoleBasedRoute() {
                 <User className="h-4 w-4" />
                 <span className="hidden sm:inline">{user.name}</span>
                 <span className="px-2 py-0.5 bg-[#1e3a5f] dark:bg-blue-600 text-white text-xs rounded-full capitalize">
-                  {user.role?.replace('_', ' ')}
+                  {(user.role || '').replace(/_/g, ' ')}
                 </span>
               </div>
               <ThemeToggle />

@@ -1,7 +1,7 @@
 // src/types/index.ts
 
-// User Roles
-export type UserRole = 'admin' | 'guest' | 'front_desk' | 'chef' | 'waitstaff' | 'delivery' | 'maintenance' | 'tour_guide' | 'spa_staff' | 'event_manager' | null;
+// User Roles (extended for Increment 2: kitchen_manager capability + npo_rep portal + staff)
+export type UserRole = 'admin' | 'guest' | 'front_desk' | 'chef' | 'kitchen_manager' | 'npo_rep' | 'staff' | 'waitstaff' | 'delivery' | 'maintenance' | 'housekeeping' | 'tour_guide' | 'spa_staff' | 'event_manager' | null;
 
 // User Interface
 export interface User {

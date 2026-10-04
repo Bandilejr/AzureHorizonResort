@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
   ScanLine, Ticket, UserCheck, Loader2, AlertTriangle,
-  CheckCircle2, XCircle, Award, ChevronLeft, QrCode, Camera, Keyboard
+  CheckCircle2, XCircle, Award, ChevronLeft, QrCode, Camera, Keyboard, Truck
 } from 'lucide-react';
 import {
   validateLoyaltyQR,
@@ -15,8 +15,9 @@ import {
   awardLoyaltyPoints
 } from '@/services/firebase-services';
 import { auth } from '@/lib/firebase';
+import { CollectionVerification } from '@/components/kitchen/CollectionVerification';
 
-type ScannerTab = 'member' | 'voucher' | 'attendee';
+type ScannerTab = 'member' | 'voucher' | 'attendee' | 'donation';
 
 const SCANNER_ID = 'staff-qr-reader-region';
 
@@ -94,7 +95,7 @@ function useQrScanner(onDecode: (text: string) => Promise<void> | void) {
 
 interface MemberResult {
   valid: boolean;
-  message: string;
+  message?: string;
   reason?: string;
   guest?: any;
 }
@@ -236,6 +237,7 @@ export function StaffQRTools({ onBack }: { onBack?: () => void }) {
     { id: 'member', label: 'Member QR', icon: QrCode },
     { id: 'voucher', label: 'Voucher Redemption', icon: Ticket },
     { id: 'attendee', label: 'Attendee Check-In', icon: UserCheck },
+    { id: 'donation', label: 'Donation Collection (UC39)', icon: Truck },
   ];
 
   return (
@@ -271,6 +273,9 @@ export function StaffQRTools({ onBack }: { onBack?: () => void }) {
         ))}
       </nav>
 
+      {tab === 'donation' ? (
+        <CollectionVerification />
+      ) : (
       <Card className="border-none shadow-md bg-white dark:bg-slate-900">
         <CardContent className="p-6 space-y-5">
           {!isScanning && !result && (
@@ -403,6 +408,7 @@ export function StaffQRTools({ onBack }: { onBack?: () => void }) {
           </div>
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }

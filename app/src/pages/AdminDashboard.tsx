@@ -16,15 +16,18 @@ import { TourCheckIn } from '@/components/admin/TourCheckIn';
 import { ReviewManager } from '@/components/admin/ReviewManager';
 import { AdminRefundReview } from '@/components/admin/AdminRefundReview'; 
 import { DamageClaimResolutionPage } from '@/components/admin/DamageClaimResolutionPage'; // 🚨 Added Damage Claims component
+import { NpoVerificationQueue } from '@/components/admin/NpoVerificationQueue';
+import { ImpactReportView } from '@/components/admin/ImpactReportView';
+import { AttendanceLedger } from '@/components/admin/AttendanceLedger';
 import { StaffQRTools } from '@/pages/StaffQRTools';
 
 import { 
   TrendingUp, Users, Hotel, DollarSign, AlertCircle, BarChart3,
   Download, Star, Building2, Loader2, Compass, UserCheck,
-  LayoutDashboard, Sparkles, MessageSquare, Gavel, ScanLine
+  LayoutDashboard, Sparkles, MessageSquare, Gavel, ScanLine, Leaf, ClipboardCheck
 } from 'lucide-react';
 
-type AdminTab = 'overview' | 'tour-management' | 'tour-checkin' | 'reviews' | 'refunds' | 'damage-claims' | 'qr-tools';
+type AdminTab = 'overview' | 'tour-management' | 'tour-checkin' | 'reviews' | 'refunds' | 'damage-claims' | 'qr-tools' | 'npo-verification' | 'impact' | 'attendance';
 
 const ADMIN_TABS: { id: AdminTab; label: string; icon: React.ElementType }[] = [
   { id: 'overview',         label: 'Executive Overview',  icon: LayoutDashboard },
@@ -34,6 +37,9 @@ const ADMIN_TABS: { id: AdminTab; label: string; icon: React.ElementType }[] = [
   { id: 'refunds',          label: 'Refund Requests',     icon: DollarSign },
   { id: 'damage-claims',    label: 'Damage Claims',       icon: Gavel }, // 🚨 Added Tab link
   { id: 'qr-tools',         label: 'QR Tools',            icon: ScanLine },
+  { id: 'npo-verification', label: 'NPO Verification',    icon: Building2 },
+  { id: 'impact',           label: 'Impact Reports',      icon: Leaf },
+  { id: 'attendance',       label: 'Attendance',          icon: ClipboardCheck },
 ];
 
 export function AdminDashboard() {
@@ -435,6 +441,9 @@ export function AdminDashboard() {
         {activeTab === 'refunds' && <AdminRefundReview />}
         {activeTab === 'damage-claims' && <DamageClaimResolutionPage />} {/* 🚨 Render Damage Claims page */}
         {activeTab === 'qr-tools' && <StaffQRTools />}
+        {activeTab === 'npo-verification' && <NpoVerificationQueue />}
+        {activeTab === 'impact' && <ImpactReportView />}
+        {activeTab === 'attendance' && <AttendanceLedger />}
         
       </div>
 

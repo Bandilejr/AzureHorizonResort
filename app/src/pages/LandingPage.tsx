@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { loginUser, loginAsGuest, logoutUser, db } from '@/services/firebase-services';
+import { auth } from '@/lib/firebase';
+import { signInAnonymously } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import type { UserRole, User as CustomUser } from '@/types';
 
@@ -46,6 +48,7 @@ interface LandingPageProps {
 export function LandingPage({ onRegisterClick }: LandingPageProps) {
   const { login, user, isAuthenticated } = useAuth(); 
   const navigate = useNavigate();
+  const DEMO_MODE = import.meta.env.VITE_DEMO_MODE !== 'false';
 
   const [activeTab, setActiveTab] = useState('guest');
   const [guestType, setGuestType] = useState<'browsing' | 'resident'>('browsing');
@@ -78,6 +81,10 @@ export function LandingPage({ onRegisterClick }: LandingPageProps) {
       const roleRoutes: { [key: string]: string } = {
         'guest': '/guest-portal',
         'chef': '/kitchen',
+        'kitchen_manager': '/',
+        'npo_rep': '/',
+        'staff': '/',
+        'delivery': '/',
         'front_desk': '/reception',
         'waitstaff': '/service-dashboard',
         'maintenance': '/maintenance-portal',
@@ -208,7 +215,16 @@ export function LandingPage({ onRegisterClick }: LandingPageProps) {
       const cleanEmail = staffEmail.trim().toLowerCase();
 
       // DEMO BYPASS: Check for master password
-      if (staffPassword === 'azure2026' || staffPassword === 'password123') {
+      if (DEMO_MODE && (staffPassword === 'azure2026' || staffPassword === 'password123')) {
+        // The profile lookup below needs an authenticated session for Firestore
+        // rules — establish an anonymous one when signed out (the staff
+        // profile applied afterwards still governs role access).
+        try {
+          const { getAuth } = await import('firebase/auth');
+          if (!getAuth().currentUser) await signInAnonymously(auth);
+        } catch {
+          /* fall through; the read below will surface the real error */
+        }
         const userDoc = await getDoc(doc(db, 'users', cleanEmail));
         if (userDoc.exists()) {
           dbUser = userDoc.data() as CustomUser;
@@ -247,6 +263,8 @@ export function LandingPage({ onRegisterClick }: LandingPageProps) {
         const roleNames: { [key: string]: string } = {
           'admin': 'Administrator',
           'chef': 'Kitchen / Chef',
+          'kitchen_manager': 'Kitchen Manager',
+          'npo_rep': 'NPO Partner',
           'front_desk': 'Front Desk',
           'waitstaff': 'Service / Waitstaff',
           'maintenance': 'Maintenance',
@@ -366,8 +384,11 @@ export function LandingPage({ onRegisterClick }: LandingPageProps) {
                         <SelectContent className="dark:bg-slate-800 dark:border-slate-700 dark:text-white">
                           <SelectItem value="front_desk"><div className="flex items-center gap-2"><Hotel className="h-4 w-4" />Front Desk</div></SelectItem>
                           <SelectItem value="chef"><div className="flex items-center gap-2"><ChefHat className="h-4 w-4" />Kitchen / Chef</div></SelectItem>
+                          <SelectItem value="kitchen_manager"><div className="flex items-center gap-2"><ChefHat className="h-4 w-4" />Kitchen Manager</div></SelectItem>
+                          <SelectItem value="npo_rep"><div className="flex items-center gap-2"><Hotel className="h-4 w-4" />NPO Partner</div></SelectItem>
                           <SelectItem value="waitstaff"><div className="flex items-center gap-2"><ClipboardList className="h-4 w-4" />Service / Waitstaff</div></SelectItem>
                           <SelectItem value="maintenance"><div className="flex items-center gap-2"><Wrench className="h-4 w-4" />Maintenance</div></SelectItem>
+                          <SelectItem value="housekeeping"><div className="flex items-center gap-2"><Sparkles className="h-4 w-4" />Housekeeping</div></SelectItem>
                           <SelectItem value="tour_guide"><div className="flex items-center gap-2"><Compass className="h-4 w-4" />Tour Guide</div></SelectItem>
                           <SelectItem value="spa_staff"><div className="flex items-center gap-2"><Flower2 className="h-4 w-4" />Spa Staff</div></SelectItem>
                           <SelectItem value="event_manager"><div className="flex items-center gap-2"><CalendarCheck2 className="h-4 w-4" />Event Manager</div></SelectItem>
@@ -387,14 +408,26 @@ export function LandingPage({ onRegisterClick }: LandingPageProps) {
                   <Button variant="outline" size="sm" className="text-gray-600 hover:text-blue-900 w-full max-w-xs" onClick={handleSeedDatabase} disabled={isSeeding}>
                     <Database className="h-3 w-3 mr-2" /> {isSeeding ? 'Syncing...' : 'Initialize System Database'}
                   </Button>
+                  {DEMO_MODE && (
                   <Button 
                     variant="outline" 
                     size="sm" 
                     className="text-red-600 hover:text-red-800 border-red-200 hover:bg-red-50 w-full max-w-xs" 
-                    onClick={() => login({ id: 'bandile_maqeda', uid: 'bandile_maqeda', name: "Bandile Maqeda", role: "admin", email: "admin@azurehorizon.com", status: 'staff' } as CustomUser)}
+                    onClick={async () => {
+                      // Dev bypass also needs an authenticated session, otherwise
+                      // realtime Firestore listeners are denied by security rules.
+                      try {
+                        const { getAuth } = await import('firebase/auth');
+                        if (!getAuth().currentUser) await signInAnonymously(auth);
+                      } catch {
+                        /* fall through; screens will show their own errors */
+                      }
+                      login({ id: 'bandile_maqeda', uid: 'bandile_maqeda', name: "Bandile Maqeda", role: "admin", email: "admin@azurehorizon.com", status: 'staff' } as CustomUser);
+                    }}
                   >
                     <ShieldCheck className="h-3 w-3 mr-2" /> Dev Bypass: Login as Admin
                   </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
