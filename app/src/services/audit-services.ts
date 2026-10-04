@@ -98,17 +98,32 @@ export async function writeAuditEntry(input: AuditInput): Promise<void> {
 
 export function listenAuditEntries(
   cb: (items: AuditEntry[]) => void,
-  opts: { entity?: string; limit?: number } = {},
+  opts: {
+    entity?: string;
+    limit?: number;
+    /**
+     * Required in practice. Firestore never invokes the success callback when a
+     * listener is rejected (permission-denied, missing index), so without this the
+     * caller is left waiting on a snapshot that will never arrive.
+     */
+    onError?: (error: Error) => void;
+  } = {},
 ): () => void {
   // Entity filtering happens client-side on purpose: a where() + orderBy()
   // combination would demand a composite index, and an index that is missing at
   // deploy time fails the whole listener rather than degrading.
   const cap = opts.limit ?? 200;
   const q = query(collection(db, AUDIT_COLLECTION), orderBy('clientAt', 'desc'), limit(cap));
-  return onSnapshot(q, (snap) => {
-    const all = snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as AuditEntry);
-    cb(opts.entity ? all.filter((e) => e.entity === opts.entity) : all);
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      const all = snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as AuditEntry);
+      cb(opts.entity ? all.filter((e) => e.entity === opts.entity) : all);
+    },
+    (error) => {
+      opts.onError?.(error);
+    },
+  );
 }
 
 /**

@@ -1,5 +1,5 @@
 import { db, rtdb } from '../lib/firebase';
-import { doc, setDoc, collection, addDoc, getDocs, deleteDoc, query, where, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, collection, addDoc, getDocs, getDoc, deleteDoc, query, where, updateDoc } from 'firebase/firestore';
 import { ref, set } from 'firebase/database';
 import { seedTables } from './tableSeedData';
 import { signQrPayload } from './qr-signing';

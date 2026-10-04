@@ -34,6 +34,7 @@ function when(clientAt: string): string {
 export function AuditTrailView() {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>(ALL);
   const [chain, setChain] = useState<AuditChainResult | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -42,7 +43,16 @@ export function AuditTrailView() {
     const unsub = listenAuditEntries((items) => {
       setEntries(items);
       setLoading(false);
-    }, { limit: 200 });
+    }, {
+      limit: 200,
+      onError: (err) => {
+        console.warn('Firebase blocked activity trail listener:', err.message);
+        // Must clear loading here: a rejected listener never fires the success
+        // callback, which would otherwise leave this view spinning indefinitely.
+        setError(err.message);
+        setLoading(false);
+      },
+    });
     return () => unsub();
   }, []);
 
@@ -72,6 +82,33 @@ export function AuditTrailView() {
       <div className="flex items-center gap-2 p-6 text-slate-500">
         <Loader2 className="h-5 w-5 animate-spin" /> Loading activity trail…
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ShieldAlert className="h-5 w-5 text-amber-600" /> Activity trail unavailable
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <p>Firestore rejected the listener, so no entries can be shown:</p>
+          <p className="rounded border border-amber-200 bg-amber-50 p-2 font-mono text-xs text-amber-900">
+            {error}
+          </p>
+          <p className="text-xs text-slate-600">
+            This is an authentication or security-rules problem, not a fault in the journal. Reading
+            the trail requires permission on the <code>audit_log</code> collection — sign in as an
+            admin, or add a read rule for it.
+          </p>
+          <p className="text-xs text-slate-500">
+            Note that journal writes are best-effort by design, so any actions taken while writes
+            were denied were recorded in the app but left no audit entry.
+          </p>
+        </CardContent>
+      </Card>
     );
   }
 
