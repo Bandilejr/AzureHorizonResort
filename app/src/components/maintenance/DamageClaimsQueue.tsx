@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { AlertTriangle, Wrench, CheckCircle2, Hammer, ShieldAlert, Plus, Loader2, ClipboardList, FileText, UserCheck } from 'lucide-react';
 import { collection, onSnapshot, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { writeAuditEntry } from '@/services/audit-services';
+import { AUDIT_ACTIONS } from '@/types/index';
 import { useAuth } from '@/hooks/useAuth';
 import { DamageInspectionPage } from './DamageInspectionPage';
 
@@ -59,6 +61,15 @@ export const DamageClaimsQueue: React.FC = () => {
         startedAt: new Date().toISOString(),
         updatedAt: serverTimestamp(),
       });
+      await writeAuditEntry({
+        action: AUDIT_ACTIONS.damageRepairStarted,
+        entity: 'damage_records',
+        entityId: claim.id,
+        beforeStatus: claim.status || 'reported',
+        afterStatus: 'in_repair',
+        summary: `Repair started on claim ${claim.inspectionId || claim.id.slice(-6).toUpperCase()}`,
+        metadata: { technicianId: user?.email || null, claimedCost: claim.totalCost ?? null },
+      });
       setSuccessMessage(`Claim ${claim.inspectionId || claim.id.slice(-6).toUpperCase()} assigned to you and marked IN REPAIR.`);
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to start repair.');
@@ -85,6 +96,19 @@ export const DamageClaimsQueue: React.FC = () => {
         repairNotes,
         actualRepairCost: Number(actualRepairCost) || 0,
         updatedAt: serverTimestamp(),
+      });
+      await writeAuditEntry({
+        action: AUDIT_ACTIONS.damageResolved,
+        entity: 'damage_records',
+        entityId: resolveModal.id,
+        beforeStatus: resolveModal.status || 'in_repair',
+        afterStatus: 'resolved',
+        summary: `Claim ${resolveModal.inspectionId || resolveModal.id.slice(-6).toUpperCase()} marked resolved and sent to Admin`,
+        metadata: {
+          actualRepairCost: Number(actualRepairCost) || 0,
+          claimedCost: resolveModal.totalCost ?? null,
+          repairNotes,
+        },
       });
       setResolveModal(null);
       setSuccessMessage(`Claim ${resolveModal.inspectionId || resolveModal.id.slice(-6).toUpperCase()} marked RESOLVED and sent to Admin for review.`);

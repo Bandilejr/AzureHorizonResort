@@ -1,0 +1,57 @@
+rules_version = '2';
+
+// Storage rules for Firebase Storage.
+//
+// Scope note: this ruleset covers ONLY the public NPO compliance-document
+// intake. Every other bucket path is left undeclared on purpose, so it is
+// denied by default rather than silently opened. If other features later need
+// Storage (room photos, event assets), add explicit matches below rather than
+// loosening this file.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Mirrors the role lookup in firestore.rules. Storage rules cannot reach
+    // Firestore, so the same users/{uid} document is read here directly.
+    function getUserData() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return request.auth != null && getUserData().role == 'admin';
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Compliance documents attached to a public NPO application.
+    //
+    // The path is keyed by the Firestore application id, so:
+    //   * an upload cannot be written outside its own application folder
+    //   * an applicant cannot overwrite or read another applicant's documents
+    //   * the anonymous session created by signInAnonymously may write, but may
+    //     never read back, enumerate or delete
+    //
+    // The document itself must already exist and still be awaiting review:
+    // that is what stops an anonymous session from attaching files to an
+    // application that was already approved or rejected.
+    match /npo_applications/{applicationId}/documents/{fileName} {
+
+      allow write: if isSignedIn()
+        && firestore.exists(/databases/(default)/documents/npo_applications/$(applicationId))
+        && firestore.get(/databases/(default)/documents/npo_applications/$(applicationId)).data.verificationStatus == 'pending'
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('(application/pdf|image/(jpeg|png|webp))');
+
+      // Read is deliberately narrower than write: only the reviewer sees the
+      // uploaded files. The applicant cannot download their own upload, which
+      // also removes the need to serve these through a public download URL.
+      allow read: if isAdmin();
+
+      // No update or delete. A rejected upload is orphaned and cleaned up by a
+      // trusted backend or console action, never by the uploader's session.
+      allow update: if false;
+      allow delete: if false;
+    }
+  }
+}

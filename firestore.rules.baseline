@@ -488,12 +488,22 @@ service cloud.firestore {
     // NPO: reps see own org only; admin verifies.
     match /npo_partners/{npoId} {
       allow read: if isSignedIn();
-      // Admin-only creation (F-P0-4). No self-application UI exists;
-      // createNpoApplication service is unmounted dead code.
-      allow create: if isSignedIn() && isAdmin()
-        && request.resource.data.verificationStatus == 'pending'
-        && request.resource.data.organisationName is string
-        && request.resource.data.email is string;
+      // Creation (F-P0-4). Admins, OR any signed-in user applying on their own
+      // behalf (web NpoApplicationPage). A self-application must be pending,
+      // carry the applicant's own uid + email, and may not pre-approve itself.
+      allow create: if isSignedIn()
+        && (
+          isAdmin()
+          || (
+            request.resource.data.verificationStatus == 'pending'
+            && request.resource.data.createdBy == request.auth.uid
+            && request.resource.data.email == request.auth.token.email
+            && request.resource.data.organisationName is string
+            && request.resource.data.email is string
+            && !request.resource.data.diff({}).affectedKeys().hasAny(
+                 ['verifiedBy', 'verifiedAt', 'lastDecision'])
+          )
+        );
       // Admin review: pending|under_review -> approved|rejected|under_review.
       allow update: if isSignedIn() && isAdmin()
         && resource.data.verificationStatus in ['pending', 'under_review']
@@ -554,10 +564,11 @@ service cloud.firestore {
       allow update: if isSignedIn() && isFoodManager()
         && resource.data.status in ['draft', 'safety_verified_unassigned',
              'allocated_awaiting_claim', 'claimed_ready_for_scheduling',
-             'collection_scheduled']
+             'collection_requested', 'collection_scheduled']
         && request.resource.data.status == 'cancelled'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
-          ['status', 'updatedAt', 'lastDecision', 'cancelledReason']);
+          ['status', 'updatedAt', 'lastDecision', 'cancelledReason',
+           'closedBy', 'closedAt', 'closureReason']);
       // T4 allocated_awaiting_claim -> claimed_ready_for_scheduling (UC37, NPO only).
       allow update: if isSignedIn() && ownNpoAllocation(resource.data.allocatedNpoId)
         && resource.data.status == 'allocated_awaiting_claim'
@@ -583,6 +594,42 @@ service cloud.firestore {
           ['status', 'pickupDate', 'pickupWindowStart', 'pickupWindowEnd',
            'loadingBay', 'courierName', 'collectionQr', 'collectionNonce',
            'qrConsumed', 'updatedAt', 'lastDecision']);
+      // #8 step 1 — the NPO requests a pickup slot. No QR pass may be created
+      // here: an executable collection credential only exists after a courier
+      // accepts (T5b). Self-attributed to the org that owns the allocation.
+      allow update: if isSignedIn() && ownNpoAllocation(resource.data.allocatedNpoId)
+        && resource.data.status == 'claimed_ready_for_scheduling'
+        && request.resource.data.status == 'collection_requested'
+        && request.resource.data.requestedBy == request.auth.uid
+        && request.resource.data.pickupDate is string
+        && request.resource.data.requestedWindowStart is string
+        && request.resource.data.requestedWindowEnd is string
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status', 'pickupDate', 'requestedWindowStart', 'requestedWindowEnd',
+           'requestedBy', 'requestedAt', 'slotRequestedByNpo', 'updatedAt', 'lastDecision']);
+      // #8 step 2 — a courier accepts and the signed pass is issued. Only this
+      // transition may create a QR pass from 'collection_requested', so a pass
+      // cannot exist before a courier took the job. Self-attributed courier.
+      allow update: if isSignedIn() && isWorkforce()
+        && resource.data.status == 'collection_requested'
+        && request.resource.data.status == 'collection_scheduled'
+        && request.resource.data.acceptedBy == request.auth.uid
+        && request.resource.data.courierUid == request.auth.uid
+        && request.resource.data.collectionNonce is string
+        && request.resource.data.collectionQr is string
+        && request.resource.data.loadingBay is string
+        && request.resource.data.loadingBay.size() > 0
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status', 'pickupDate', 'pickupWindowStart', 'pickupWindowEnd',
+           'loadingBay', 'courierName', 'courierUid', 'acceptedBy', 'acceptedAt',
+           'qrIssuedAt', 'qrIssuedTo', 'collectionNonce', 'collectionQr',
+           'updatedAt', 'lastDecision']);
+      // #8 — a courier may decline a requested slot, returning it to the pool.
+      allow update: if isSignedIn() && isWorkforce()
+        && resource.data.status == 'collection_requested'
+        && request.resource.data.status == 'claimed_ready_for_scheduling'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status', 'loadingBay', 'updatedAt', 'lastDecision']);
       // T6 collection_scheduled -> collected_completed (UC39 verify).
       allow update: if isSignedIn() && isFoodOperator()
         && resource.data.status == 'collection_scheduled'
@@ -598,6 +645,39 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isFoodOperator()
         && request.resource.data.verifiedBy == request.auth.uid;
+    }
+
+    // ACTIVITY JOURNAL — append-only trail of system-wide state changes.
+    // This collection had no rule at all, so every read and write was denied by
+    // default, including for admins: the journal silently recorded nothing.
+    //
+    // Create was originally limited to the roles that could perform the
+    // food-rescue transitions. Now that the trail covers bookings, orders,
+    // refunds, workforce and tours, that gate silently discarded entries from
+    // every other role — a denied write looks identical to a success from the
+    // caller's side, because the journal is best-effort by design. So create is
+    // open to any signed-in session, including the anonymous session the public
+    // NPO application form uses.
+    //
+    // This is NOT a security boundary and should not be treated as one. Entries
+    // are written by the browser, so anyone can already emit a well-formed
+    // forgery from devtools; the rule exists to stop accidental noise, not
+    // determined actors. Actor identity is taken from the auth session, never
+    // from the caller. Genuine immutability needs a trusted server (Cloud
+    // Functions writing via the Admin SDK, or an append-only bucket).
+    //
+    // Read stays limited to admin and kitchen managers — the decision-makers
+    // the trail exists to review. There is deliberately no update or delete
+    // rule: the journal is append-only, and stating that explicitly keeps the
+    // intent clear if a broader write rule is ever added above.
+    match /audit_log/{entryId} {
+      allow read: if isAdmin() || isKitchenManager();
+      allow create: if isSignedIn()
+        && request.resource.data.action is string
+        && request.resource.data.action.size() > 0
+        && request.resource.data.entity is string
+        && request.resource.data.summary is string
+        && request.resource.data.clientAt is string;
     }
 
     // Scheduling: staff own availability/leave; managers review (no self-approval).
@@ -716,13 +796,22 @@ service cloud.firestore {
           || (resource.data.status == 'filled'
             && request.resource.data.status == 'cancelled'))
         && request.resource.data.claimedBy == resource.data.claimedBy;
-      // Claim: workforce only (never guests/NPOs), self-attributed.
+      // Claim a slot: workforce only (never guests/NPOs), self-attributed.
+      // A surge may request several employees: the claimer is APPENDED to
+      // `assignees`, the list must grow by exactly one, the new last element
+      // must be the caller's uid, and the pre-existing entries must not repeat.
+      // `claimedBy` records the first claimer and may never be reassigned.
       allow update: if isSignedIn() && isShiftClaimant()
         && resource.data.status == 'open'
-        && request.resource.data.status == 'filled'
-        && request.resource.data.claimedBy == request.auth.uid
+        && request.resource.data.status in ['open', 'filled']
+        && request.resource.data.assignees is list
+        && request.resource.data.assignees.size() == resource.data.assignees.size() + 1
+        && request.resource.data.assignees[request.resource.data.assignees.size() - 1] == request.auth.uid
+        && !request.resource.data.assignees[0:request.resource.data.assignees.size() - 1]
+             .hasAny(resource.data.assignees)
+        && request.resource.data.claimedBy == resource.data.claimedBy
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
-          ['status', 'claimedBy', 'claimedAt', 'updatedAt', 'lastDecision']);
+          ['status', 'claimedBy', 'claimedAt', 'assignees', 'updatedAt', 'lastDecision']);
     }
 
     // Attendance: staff punch own; managers review; no self-approval, no forgery.

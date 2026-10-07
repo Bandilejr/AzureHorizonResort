@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/context/AuthContext';
 import { useAuth } from '@/hooks/useAuth'; 
@@ -15,6 +15,7 @@ import { SpaDashboard } from '@/pages/SpaDashboard';
 import { EventManagerDashboard } from '@/pages/EventManagerDashboard';
 import { RegistrationPage } from '@/pages/RegistrationPage';
 import { NpoPortalPage } from '@/pages/NpoPortalPage';
+import { NpoApplyPage } from '@/pages/NpoApplyPage';
 
 // Import Pages & Components
 import { PaymentPage } from '@/components/guest/PaymentPage'; 
@@ -80,6 +81,14 @@ function RoleBasedRoute() {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
+  const { pathname } = useLocation();
+
+  // Public NPO application. Rendered before the auth gate so a prospective
+  // partner can reach it with no account. Deliberately outside the authenticated
+  // shell: no header, no role lookup, nothing that assumes a resolved profile.
+  if (pathname === '/npo-apply') {
+    return <NpoApplyPage />;
+  }
 
   if (isLoading) {
     return (

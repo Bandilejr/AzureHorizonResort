@@ -25,6 +25,8 @@ import {
 import { ref, push, set, onValue, off, update, get } from 'firebase/database';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { createDeliveryReceipt } from './transaction-services';
+import { writeAuditEntry } from './audit-services';
+import { AUDIT_ACTIONS } from '@/types/index';
 
 
 // IMPORT from your local firebase config file
@@ -315,10 +317,40 @@ export const listenForGuestBooking = (guestId: string, callback: (booking: Booki
   });
 };
 
+// Status → journal action. Only transitions that represent a decision are
+// recorded; intermediate values a caller may pass are journalled as the closest
+// matching decision rather than silently dropped.
+const BOOKING_STATUS_ACTION: Record<string, string> = {
+  confirmed: AUDIT_ACTIONS.bookingCreated,
+  checked_in: AUDIT_ACTIONS.bookingCheckedIn,
+  checked_out: AUDIT_ACTIONS.bookingCheckedOut,
+  cancelled: AUDIT_ACTIONS.bookingCancelled,
+};
+
 export const updateBookingStatus = async (bookingId: string, status: Booking['status']) => {
   try {
     const bookingRef = doc(db, 'bookings', bookingId);
+    // Read the prior status so the trail records the transition, not just the
+    // end state. A missing booking still proceeds: the update will fail loudly
+    // below, and we must not turn an audit read into a new failure mode.
+    let before: string | null = null;
+    try {
+      before = (await getDoc(bookingRef)).data()?.status ?? null;
+    } catch { /* best-effort */ }
+
     await updateDoc(bookingRef, { status });
+
+    const action = BOOKING_STATUS_ACTION[status];
+    if (action) {
+      await writeAuditEntry({
+        action,
+        entity: 'bookings',
+        entityId: bookingId,
+        beforeStatus: before,
+        afterStatus: status,
+        summary: `Booking ${bookingId} moved to ${status.replace(/_/g, ' ')}`,
+      });
+    }
     return { success: true };
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : 'Error' };
@@ -365,7 +397,24 @@ export const extendBooking = async (bookingId: string, newCheckOutDate: string, 
       totalAmount: updatedTotalAmount,
       balanceDue: updatedBalanceDue
     };
-    
+
+    // Money moved, so record the amount and the new departure date, not just
+    // that "something changed".
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.bookingExtended,
+      entity: 'bookings',
+      entityId: bookingId,
+      beforeStatus: null,
+      afterStatus: null,
+      summary: `Stay extended to ${newCheckOutDate} (+${additionalNights} night${additionalNights === 1 ? '' : 's'})`,
+      metadata: {
+        additionalNights,
+        additionalCost,
+        previousCheckOut: booking.checkOutDate,
+        newCheckOut: newCheckOutDate,
+      },
+    });
+
     return { success: true, booking: updatedBooking };
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : 'Error extending booking' };
@@ -387,10 +436,28 @@ export const listenForServiceRequests = (callback: (requests: RoomServiceRequest
 export const updateServiceRequestStatus = async (requestId: string, status: RequestStatus) => {
   try {
     const requestRef = doc(db, 'service_requests', requestId);
+    let before: string | null = null;
+    try {
+      before = (await getDoc(requestRef)).data()?.status ?? null;
+    } catch { /* best-effort */ }
+
     await updateDoc(requestRef, { 
       status,
       completedAt: status === 'completed' ? new Date().toISOString() : null
     });
+
+    // Only fulfilment is a decision worth recording; "in_progress" is the
+    // ordinary path and would drown the trail in noise.
+    if (status === 'completed') {
+      await writeAuditEntry({
+        action: AUDIT_ACTIONS.serviceRequestResolved,
+        entity: 'service_requests',
+        entityId: requestId,
+        beforeStatus: before,
+        afterStatus: status,
+        summary: `Service request ${requestId} completed`,
+      });
+    }
     return { success: true };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Error updating service request';
@@ -428,6 +495,14 @@ export const createOrder = async (order: Omit<FoodOrder, 'id' | 'createdAt'>) =>
     const newOrderRef = push(ref(rtdb, 'orders'));
     const orderData = { ...order, createdAt: new Date().toISOString(), id: newOrderRef.key };
     await set(newOrderRef, orderData);
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.orderPlaced,
+      entity: 'orders',
+      entityId: orderData.id,
+      afterStatus: 'pending',
+      summary: `Order placed${order.roomNumber ? ` for room ${order.roomNumber}` : ''}`,
+      metadata: { total: 'total' in order ? order.total : null },
+    });
     return { orderId: newOrderRef.key };
   } catch (error: unknown) {
     return { orderId: null, error: error instanceof Error ? error.message : 'Error' };
@@ -452,6 +527,14 @@ export const claimOrder = async (orderId: string, chefId: string) => {
     });
     
     console.log(`Order ${orderId} claimed successfully`);
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.orderClaimed,
+      entity: 'orders',
+      entityId: orderId,
+      beforeStatus: 'pending',
+      afterStatus: 'preparing',
+      summary: `Order ${orderId} claimed by chef`,
+    });
     return { success: true };
   } catch (error: unknown) {
     console.error("Claim order error:", error);
@@ -464,6 +547,14 @@ export const markOrderReady = async (orderId: string) => {
     await update(ref(rtdb, `orders/${orderId}`), { 
       status: 'ready',
       assignedTo: null  // ← ADD THIS LINE to clear the chef assignment
+    });
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.orderReady,
+      entity: 'orders',
+      entityId: orderId,
+      beforeStatus: 'preparing',
+      afterStatus: 'ready',
+      summary: `Order ${orderId} marked ready for pickup`,
     });
     return { success: true };
   } catch (error: unknown) {
@@ -478,6 +569,14 @@ export const pickupOrder = async (orderId: string, staffId: string) => {
       status: 'picked_up',  // ← Different from 'preparing'
       assignedTo: staffId,
       pickedUpAt: Date.now()
+    });
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.orderPickedUp,
+      entity: 'orders',
+      entityId: orderId,
+      beforeStatus: 'ready',
+      afterStatus: 'picked_up',
+      summary: `Order ${orderId} picked up for delivery`,
     });
     return { success: true };
   } catch (error: unknown) {
@@ -508,7 +607,17 @@ export const deliverOrder = async (orderId: string) => {
         orderData.totalAmount || 0
       );
     }
-    
+
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.orderDelivered,
+      entity: 'orders',
+      entityId: orderId,
+      beforeStatus: 'picked_up',
+      afterStatus: 'delivered',
+      summary: `Order ${orderId} delivered`,
+      metadata: { totalAmount: orderData?.totalAmount ?? null },
+    });
+
     return { success: true };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Error delivering order';
@@ -640,6 +749,14 @@ export const createServiceRequest = async (requestData: Omit<RoomServiceRequest,
     }
 
     await setDoc(newDoc, finalRequest);
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.serviceRequestRaised,
+      entity: 'service_requests',
+      entityId: id,
+      afterStatus: 'pending',
+      summary: `Service request raised: ${requestData.type || 'request'}`,
+      metadata: { roomNumber: requestData.roomNumber ?? null, priority: requestData.priority ?? null },
+    });
     return { success: true, requestId: id };
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Failed to submit service request';
@@ -661,6 +778,15 @@ export const checkInGuest = async (bookingId: string, roomNumber: string, guestE
 
     // 3. Update the Physical Room
     await updateDoc(doc(db, 'rooms', roomNumber), { isAvailable: false });
+
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.bookingCheckedIn,
+      entity: 'bookings',
+      entityId: bookingId,
+      afterStatus: 'checked_in',
+      summary: `Guest checked in to room ${roomNumber}`,
+      metadata: { roomNumber, guestEmail },
+    });
 
     return { success: true };
   } catch (error: unknown) {
@@ -728,6 +854,16 @@ export const createTourBooking = async (booking: Omit<TourBooking, 'id' | 'creat
       await updateDoc(tourRef, { schedules: updatedSchedules });
     }
 
+    const tickets = booking.tickets?.reduce((sum, t) => sum + t.quantity, 0) ?? null;
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.tourBookingCreated,
+      entity: 'tour_bookings',
+      entityId: id,
+      afterStatus: 'confirmed',
+      summary: `Tour booking created for ${booking.date} at ${booking.time}`,
+      metadata: { tourId: booking.tourId, tickets },
+    });
+
     return { success: true, bookingId: id };
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : 'Error' };
@@ -774,6 +910,13 @@ export const checkInForTour = async (bookingId: string) => {
       status: 'checked_in',
       checkedInAt: new Date().toISOString()
     });
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.tourCheckedIn,
+      entity: 'tour_bookings',
+      entityId: bookingId,
+      afterStatus: 'checked_in',
+      summary: `Tour booking ${bookingId} checked in`,
+    });
     return { success: true };
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : 'Error' };
@@ -783,7 +926,26 @@ export const checkInForTour = async (bookingId: string) => {
 export const updateTourBookingStatus = async (bookingId: string, status: 'confirmed' | 'checked_in' | 'completed' | 'no_show' | 'cancelled') => {
   try {
     const bookingRef = doc(db, 'tour_bookings', bookingId);
+    let before: string | null = null;
+    try {
+      before = (await getDoc(bookingRef)).data()?.status ?? null;
+    } catch { /* best-effort */ }
+
     await updateDoc(bookingRef, { status });
+
+    // 'checked_in' has its own function above; recording it twice would show a
+    // duplicate pair of entries for one physical check-in.
+    if (status === 'checked_in') return { success: true };
+    if (status === 'cancelled') {
+      await writeAuditEntry({
+        action: AUDIT_ACTIONS.tourBookingCancelled,
+        entity: 'tour_bookings',
+        entityId: bookingId,
+        beforeStatus: before,
+        afterStatus: status,
+        summary: `Tour booking ${bookingId} cancelled`,
+      });
+    }
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -921,6 +1083,16 @@ export const addRoomCharge = async (bookingId: string, guestId: string, descript
         balanceDue: currentBalance + amount
       });
     }
+
+    // Money added to a guest's bill: record the amount, since that is the
+    // number a dispute will be argued about.
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.roomChargeAdded,
+      entity: 'incidental_charges',
+      entityId: docRef.id,
+      summary: `Charge added to booking ${bookingId}: ${description}`,
+      metadata: { bookingId, amount, description },
+    });
 
     return { success: true, id: docRef.id };
   } catch (error: unknown) {
@@ -1278,6 +1450,14 @@ export async function awardLoyaltyPoints(
     };
     await setDoc(logRef, logEntry);
 
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.loyaltyPointsAwarded,
+      entity: 'loyalty_log',
+      entityId: logRef.id,
+      summary: `${points} loyalty points awarded to ${guestEmail.trim().toLowerCase()}: ${reason}`,
+      metadata: { guestId, points, reason },
+    });
+
     return { success: true };
   } catch (error) {
     console.error('Failed to award loyalty points:', error);
@@ -1397,6 +1577,15 @@ export async function redeemRewardTransaction(
     ptsSpent: reward.pts,
     remainingPoints: loyaltyPoints - heldPoints,
     expiresAt: new Date(expiresAtMs).toISOString(),
+  });
+
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.loyaltyRewardRedeemed,
+    entity: 'loyalty_vouchers',
+    entityId: voucherRef.id,
+    afterStatus: 'pending',
+    summary: `${reward.pts} points held for "${reward.title}" — voucher ${createdVoucherCode}`,
+    metadata: { guestId, userEmail: cleanEmail, ptsSpent: reward.pts, voucherCode: createdVoucherCode },
   });
 
   return { availablePoints: Math.max(0, loyaltyPoints - heldPoints), heldPoints, voucher: createdVoucher };
@@ -1624,6 +1813,16 @@ export async function validateAttendeeQR(args: {
     method: 'qr_scan',
   });
 
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.attendeeCheckedIn,
+    entity: 'event_invitations',
+    entityId: invitationId,
+    beforeStatus: invitationData.status ?? null,
+    afterStatus: 'checked_in',
+    summary: `Attendee ${invitationData.inviteeName || inviteeEmail} checked in by QR scan`,
+    metadata: { eventId, method: 'qr_scan' },
+  });
+
   return {
     valid: true,
     message: 'Check-in successful',
@@ -1689,6 +1888,16 @@ export async function redeemVoucherByStaff(voucherCode: string, staffUid: string
       reason: `Staff Verified Scan: ${data.rewardTitle}`,
       createdAt: new Date().toISOString(),
     });
+  });
+
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.voucherRedeemed,
+    entity: 'loyalty_vouchers',
+    entityId: vDoc.id,
+    beforeStatus: data.status ?? 'pending',
+    afterStatus: 'redeemed',
+    summary: `Voucher ${voucherCode.trim().toUpperCase()} redeemed for "${data.rewardTitle}"`,
+    metadata: { staffUid, ptsSpent: pointsToDeduct, guestId: data.guestId },
   });
 
   return { success: true, message: `Voucher ${data.rewardTitle} redeemed`, voucher: { ...data, status: 'redeemed' } };
@@ -1829,6 +2038,23 @@ export const applyEventPayment = async (
     paymentMethod: opts.paymentMethod,
     paidAt: new Date().toISOString(),
   });
+
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.eventPaymentApplied,
+    entity: 'event_bookings',
+    entityId: bookingId,
+    beforeStatus: currentStatus || null,
+    afterStatus: paymentStatus,
+    summary: `Payment of ${amountPaidNow} applied to event booking ${bookingId} via ${opts.paymentMethod}`,
+    metadata: {
+      amountPaidNow,
+      amountPaid,
+      balanceDue,
+      paymentStatus,
+      paymentReference: opts.paymentReference,
+    },
+  });
+
   return { combinedTotal, depositRequired, amountPaid, balanceDue, paymentStatus, status };
 };
 
@@ -1877,6 +2103,20 @@ export const createEventPaymentRecord = async (data: {
       paymentReference: data.paymentReference,
       invoiceNumber: data.invoiceNumber,
       createdAt: serverTimestamp(),
+    });
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.paymentCaptured,
+      entity: 'payments',
+      entityId: paymentRef.id,
+      afterStatus: 'paid',
+      summary: `Payment of R ${Number(data.amount).toLocaleString()} captured for event booking ${data.bookingId}`,
+      metadata: {
+        bookingId: data.bookingId,
+        amount: data.amount,
+        paymentMethod: data.paymentMethod,
+        paymentReference: data.paymentReference,
+        invoiceNumber: data.invoiceNumber,
+      },
     });
     return { success: true, paymentId: paymentRef.id };
   } catch (error) {

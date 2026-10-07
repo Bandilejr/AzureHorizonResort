@@ -35,6 +35,7 @@ import {
   UserPlus,
   AlertCircle,
   MapPin,
+  HandHeart,
   MessageSquareHeart,
   Compass,
   Flower2,
@@ -369,11 +370,20 @@ export function LandingPage({ onRegisterClick }: LandingPageProps) {
                       </Button>
                     </form>
 
-                    <div className="pt-4 border-t dark:border-slate-800 text-center">
-                      <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">Want to become a member?</p>
-                      <Button variant="outline" className="w-full border-[#1e3a5f] text-[#1e3a5f] hover:bg-slate-50 dark:border-blue-400 dark:text-blue-400 dark:hover:bg-slate-800" onClick={onRegisterClick}>
-                        <UserPlus className="h-4 w-4 mr-2" /> Create Member Account
-                      </Button>
+                    <div className="pt-4 border-t dark:border-slate-800 space-y-3">
+                      <div className="text-center">
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">Represent a non-profit?</p>
+                        <Button variant="outline" className="w-full border-[#1e3a5f] text-[#1e3a5f] hover:bg-slate-50 dark:border-blue-400 dark:text-blue-400 dark:hover:bg-slate-800" onClick={() => navigate('/npo-apply')}>
+                          <HandHeart className="h-4 w-4 mr-2" /> Apply to be a Food Rescue Partner
+                        </Button>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">No account needed.</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">Want to become a member?</p>
+                        <Button variant="outline" className="w-full border-[#1e3a5f] text-[#1e3a5f] hover:bg-slate-50 dark:border-blue-400 dark:text-blue-400 dark:hover:bg-slate-800" onClick={onRegisterClick}>
+                          <UserPlus className="h-4 w-4 mr-2" /> Create Member Account
+                        </Button>
+                      </div>
                     </div>
                   </TabsContent>
 

@@ -10,7 +10,8 @@ import {
   collection, doc, addDoc, setDoc, updateDoc, query, where, limit,
   onSnapshot, getDocs, getDoc, runTransaction, serverTimestamp,
 } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { auth, db, storage } from '../lib/firebase';
 import { signQrPayload, verifyQrSignature } from './qr-signing';
 import { writeAuditEntry } from './audit-services';
 import { AUDIT_ACTIONS } from '@/types/index';
@@ -18,14 +19,20 @@ import type {
   NpoPartner, NpoVerificationStatus, DonationBatch, DonationStatus, SafetyChecklist,
   DonationCheckin, StaffAvailability, LeaveRequest, ShiftRoster, RosterShift,
   ShiftSwap, SwapStatus, OpenShift, AttendanceException, AttendanceExceptionType,
-  FileMeta, ImpactReport,
+  FileMeta, ImpactReport, NpoApplication,
 } from '@/types/increment2';
-import { IMPACT_MEALS_PER_KG, IMPACT_CARBON_KG_PER_KG } from '@/types/increment2';
+import {
+  FALLBACK_MEALS_PER_KG, EMISSION_KG_CO2E_PER_KG, EMISSION_FACTOR_PROVENANCE,
+} from '@/types/increment2';
 
 // QR signing is centralized in ./qr-signing (env secret → service → payloads).
 // This module never hard-codes a QR secret.
 
 const nowIso = () => new Date().toISOString();
+
+// One decimal place, matching how weights are displayed everywhere else. Used
+// by the impact report so repeated adds of kg do not drift.
+const round1 = (n: number) => Math.round(n * 10) / 10;
 
 function requireAuth() {
   const user = auth.currentUser;
@@ -180,6 +187,8 @@ export async function createNpoApplication(input: {
   contactName: string; email: string; phone: string; serviceAreas: string[];
   beneficiaryCapacity: number; transportType: string; refrigerationAvailable: boolean;
   complianceDocuments?: FileMeta[];
+  /** Provenance: the npo_applications doc this partner was promoted from. */
+  sourceApplicationId?: string;
 }): Promise<string> {
   const user = requireAuth();
   if (!input.organisationName.trim()) throw new Error('Organisation name is required.');
@@ -196,6 +205,300 @@ export async function createNpoApplication(input: {
     createdBy: user.uid,
   });
   return ref.id;
+}
+
+// ---------- Public NPO application intake ----------
+//
+// Public applications are untrusted input from anonymous Firebase sessions, so
+// they are kept OUT of npo_partners. Two reasons:
+//   1. npo_partners is read by rankNpoPartners and the NPO portal, and its
+//      security rules already encode a verified-partner lifecycle. Mixing raw
+//      web submissions in there would force those rules open.
+//   2. A separate collection means spam is quarantined in one place and the
+//      existing verification workflow, provisioning and notification logic are
+//      provably untouched.
+//
+// An admin promotes a reviewed application into npo_partners via
+// promoteNpoApplication(), which calls the unchanged createNpoApplication().
+
+/** Transport options offered on the public form. Kept in one place. */
+export const NPO_TRANSPORT_OPTIONS = [
+  'Refrigerated van',
+  'Insulated box vehicle',
+  'Chilled cargo van',
+  'Motorbike / tricycle',
+  'Bicycle',
+  'On foot',
+] as const;
+
+// Compliance-document intake limits. These values are duplicated in the
+// Firestore and Storage rules, which are authoritative — the client checks
+// them only to avoid a wasted upload and to give a readable error.
+export const MAX_UPLOAD_COUNT = 10;
+export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+export const ACCEPTED_UPLOAD_TYPES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+] as const;
+
+/**
+ * Submits a public application. Requires an authenticated session, but NOT a
+ * staff role: the page signs the visitor in anonymously first. The Firestore
+ * rule mirrors this — create-only, fixed field set, no update or delete.
+ *
+ * Client-side validation is for fast feedback only. The rule is authoritative.
+ */
+export async function submitPublicNpoApplication(input: {
+  organisationName: string; registrationNumber: string; pboNumber?: string;
+  contactName: string; email: string; phone: string; serviceAreas: string[];
+  beneficiaryCapacity: number; transportType: string; refrigerationAvailable: boolean;
+  documents?: File[];
+}): Promise<{ id: string; uploaded: number; failed: number }> {
+  const missing = validatePublicApplication(input);
+  if (missing.length) throw new Error(`Still needed: ${missing.join(', ')}.`);
+
+  // The rules pin applicantUid to the session uid, so refuse rather than write
+  // a document the rule will reject with a generic permission error.
+  const uid = auth.currentUser?.uid;
+  if (!uid) throw new Error('Your session expired. Please try again.');
+
+  const files = input.documents ?? [];
+  const rejected = files.filter(
+    (f) => !(ACCEPTED_UPLOAD_TYPES as readonly string[]).includes(f.type) || f.size > MAX_UPLOAD_BYTES,
+  );
+  if (rejected.length) {
+    throw new Error(
+      rejected.length === 1 && rejected[0] === files[0]
+        ? `${rejected[0].name} is not an accepted file. Use a PDF, JPEG, PNG or WebP under ${MAX_UPLOAD_BYTES / 1024 / 1024}MB.`
+        : `${rejected.length} files are not accepted. Use PDF, JPEG, PNG or WebP, each under ${MAX_UPLOAD_BYTES / 1024 / 1024}MB.`,
+    );
+  }
+  if (files.length > MAX_UPLOAD_COUNT) {
+    throw new Error(`Attach at most ${MAX_UPLOAD_COUNT} documents.`);
+  }
+
+  // Write ordering is dictated by the rules, not preference: the Storage rule
+  // requires a real, still-pending application document before anything can be
+  // written under its folder, and the applicant update rule permits exactly one
+  // field to change. So: mint the id -> create with an empty manifest ->
+  // upload the bytes -> fill the manifest in.
+  const ref = doc(collection(db, 'npo_applications'));
+
+  await setDoc(ref, {
+    organisationName: input.organisationName.trim(),
+    registrationNumber: input.registrationNumber.trim(),
+    pboNumber: (input.pboNumber || '').trim(),
+    contactName: input.contactName.trim(),
+    email: input.email.trim(),
+    phone: (input.phone || '').trim(),
+    serviceAreas: input.serviceAreas,
+    beneficiaryCapacity: input.beneficiaryCapacity,
+    transportType: input.transportType,
+    refrigerationAvailable: input.refrigerationAvailable,
+    source: 'public_web' as const,
+    applicantUid: uid,
+    verificationStatus: 'pending' as NpoVerificationStatus,
+    promotedToNpoId: null,
+    promotedAt: null,
+    rejectionReason: null,
+    submittedAt: nowIso(),
+    reviewedAt: null,
+    reviewedBy: null,
+    documents: [],
+  });
+
+  const documents: FileMeta[] = [];
+  let uploadFailures = 0;
+
+  for (const [index, file] of files.entries()) {
+    try {
+      const url = await uploadComplianceDocument(ref.id, index, file);
+      documents.push({
+        url,
+        fileName: file.name,
+        mimeType: file.type,
+        size: file.size,
+        uploadedAt: nowIso(),
+        uploadedBy: uid,
+      });
+    } catch {
+      // One bad file must not discard an application the applicant already
+      // qualified for. Report how many landed so the page can say so plainly.
+      uploadFailures += 1;
+    }
+  }
+
+  // Empty when everything failed, which the rule still accepts (docs.all() on
+  // an empty list is true).
+  if (documents.length) await updateDoc(ref, { documents });
+
+  // Journalled best-effort. A rejected audit write must never lose the
+  // application itself, and an anonymous session has no role to attribute.
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.npoApplicationSubmitted,
+    entity: 'npo_applications',
+    entityId: ref.id,
+    afterStatus: 'pending',
+    summary: `Public application received from ${input.organisationName.trim()}`,
+    metadata: {
+      registrationNumber: input.registrationNumber.trim(),
+      source: 'public_web',
+      documentCount: documents.length,
+      uploadFailures,
+    },
+  });
+
+  return { id: ref.id, uploaded: documents.length, failed: uploadFailures };
+}
+
+/**
+ * Uploads one compliance document under the application's Storage folder.
+ * The path is prefixed with an index so two files called "proof.pdf" cannot
+ * collide, and the original name is sanitised down to a safe subset rather
+ * than trusted as a path segment.
+ */
+async function uploadComplianceDocument(
+  applicationId: string,
+  index: number,
+  file: File,
+): Promise<string> {
+  const safeName = file.name.replace(/[^A-Za-z0-9._-]/g, '_').slice(-80) || 'document';
+  const target = storageRef(
+    storage,
+    `npo_applications/${applicationId}/documents/${index}_${safeName}`,
+  );
+  await uploadBytes(target, file, { contentType: file.type });
+  return getDownloadURL(target);
+}
+
+/** Returns a list of missing/invalid fields; empty means valid. */
+export function validatePublicApplication(input: {
+  organisationName: string; registrationNumber: string; contactName: string;
+  email: string; serviceAreas: string[]; beneficiaryCapacity: number; transportType: string;
+}): string[] {
+  const missing: string[] = [];
+  if (!input.organisationName?.trim()) missing.push('organisation name');
+  if (!input.registrationNumber?.trim()) missing.push('registration number');
+  if (!input.contactName?.trim()) missing.push('contact name');
+  // Deliberately loose: the only authoritative test of a deliverable address is
+  // whether mail to it arrives. Over-strict regex rejects real NPO addresses.
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email?.trim() || '')) missing.push('a valid contact email');
+  if (!input.serviceAreas?.length) missing.push('at least one service area');
+  if (!Number.isFinite(input.beneficiaryCapacity) || input.beneficiaryCapacity <= 0) missing.push('beneficiary capacity');
+  if (!input.transportType) missing.push('transport type');
+  return missing;
+}
+
+/** Admin-only. Streams public applications, newest first handled by the caller. */
+export function listenNpoApplications(cb: (items: NpoApplication[]) => void, onError?: (error: Error) => void): () => void {
+  return onSnapshot(
+    collection(db, 'npo_applications'),
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as NpoApplication)),
+    // Required: a denied listener never invokes the success callback, which
+    // would leave the caller spinning on a snapshot that never arrives.
+    (error) => onError?.(error),
+  );
+}
+
+/**
+ * Admin-only. Promotes a reviewed public application into npo_partners via the
+ * existing createNpoApplication(), then records the linkage on the application.
+ *
+ * Ordering matters: the partner record is created first. If that fails, the
+ * application stays pending and promotable. If it succeeds but the linkage
+ * update fails, the partner record exists and the application remains
+ * 'under_review' — recoverable by re-promoting, and visible in the trail.
+ */
+export async function promoteNpoApplication(applicationId: string): Promise<string> {
+  const user = requireAuth();
+  const me = await getMyProfile();
+  if (me.role !== 'admin') throw new Error('Only administrators can review NPO applications.');
+
+  const ref = doc(db, 'npo_applications', applicationId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('Application not found.');
+  const app = snap.data() as NpoApplication;
+  // 'pending' only: this collection starts at 'pending' (pinned by the create
+  // rule) and can only ever move to approved|rejected, so any other state means
+  // the record is already decided or was written outside the rules.
+  if (app.verificationStatus !== 'pending') {
+    throw new Error('Only pending applications can be promoted.');
+  }
+
+  const npoDocId = await createNpoApplication({
+    organisationName: app.organisationName,
+    registrationNumber: app.registrationNumber,
+    pboNumber: app.pboNumber || undefined,
+    contactName: app.contactName,
+    email: app.email,
+    phone: app.phone || '',
+    serviceAreas: app.serviceAreas,
+    beneficiaryCapacity: app.beneficiaryCapacity,
+    transportType: app.transportType,
+    refrigerationAvailable: app.refrigerationAvailable,
+    sourceApplicationId: applicationId,
+  });
+
+  await updateDoc(ref, {
+    // 'under_review', not 'approved': nothing is approved yet. This is the same
+    // value npo_partners uses for "received, awaiting an approval decision", so
+    // both collections read as one queue. Approving the partner record is the
+    // step that grants access.
+    verificationStatus: 'under_review' as NpoVerificationStatus,
+    promotedToNpoId: npoDocId,
+    promotedAt: nowIso(),
+    reviewedAt: nowIso(),
+    reviewedBy: user.uid,
+  });
+
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.npoApplicationPromoted,
+    entity: 'npo_applications',
+    entityId: applicationId,
+    beforeStatus: app.verificationStatus,
+    afterStatus: 'under_review',
+    summary: `${app.organisationName} moved to verification as an NPO partner; approval still required`,
+    metadata: { npoDocId, source: app.source },
+    actorRole: me.role,
+  });
+
+  return npoDocId;
+}
+
+/** Admin-only. Rejects a public application with a recorded reason. */
+export async function rejectNpoApplication(applicationId: string, reason: string): Promise<void> {
+  const user = requireAuth();
+  const me = await getMyProfile();
+  if (me.role !== 'admin') throw new Error('Only administrators can review NPO applications.');
+  if (!reason.trim()) throw new Error('A rejection reason is required.');
+
+  const ref = doc(db, 'npo_applications', applicationId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('Application not found.');
+  const app = snap.data() as NpoApplication;
+  if (app.verificationStatus !== 'pending') {
+    throw new Error('This application has already been reviewed.');
+  }
+
+  await updateDoc(ref, {
+    verificationStatus: 'rejected' as NpoVerificationStatus,
+    rejectionReason: reason.trim(),
+    reviewedAt: nowIso(),
+    reviewedBy: user.uid,
+  });
+
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.npoApplicationRejected,
+    entity: 'npo_applications',
+    entityId: applicationId,
+    beforeStatus: app.verificationStatus,
+    afterStatus: 'rejected',
+    summary: `Public application from ${app.organisationName} rejected: ${reason.trim()}`,
+    metadata: { reason: reason.trim() },
+    actorRole: me.role,
+  });
 }
 
 export function listenNpoPartners(cb: (items: NpoPartner[]) => void, status?: NpoVerificationStatus) {
@@ -764,34 +1067,139 @@ export function listenDonationCheckins(cb: (items: DonationCheckin[]) => void) {
 // ---------- Impact report ----------
 
 export function computeImpactReport(batches: DonationBatch[], checkins: DonationCheckin[], start: string, end: string): ImpactReport {
-  const s = new Date(start).getTime();
-  const e = new Date(end).getTime() + 86400000;
-  const inRange = batches.filter((b) => {
-    const t = new Date(b.createdAt).getTime();
-    return t >= s && t <= e;
-  });
+// start/end are calendar days in the viewer's timezone (what a date input
+    // yields), so bound the window in local time. The bare string parses as
+    // UTC midnight, which would drop the first and last day for anyone not on
+    // UTC, and the old `+ 86400000` with `<=` also let in an extra instant
+    // belonging to the following day.
+    const s = new Date(`${start}T00:00:00`).getTime();
+    const e = new Date(`${end}T00:00:00`).getTime() + 86400000;
+    const inRange = batches.filter((b) => {
+      const t = new Date(b.createdAt).getTime();
+      return t >= s && t < e;
+    });
+
+  // Collections are confirmed by a checkin record, which carries the actual
+    // collectedAt instant. That is the handover the NPO signed for, so it is
+    // the real evidence of collection — a batch status is the kitchen's or the
+    // dispatcher's own claim and can run ahead of reality. Filtering checkins
+    // on their own timestamp (not the batch's createdAt) is deliberate: a batch
+    // logged in September and collected in October belongs to October.
+    const inRangeCheckins = checkins.filter((c) => {
+      const t = new Date(c.collectedAt).getTime();
+      return Number.isFinite(t) && t >= s && t < e;
+    });
+
+  // batchId is the human-facing identifier both sides carry, so it is the join
+    // key. Guard against a batch id being absent or duplicated in either
+    // collection rather than silently pairing the wrong rows.
+    const batchesByKey = new Map<string, DonationBatch>();
+  for (const b of inRange) {
+    const key = b.batchId || b.id;
+    if (key && !batchesByKey.has(key)) batchesByKey.set(key, b);
+  }
+
   const collected = inRange.filter((b) => b.status === 'collected_completed');
-  const totalDonatedKg = inRange.reduce((a, b) => a + (Number(b.estimatedWeightKg) || 0), 0);
-  const totalCollectedKg = collected.reduce((a, b) => a + (Number(b.estimatedWeightKg) || 0), 0);
-  const mealsDiverted = Math.round(totalCollectedKg * IMPACT_MEALS_PER_KG);
-  const carbonOffsetKg = Math.round(totalCollectedKg * IMPACT_CARBON_KG_PER_KG * 10) / 10;
-  const npoMap = new Map<string, { batches: number; kg: number }>();
+  const totalDonatedKg = round1(inRange.reduce((a, b) => a + (Number(b.estimatedWeightKg) || 0), 0));
+  const totalCollectedKg = round1(collected.reduce((a, b) => a + (Number(b.estimatedWeightKg) || 0), 0));
+
+  // Which collected batches have a confirmation, and how much each weighs.
+  const confirmedKeys = new Set<string>();
+  const confirmedBatch = new Map<string, DonationBatch>();
+  for (const c of inRangeCheckins) {
+    const key = c.batchId;
+    if (!key || confirmedKeys.has(key)) continue;
+    confirmedKeys.add(key);
+    const batch = batchesByKey.get(key);
+    // Only in-period batches can contribute weight; a confirmation for a batch
+    // created outside the window is still counted as a collection below, but
+    // must not pull an out-of-period batch's kg into this period's total.
+    if (batch) confirmedBatch.set(key, batch);
+  }
+  const confirmedCollectedKg = round1(
+    [...confirmedBatch.values()].reduce((a, b) => a + (Number(b.estimatedWeightKg) || 0), 0),
+  );
+
+  // Batches the records disagree about: marked collected, no confirmation.
+  const unverifiedKeys = new Set<string>();
+  let unverifiedCollectedKg = 0;
+  for (const b of collected) {
+    const key = b.batchId || b.id;
+    if (!key || confirmedKeys.has(key)) continue;
+    unverifiedKeys.add(key);
+    unverifiedCollectedKg += Number(b.estimatedWeightKg) || 0;
+  }
+  unverifiedCollectedKg = round1(unverifiedCollectedKg);
+
+  // Meals are measured: DonationBatch.portionCount is entered at creation and
+    // safety-verified before the batch can leave the kitchen. Summing it keeps
+    // a number the resort actually recorded. The kg multiplier is only a
+    // fallback for a legacy batch with no portion count, and its use is
+    // recorded so the report can disclose it instead of passing it off.
+  let mealsFallbackUsed = false;
+  const mealsFor = (b: DonationBatch): number => {
+    const portions = Number(b.portionCount);
+    if (Number.isFinite(portions) && portions > 0) return Math.round(portions);
+    mealsFallbackUsed = true;
+    return Math.round((Number(b.estimatedWeightKg) || 0) * FALLBACK_MEALS_PER_KG);
+  };
+
+  const npoMap = new Map<string, { batches: number; kg: number; meals: number; confirmations: number }>();
   for (const b of collected) {
     const key = b.allocatedNpoId || 'unknown';
-    const cur = npoMap.get(key) || { batches: 0, kg: 0 };
+    const cur = npoMap.get(key) || { batches: 0, kg: 0, meals: 0, confirmations: 0 };
     cur.batches += 1;
     cur.kg += Number(b.estimatedWeightKg) || 0;
+    cur.meals += mealsFor(b);
     npoMap.set(key, cur);
   }
-  void checkins;
+  // Confirmations can name an NPO that never received a batch status change, so
+  // attribute them too rather than letting that NPO silently miss the report.
+  for (const c of inRangeCheckins) {
+    const npoId = c.npoId || 'unknown';
+    const cur = npoMap.get(npoId) || { batches: 0, kg: 0, meals: 0, confirmations: 0 };
+    cur.confirmations += 1;
+    npoMap.set(npoId, cur);
+  }
+
+  // Mean turnaround from expiry to collection. Bounded and skipped when
+    // unparseable so one bad timestamp cannot drag the average to nonsense.
+  const turnarounds: number[] = [];
+  for (const c of inRangeCheckins) {
+    const batch = batchesByKey.get(c.batchId);
+    if (!batch?.expiryAt) continue;
+    const from = new Date(batch.expiryAt).getTime();
+    const to = new Date(c.collectedAt).getTime();
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) continue;
+    turnarounds.push((to - from) / 3600000);
+  }
+  const avgHoursToCollection = turnarounds.length
+    ? Math.round((turnarounds.reduce((a, h) => a + h, 0) / turnarounds.length) * 10) / 10
+    : null;
+
+  const carbonOffsetKg = round1(totalCollectedKg * EMISSION_KG_CO2E_PER_KG);
+
   return {
     periodStart: start, periodEnd: end, totalDonatedKg, totalCollectedKg,
-    mealsDiverted, carbonOffsetKg,
+    mealsDiverted: [...npoMap.values()].reduce((a, v) => a + v.meals, 0),
+    carbonOffsetKg,
     npoCount: npoMap.size, batchCount: inRange.length,
     completionRate: inRange.length ? Math.round((collected.length / inRange.length) * 100) : 0,
+    confirmedCollections: inRangeCheckins.length,
+    confirmedCollectedKg,
+    unverifiedCollectedKg,
+    sealVerifiedCollections: inRangeCheckins.filter((c) => c.sealVerified).length,
+    offlineScannedCollections: inRangeCheckins.filter((c) => c.wasOffline).length,
+    avgHoursToCollection,
+    assumptions: {
+      emissionKgCo2ePerKg: EMISSION_KG_CO2E_PER_KG,
+      emissionFactorBasis: EMISSION_FACTOR_PROVENANCE.basis,
+      mealsFallbackUsed,
+      carbonIsUnsourcedEstimate: !EMISSION_FACTOR_PROVENANCE.externallySourced,
+    },
     byNpo: [...npoMap.entries()].map(([npoId, v]) => ({
-      npoId, batches: v.batches, kg: Math.round(v.kg * 10) / 10,
-      meals: Math.round(v.kg * IMPACT_MEALS_PER_KG),
+      npoId, batches: v.batches, kg: round1(v.kg),
+      meals: v.meals, confirmations: v.confirmations,
     })),
   };
 }
@@ -879,6 +1287,14 @@ export async function submitLeaveRequest(input: {
       targetRoute: '/(kitchen)/leave-manage',
     }, true);
   } catch { /* best-effort */ }
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.leaveRequested,
+    entity: 'leave_requests',
+    entityId: ref.id,
+    afterStatus: 'pending',
+    summary: `${input.staffName || staffId} requested ${input.leaveType} leave ${input.startDate} → ${input.endDate}`,
+    metadata: { staffId, days, leaveType: input.leaveType },
+  });
   return ref.id;
 }
 
@@ -930,6 +1346,17 @@ export async function reviewLeaveRequest(args: {
       targetRoute: '/(staff)/availability-leave',
     });
   } catch { /* best-effort */ }
+  await writeAuditEntry({
+    action: args.approve ? AUDIT_ACTIONS.leaveApproved : AUDIT_ACTIONS.leaveRejected,
+    entity: 'leave_requests',
+    entityId: args.leaveDocId,
+    beforeStatus: 'pending',
+    afterStatus: args.approve ? 'approved' : 'rejected',
+    summary: args.approve
+      ? `Leave request approved for ${subjectUid}`
+      : `Leave request rejected for ${subjectUid}: ${args.reason}`,
+    metadata: { staffId: subjectUid, reviewerUid: user.uid, reason: args.reason || null },
+  });
   void args.reviewerUid;
 }
 
@@ -1070,6 +1497,15 @@ export async function publishRoster(rosterDocId: string, publisherUid?: string) 
     referenceId: rosterDocId,
     targetRoute: '/(staff)/my-roster',
   });
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.rosterPublished,
+    entity: 'shift_rosters',
+    entityId: rosterDocId,
+    beforeStatus: String(data.validationStatus || 'draft'),
+    afterStatus: 'published',
+    summary: `Roster published for week ${String(data.weekStart)} (${String(data.department)})`,
+    metadata: { publishedBy: user.uid, shiftCount: shifts.length, staffCount: staffIds.length },
+  });
   void publisherUid;
 }
 
@@ -1107,6 +1543,14 @@ export async function requestShiftSwap(input: {
       targetRoute: '/(staff)/shift-swaps',
     });
   } catch { /* best-effort */ }
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.shiftSwapRequested,
+    entity: 'shift_swaps',
+    entityId: ref.id,
+    afterStatus: 'pending_peer',
+    summary: `${input.requesterStaffId} requested a shift swap with ${input.targetStaffId}`,
+    metadata: { rosterId: input.rosterId, requesterStaffId: input.requesterStaffId, targetStaffId: input.targetStaffId },
+  });
   return ref.id;
 }
 
@@ -1133,6 +1577,17 @@ export async function peerAcceptSwap(swapDocId: string, accepterUid: string, acc
       targetRoute: '/(staff)/shift-swaps',
     });
   } catch { /* best-effort */ }
+  await writeAuditEntry({
+    action: accept ? AUDIT_ACTIONS.shiftSwapPeerAccepted : AUDIT_ACTIONS.shiftSwapPeerDeclined,
+    entity: 'shift_swaps',
+    entityId: swapDocId,
+    beforeStatus: 'pending_peer',
+    afterStatus: accept ? 'pending_manager' : 'rejected',
+    summary: accept
+      ? `Peer accepted swap ${swapDocId}; awaiting manager approval`
+      : `Peer declined swap ${swapDocId}`,
+    metadata: { accepterUid: user.uid, requesterStaffId: data.requesterStaffId },
+  });
   void accepterUid;
 }
 
@@ -1171,6 +1626,15 @@ export async function reviewShiftSwap(args: {
         targetRoute: '/(staff)/shift-swaps',
       });
     } catch { /* best-effort */ }
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.shiftSwapRejected,
+      entity: 'shift_swaps',
+      entityId: args.swapDocId,
+      beforeStatus: 'pending_manager',
+      afterStatus: 'rejected',
+      summary: `Shift swap rejected: ${args.reason}`,
+      metadata: { reviewerUid: user.uid, parties, reason: args.reason },
+    });
     return;
   }
   try {
@@ -1227,6 +1691,15 @@ export async function reviewShiftSwap(args: {
         targetRoute: '/(staff)/my-roster',
       });
     } catch { /* best-effort */ }
+    await writeAuditEntry({
+      action: AUDIT_ACTIONS.shiftSwapApproved,
+      entity: 'shift_swaps',
+      entityId: args.swapDocId,
+      beforeStatus: 'pending_manager',
+      afterStatus: 'approved',
+      summary: `Shift swap approved and roster assignments updated`,
+      metadata: { reviewerUid: user.uid, parties, rosterDocId: args.rosterDocId || null },
+    });
   } catch (e) { friendlyTxError(e, 'Swap approval failed — assignments may have changed.'); }
   void args.reviewerUid;
 }
@@ -1267,6 +1740,14 @@ export async function createOpenShift(input: {
     status: 'open',
     createdAt: nowIso(),
     createdBy: input.authorUid || user.uid,
+  });
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.openShiftCreated,
+    entity: 'open_shifts',
+    entityId: ref.id,
+    afterStatus: 'open',
+    summary: `Open shift posted: ${input.role}, ${input.date} ${input.startTime}–${input.endTime}`,
+    metadata: { department: input.department, urgency: input.urgency || 'normal', createdBy: input.authorUid || user.uid },
   });
   return ref.id;
 }
@@ -1399,6 +1880,15 @@ export async function claimOpenShift(args: { openShiftDocId: string; claimerUid?
     referenceId: args.openShiftDocId,
     targetRoute: '/(kitchen)/open-shifts',
   });
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.openShiftClaimed,
+    entity: 'open_shifts',
+    entityId: args.openShiftDocId,
+    beforeStatus: 'open',
+    afterStatus: 'filled',
+    summary: `Open shift ${String(preData.shiftId || args.openShiftDocId)} claimed`,
+    metadata: { claimerUid, rosterId: rosterId || null, department: preData.department ?? null },
+  });
 }
 
 // --------- Ledger — roster-tied attendance exceptions ----------
@@ -1481,6 +1971,15 @@ export async function createVerifiedAttendanceException(args: {
     referenceId: ref.id,
     targetRoute: '/(staff)/clock-in-out',
   });
+  await writeAuditEntry({
+    action: AUDIT_ACTIONS.attendanceExceptionVerified,
+    entity: 'attendance_exceptions',
+    entityId: ref.id,
+    beforeStatus: 'exception_review',
+    afterStatus: 'verified',
+    summary: `Attendance exception (${args.seed.exceptionType}) verified for ${String(args.seed.staffId)}`,
+    metadata: { staffId: args.seed.staffId, hoursWorked: args.hoursWorked ?? null, reason: args.reason },
+  });
   return ref.id;
 }
 
@@ -1523,6 +2022,17 @@ export async function reviewAttendanceException(args: {
       targetRoute: '/(staff)/clock-in-out',
     });
   } catch { /* best-effort */ }
+  await writeAuditEntry({
+    action: args.approve ? AUDIT_ACTIONS.attendanceExceptionVerified : AUDIT_ACTIONS.attendanceExceptionAdjusted,
+    entity: 'attendance_exceptions',
+    entityId: args.exceptionDocId,
+    beforeStatus: 'exception_review',
+    afterStatus: 'verified',
+    summary: args.approve
+      ? `Attendance exception verified for ${staffUid}`
+      : `Attendance hours adjusted for ${staffUid}: ${args.reason}`,
+    metadata: { staffId: staffUid, adjustedHours: args.adjustedHours ?? null, reason: args.reason },
+  });
   void args.approve;
   void args.reviewerUid;
 }

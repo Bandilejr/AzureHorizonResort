@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Star, MessageCircle, Clock, ShieldCheck, Loader2 } from 'lucide-react';
+import { writeAuditEntry } from '@/services/audit-services';
+import { AUDIT_ACTIONS } from '@/types/index';
 import { toast } from 'sonner';
 
 interface Review {
@@ -49,6 +51,14 @@ export function ReviewManager() {
       const reviewRef = doc(db, 'reviews', reviewId);
       await updateDoc(reviewRef, {
         managementResponse: replyText.trim()
+      });
+      const target = reviews.find((r) => r.id === reviewId);
+      await writeAuditEntry({
+        action: AUDIT_ACTIONS.reviewModerated,
+        entity: 'reviews',
+        entityId: reviewId,
+        summary: `Management response published on ${target?.guestName || 'a'} review (${target?.rating ?? '-'}★)`,
+        metadata: { category: target?.category ?? null, rating: target?.rating ?? null },
       });
       toast.success("Response submitted successfully");
       setReplyingTo(null);

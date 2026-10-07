@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Gavel, CheckCircle2, AlertCircle, ShieldCheck, Camera, Wrench, Mail, Clock } from 'lucide-react';
 import { collection, doc, updateDoc, onSnapshot, query, where, getDocs, getDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { writeAuditEntry } from '@/services/audit-services';
+import { AUDIT_ACTIONS } from '@/types/index';
 import { getProfessionalPDFHTML } from '@/utils/pdfGenerator';
 
 // --- CONSTANT OBJECT REPLACING ENUMS TO SATISFY ERASABLE SYNTAX ---
@@ -207,6 +209,27 @@ export const DamageClaimResolutionPage: React.FC = () => {
       } catch { /* booking update is best-effort */ }
 
       const displayRef = claim.inspectionId || `CLM-${claim.id.slice(-6).toUpperCase()}`;
+
+      // Money leaves the guest here: record the ruling and the invoiced total.
+      await writeAuditEntry({
+        action: AUDIT_ACTIONS.damageInvoiced,
+        entity: 'damage_records',
+        entityId: claim.id,
+        beforeStatus: 'resolved',
+        afterStatus: 'invoiced',
+        summary: `Damage claim ${displayRef} adjudicated (${decision}) and invoiced ${invoiceNumber}`,
+        metadata: {
+          decision,
+          claimedCost: totalCost,
+          finalAssessedAmount: Number(finalAmount) || 0,
+          invoicedAmount: subtotal + tax,
+          invoiceNumber,
+          invoiceId: invoiceDocRef.id,
+          eventId: claim.eventId || null,
+          technicianId: selectedTechnician || null,
+        },
+      });
+
       setSuccessModal({ claimRef: displayRef, amount: Number(finalAmount), invoiceNumber, guestEmail: claim.guestEmail || claim.guestId || '' });
       setSelectedClaim(null);
     } catch (err: any) {

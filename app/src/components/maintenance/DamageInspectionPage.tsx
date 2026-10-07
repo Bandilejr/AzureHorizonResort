@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { AlertOctagon, Plus, Trash2, CheckCircle2, AlertCircle, ShieldAlert } from 'lucide-react';
 import { collection, addDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { writeAuditEntry } from '@/services/audit-services';
+import { AUDIT_ACTIONS } from '@/types/index';
 import { useAuth } from '@/hooks/useAuth';
 
 // --- CONSTANT OBJECTS REPLACING ENUMS TO SATISFY ERASABLE SYNTAX ---
@@ -128,7 +130,7 @@ export const DamageInspectionPage: React.FC = () => {
         name: item.description // Maps description to 'name' for the admin view
       }));
 
-      await addDoc(collection(db, 'damage_records'), {
+      const recordRef = await addDoc(collection(db, 'damage_records'), {
         eventId: selectedBookingId,
         bookingRef: selectedBooking?.bookingRef || 'UNKNOWN',
         guestId: selectedBooking?.guestId || 'Unknown',
@@ -144,6 +146,20 @@ export const DamageInspectionPage: React.FC = () => {
         inspectionId: claimRef, // Maps to inspectionId
         createdAt: new Date().toISOString(),
         updatedAt: serverTimestamp()
+      });
+
+      await writeAuditEntry({
+        action: AUDIT_ACTIONS.damageReported,
+        entity: 'damage_records',
+        entityId: recordRef.id,
+        afterStatus: 'reported',
+        summary: `Damage claim ${claimRef} logged for ${selectedBooking?.venueName || 'event venue'}`,
+        metadata: {
+          eventId: selectedBookingId,
+          itemCount: formattedItems.length,
+          claimedCost: totalEstimatedCost,
+          inspectionId: claimRef,
+        },
       });
 
       setSuccessModal({

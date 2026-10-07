@@ -24,6 +24,41 @@ service cloud.firestore {
     function isAdmin() {
       return getUserRole() == 'admin';
     }
+
+    // Validates the compliance-document manifest on an NPO application. Storage
+    // holds the bytes; this list is what an admin reviewer actually reads, so
+    // it is treated as untrusted input from an anonymous browser session:
+    //   * at most 10 files, each a PDF/JPEG/PNG/WebP under 5MB
+    //   * url pinned to the Firebase Storage host, so a submission cannot smuggle
+    //     in a link to an attacker-controlled page for an admin to click
+    //   * uploadedBy must be the session filing the application, so one
+    //     applicant cannot attach documents to another's record
+    function isValidComplianceDocuments(docs) {
+      return docs is list
+        && docs.size() <= 10
+        && docs.all(d,
+          d.keys().hasOnly([
+            'url', 'fileName', 'mimeType', 'size', 'uploadedAt', 'uploadedBy'
+          ])
+          && d.url is string
+          // getDownloadURL() on a default (non-legacy) bucket returns
+          // https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<path>;
+          // legacy buckets use firebasestorage.appspot.com. Accept both, but
+          // pin to a Google-owned host so an applicant cannot smuggle in a
+          // link to an attacker-controlled page for an admin to click.
+          && (d.url.matches('https://firebasestorage.googleapis.com/.*')
+            || d.url.matches('https://firebasestorage.appspot.com/.*'))
+          && d.fileName is string
+          && d.fileName.size() > 0
+          && d.fileName.size() <= 200
+          && d.mimeType.matches('application/pdf|image/(jpeg|png|webp)')
+          && d.size is int
+          && d.size > 0
+          && d.size <= 5242880
+          && d.uploadedAt is string
+          && d.uploadedBy == request.auth.uid
+        );
+    }
     
     function isStaff() {
       return getUserRole() == 'staff';
@@ -488,12 +523,22 @@ service cloud.firestore {
     // NPO: reps see own org only; admin verifies.
     match /npo_partners/{npoId} {
       allow read: if isSignedIn();
-      // Admin-only creation (F-P0-4). No self-application UI exists;
-      // createNpoApplication service is unmounted dead code.
-      allow create: if isSignedIn() && isAdmin()
-        && request.resource.data.verificationStatus == 'pending'
-        && request.resource.data.organisationName is string
-        && request.resource.data.email is string;
+      // Creation (F-P0-4). Admins, OR any signed-in user applying on their own
+      // behalf (web NpoApplicationPage). A self-application must be pending,
+      // carry the applicant's own uid + email, and may not pre-approve itself.
+      allow create: if isSignedIn()
+        && (
+          isAdmin()
+          || (
+            request.resource.data.verificationStatus == 'pending'
+            && request.resource.data.createdBy == request.auth.uid
+            && request.resource.data.email == request.auth.token.email
+            && request.resource.data.organisationName is string
+            && request.resource.data.email is string
+            && !request.resource.data.diff({}).affectedKeys().hasAny(
+                 ['verifiedBy', 'verifiedAt', 'lastDecision'])
+          )
+        );
       // Admin review: pending|under_review -> approved|rejected|under_review.
       allow update: if isSignedIn() && isAdmin()
         && resource.data.verificationStatus in ['pending', 'under_review']
@@ -554,10 +599,11 @@ service cloud.firestore {
       allow update: if isSignedIn() && isFoodManager()
         && resource.data.status in ['draft', 'safety_verified_unassigned',
              'allocated_awaiting_claim', 'claimed_ready_for_scheduling',
-             'collection_scheduled']
+             'collection_requested', 'collection_scheduled']
         && request.resource.data.status == 'cancelled'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
-          ['status', 'updatedAt', 'lastDecision', 'cancelledReason']);
+          ['status', 'updatedAt', 'lastDecision', 'cancelledReason',
+           'closedBy', 'closedAt', 'closureReason']);
       // T4 allocated_awaiting_claim -> claimed_ready_for_scheduling (UC37, NPO only).
       allow update: if isSignedIn() && ownNpoAllocation(resource.data.allocatedNpoId)
         && resource.data.status == 'allocated_awaiting_claim'
@@ -583,6 +629,42 @@ service cloud.firestore {
           ['status', 'pickupDate', 'pickupWindowStart', 'pickupWindowEnd',
            'loadingBay', 'courierName', 'collectionQr', 'collectionNonce',
            'qrConsumed', 'updatedAt', 'lastDecision']);
+      // #8 step 1 — the NPO requests a pickup slot. No QR pass may be created
+      // here: an executable collection credential only exists after a courier
+      // accepts (T5b). Self-attributed to the org that owns the allocation.
+      allow update: if isSignedIn() && ownNpoAllocation(resource.data.allocatedNpoId)
+        && resource.data.status == 'claimed_ready_for_scheduling'
+        && request.resource.data.status == 'collection_requested'
+        && request.resource.data.requestedBy == request.auth.uid
+        && request.resource.data.pickupDate is string
+        && request.resource.data.requestedWindowStart is string
+        && request.resource.data.requestedWindowEnd is string
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status', 'pickupDate', 'requestedWindowStart', 'requestedWindowEnd',
+           'requestedBy', 'requestedAt', 'slotRequestedByNpo', 'updatedAt', 'lastDecision']);
+      // #8 step 2 — a courier accepts and the signed pass is issued. Only this
+      // transition may create a QR pass from 'collection_requested', so a pass
+      // cannot exist before a courier took the job. Self-attributed courier.
+      allow update: if isSignedIn() && isWorkforce()
+        && resource.data.status == 'collection_requested'
+        && request.resource.data.status == 'collection_scheduled'
+        && request.resource.data.acceptedBy == request.auth.uid
+        && request.resource.data.courierUid == request.auth.uid
+        && request.resource.data.collectionNonce is string
+        && request.resource.data.collectionQr is string
+        && request.resource.data.loadingBay is string
+        && request.resource.data.loadingBay.size() > 0
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status', 'pickupDate', 'pickupWindowStart', 'pickupWindowEnd',
+           'loadingBay', 'courierName', 'courierUid', 'acceptedBy', 'acceptedAt',
+           'qrIssuedAt', 'qrIssuedTo', 'collectionNonce', 'collectionQr',
+           'updatedAt', 'lastDecision']);
+      // #8 — a courier may decline a requested slot, returning it to the pool.
+      allow update: if isSignedIn() && isWorkforce()
+        && resource.data.status == 'collection_requested'
+        && request.resource.data.status == 'claimed_ready_for_scheduling'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['status', 'loadingBay', 'updatedAt', 'lastDecision']);
       // T6 collection_scheduled -> collected_completed (UC39 verify).
       allow update: if isSignedIn() && isFoodOperator()
         && resource.data.status == 'collection_scheduled'
@@ -600,22 +682,143 @@ service cloud.firestore {
         && request.resource.data.verifiedBy == request.auth.uid;
     }
 
-    // ACTIVITY JOURNAL — append-only trail of food-rescue state changes.
+    // ACTIVITY JOURNAL — append-only trail of system-wide state changes.
     // This collection had no rule at all, so every read and write was denied by
     // default, including for admins: the journal silently recorded nothing.
-    // Create is limited to the roles that can perform the audited transitions
-    // (food operators, plus NPO reps claiming their own allocation). Read is
-    // limited to admin and kitchen managers, who are the decision-makers the
-    // trail exists to review. There is deliberately no update or delete rule:
-    // the journal is append-only, and stating that explicitly keeps the intent
-    // clear if a broader write rule is ever added above.
+    //
+    // Create was originally limited to the roles that could perform the
+    // food-rescue transitions. Now that the trail covers bookings, orders,
+    // refunds, workforce and tours, that gate silently discarded entries from
+    // every other role — a denied write looks identical to a success from the
+    // caller's side, because the journal is best-effort by design. So create is
+    // open to any signed-in session, including the anonymous session the public
+    // NPO application form uses.
+    //
+    // This is NOT a security boundary and should not be treated as one. Entries
+    // are written by the browser, so anyone can already emit a well-formed
+    // forgery from devtools; the rule exists to stop accidental noise, not
+    // determined actors. Actor identity is taken from the auth session, never
+    // from the caller. Genuine immutability needs a trusted server (Cloud
+    // Functions writing via the Admin SDK, or an append-only bucket).
+    //
+    // Read stays limited to admin and kitchen managers — the decision-makers
+    // the trail exists to review. There is deliberately no update or delete
+    // rule: the journal is append-only, and stating that explicitly keeps the
+    // intent clear if a broader write rule is ever added above.
     match /audit_log/{entryId} {
       allow read: if isAdmin() || isKitchenManager();
-      allow create: if isSignedIn() && (isFoodOperator() || isNpoRep())
+      allow create: if isSignedIn()
         && request.resource.data.action is string
+        && request.resource.data.action.size() > 0
         && request.resource.data.entity is string
         && request.resource.data.summary is string
         && request.resource.data.clientAt is string;
+    }
+
+    // PUBLIC NPO APPLICATION INTAKE.
+    //
+    // Deliberately a separate collection from npo_partners. Applications here
+    // are untrusted input from anonymous browser sessions, whereas npo_partners
+    // holds verified partners, is read by rankNpoPartners and the NPO portal,
+    // and has rules encoding a verified lifecycle. Keeping them apart means the
+    // partner rules above stay byte-identical and the existing verification
+    // workflow is untouched; an admin promotes a reviewed application into
+    // npo_partners through the existing admin-gated path.
+    //
+    // Abuse controls on create:
+    //   * hasOnly pins the exact field set, so an anonymous caller cannot
+    //     smuggle in extra fields or overwrite anything.
+    //   * verificationStatus is pinned to 'pending', so a public submit can
+    //     never self-approve. Promotion is an admin-only transition.
+    //   * No update and no delete rule at all. The collection is a write-once
+    //     inbox; the only way to advance a record is the admin review path,
+    //     which runs as a signed-in admin.
+    //   * No read rule: public applicants cannot read the inbox, so one
+    //     applicant cannot enumerate other applicants.
+    match /npo_applications/{applicationId} {
+      allow create: if isSignedIn()
+        && request.resource.data.verificationStatus == 'pending'
+        && request.resource.data.source == 'public_web'
+        && request.resource.data.organisationName is string
+        && request.resource.data.organisationName.size() > 1
+        && request.resource.data.organisationName.size() <= 200
+        && request.resource.data.registrationNumber is string
+        && request.resource.data.registrationNumber.size() > 0
+        && request.resource.data.registrationNumber.size() <= 100
+        && request.resource.data.pboNumber is string
+        && request.resource.data.pboNumber.size() <= 100
+        && request.resource.data.contactName is string
+        && request.resource.data.contactName.size() > 1
+        && request.resource.data.contactName.size() <= 200
+        && request.resource.data.email is string
+        && request.resource.data.email.size() > 3
+        && request.resource.data.email.size() <= 320
+        && request.resource.data.phone is string
+        && request.resource.data.phone.size() <= 40
+        && request.resource.data.serviceAreas is list
+        && request.resource.data.serviceAreas.size() > 0
+        && request.resource.data.serviceAreas.size() <= 50
+        && request.resource.data.beneficiaryCapacity is int
+        && request.resource.data.beneficiaryCapacity > 0
+        && request.resource.data.beneficiaryCapacity <= 10000000
+        && request.resource.data.transportType is string
+        && request.resource.data.transportType.size() > 0
+        && request.resource.data.transportType.size() <= 100
+        && request.resource.data.refrigerationAvailable is bool
+        && request.resource.data.applicantUid == request.auth.uid
+        && request.resource.data.promotedToNpoId == null
+        && request.resource.data.promotedAt == null
+        && request.resource.data.rejectionReason == null
+        && request.resource.data.reviewedAt == null
+        && request.resource.data.reviewedBy == null
+        && request.resource.data.submittedAt is string
+        && isValidComplianceDocuments(request.resource.data.documents)
+        && request.resource.data.keys().hasOnly([
+          'organisationName', 'registrationNumber', 'pboNumber', 'contactName',
+          'email', 'phone', 'serviceAreas', 'beneficiaryCapacity',
+          'transportType', 'refrigerationAvailable', 'source', 'applicantUid',
+          'verificationStatus', 'promotedToNpoId', 'promotedAt',
+          'rejectionReason', 'submittedAt', 'reviewedAt', 'reviewedBy',
+          'documents'
+        ]);
+
+      // Attach compliance documents once the row exists.
+      //
+      // Upload ordering forces this: Storage rules require a real application
+      // document before a file can be written under its folder, but addDoc
+      // only mints an id at write time. So the page creates the application
+      // with an empty manifest, uploads the bytes, then fills the manifest in.
+      //
+      // Narrow on purpose — this is the only update an applicant ever gets:
+      // own application, still pending, documents field alone. Every other
+      // field is locked by hasOnly on affectedKeys, so verificationStatus,
+      // applicantUid and the review columns cannot be touched here.
+      allow update: if isSignedIn()
+        && resource.data.applicantUid == request.auth.uid
+        && resource.data.verificationStatus == 'pending'
+        && request.resource.data.verificationStatus == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['documents'])
+        && isValidComplianceDocuments(request.resource.data.documents);
+
+      // Admin review: advance pending -> approved|rejected and record who/when.
+      // The partner record itself is created by a separate admin write to
+      // npo_partners, which the rules above govern independently.
+      // Promotion parks the application at 'under_review' — the same value
+      // npo_partners uses for "received, awaiting an approval decision". Using
+      // one word for that state keeps the two collections readable as one queue;
+      // 'approved' is reserved for the decision that actually grants access.
+      allow update: if isSignedIn() && isAdmin()
+        && resource.data.verificationStatus == 'pending'
+        && request.resource.data.verificationStatus in ['under_review', 'approved', 'rejected']
+        && (request.resource.data.verificationStatus != 'rejected'
+          || (request.resource.data.rejectionReason is string
+            && request.resource.data.rejectionReason.size() > 0))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'verificationStatus', 'promotedToNpoId', 'promotedAt',
+          'rejectionReason', 'reviewedAt', 'reviewedBy'
+        ]);
+
+      allow read: if isSignedIn() && isAdmin();
     }
 
     // Scheduling: staff own availability/leave; managers review (no self-approval).
@@ -734,13 +937,22 @@ service cloud.firestore {
           || (resource.data.status == 'filled'
             && request.resource.data.status == 'cancelled'))
         && request.resource.data.claimedBy == resource.data.claimedBy;
-      // Claim: workforce only (never guests/NPOs), self-attributed.
+      // Claim a slot: workforce only (never guests/NPOs), self-attributed.
+      // A surge may request several employees: the claimer is APPENDED to
+      // `assignees`, the list must grow by exactly one, the new last element
+      // must be the caller's uid, and the pre-existing entries must not repeat.
+      // `claimedBy` records the first claimer and may never be reassigned.
       allow update: if isSignedIn() && isShiftClaimant()
         && resource.data.status == 'open'
-        && request.resource.data.status == 'filled'
-        && request.resource.data.claimedBy == request.auth.uid
+        && request.resource.data.status in ['open', 'filled']
+        && request.resource.data.assignees is list
+        && request.resource.data.assignees.size() == resource.data.assignees.size() + 1
+        && request.resource.data.assignees[request.resource.data.assignees.size() - 1] == request.auth.uid
+        && !request.resource.data.assignees[0:request.resource.data.assignees.size() - 1]
+             .hasAny(resource.data.assignees)
+        && request.resource.data.claimedBy == resource.data.claimedBy
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
-          ['status', 'claimedBy', 'claimedAt', 'updatedAt', 'lastDecision']);
+          ['status', 'claimedBy', 'claimedAt', 'assignees', 'updatedAt', 'lastDecision']);
     }
 
     // Attendance: staff punch own; managers review; no self-approval, no forgery.

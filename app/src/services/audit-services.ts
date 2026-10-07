@@ -45,54 +45,90 @@ export interface AuditInput {
 const nowIso = () => new Date().toISOString();
 
 /**
+ * Shared append path: resolve the chain head, digest, write. Never throws.
+ * `actor` is passed in rather than read here so the two callers cannot
+ * disagree about where identity comes from.
+ */
+async function appendEntry(actor: { id: string | null; email: string | null }, input: AuditInput): Promise<void> {
+  const clientAt = nowIso();
+
+  // Chain head lookup is best-effort: if it fails the entry is still recorded,
+  // just unlinked (prevHash null), which verifyAuditChain surfaces explicitly.
+  let prevHash: string | null = null;
+  try {
+    const head = await getDocs(
+      query(collection(db, AUDIT_COLLECTION), orderBy('clientAt', 'desc'), limit(1)),
+    );
+    prevHash = (head.docs[0]?.data() as { hash?: string } | undefined)?.hash ?? null;
+  } catch {
+    prevHash = null;
+  }
+
+  const body = {
+    actorId: actor.id,
+    actorEmail: actor.email,
+    actorRole: input.actorRole ?? null,
+    action: input.action,
+    entity: input.entity,
+    entityId: input.entityId ?? null,
+    beforeStatus: input.beforeStatus ?? null,
+    afterStatus: input.afterStatus ?? null,
+    summary: input.summary,
+    metadata: input.metadata ?? null,
+    clientAt,
+    prevHash,
+  };
+
+  let hash: string | null = null;
+  try {
+    hash = await computeEntryHash(body, prevHash);
+  } catch {
+    hash = null;
+  }
+
+  await addDoc(collection(db, AUDIT_COLLECTION), {
+    ...body,
+    hash,
+    occurredAt: serverTimestamp(),
+  });
+}
+
+/**
  * Appends one journal entry. Resolves once the write settles; never rejects.
  */
 export async function writeAuditEntry(input: AuditInput): Promise<void> {
   try {
     const user = auth.currentUser;
-    const clientAt = nowIso();
-
-    // Chain head lookup is best-effort: if it fails the entry is still recorded,
-    // just unlinked (prevHash null), which verifyAuditChain surfaces explicitly.
-    let prevHash: string | null = null;
-    try {
-      const head = await getDocs(
-        query(collection(db, AUDIT_COLLECTION), orderBy('clientAt', 'desc'), limit(1)),
-      );
-      prevHash = (head.docs[0]?.data() as { hash?: string } | undefined)?.hash ?? null;
-    } catch {
-      prevHash = null;
-    }
-
-    const body = {
-      actorId: user?.uid ?? null,
-      actorEmail: user?.email ?? null,
-      actorRole: input.actorRole ?? null,
-      action: input.action,
-      entity: input.entity,
-      entityId: input.entityId ?? null,
-      beforeStatus: input.beforeStatus ?? null,
-      afterStatus: input.afterStatus ?? null,
-      summary: input.summary,
-      metadata: input.metadata ?? null,
-      clientAt,
-      prevHash,
-    };
-
-    let hash: string | null = null;
-    try {
-      hash = await computeEntryHash(body, prevHash);
-    } catch {
-      hash = null;
-    }
-
-    await addDoc(collection(db, AUDIT_COLLECTION), {
-      ...body,
-      hash,
-      occurredAt: serverTimestamp(),
-    });
+    await appendEntry({ id: user?.uid ?? null, email: user?.email ?? null }, input);
   } catch {
     /* journal is best-effort; never fail the caller's business operation */
+  }
+}
+
+/**
+ * Seed-only backfill so the trail reflects demo records that were written
+ * directly rather than through instrumented services.
+ *
+ * There is no caller-supplied actor: every entry is stamped role 'seed' with a
+ * null actor id/email, because attributing a synthetic entry to a real person
+ * would be a lie the admin UI cannot distinguish from a genuine write. Entries
+ * are tagged metadata.seeded so they can be told apart from real activity.
+ * Resolves once all writes settle; never rejects.
+ */
+export async function writeSeedAuditEntries(inputs: AuditInput[]): Promise<void> {
+  for (const input of inputs) {
+    try {
+      await appendEntry(
+        { id: null, email: null },
+        {
+          ...input,
+          actorRole: 'seed',
+          metadata: { ...(input.metadata ?? {}), seeded: true },
+        },
+      );
+    } catch {
+      /* best-effort, same posture as writeAuditEntry */
+    }
   }
 }
 

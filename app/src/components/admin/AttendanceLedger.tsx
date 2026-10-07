@@ -2,8 +2,6 @@
 // Punches stay on device + punch_records (geofence flags, never auto-rejects);
 // this board derives exceptions vs shift_rosters and records verified hours with audit.
 import { useEffect, useRef, useState } from 'react';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,10 +9,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertModal } from '@/components/ui/AlertModal';
+import { writeAuditEntry } from '@/services/audit-services';
+import { AUDIT_ACTIONS } from '@/types/index';
 import { Loader2, ClipboardCheck } from 'lucide-react';
 import {
   listenPunchRecords, listenShiftRosters, listenAttendanceExceptions,
-  deriveAttendanceExceptions, reviewAttendanceException, notifyUser,
+  deriveAttendanceExceptions, reviewAttendanceException, createVerifiedAttendanceException,
+  notifyUser,
 } from '@/services/increment2-services';
 import { formatStatus } from '@/utils/statusLabels';
 import type { ShiftRoster, AttendanceException } from '@/types/increment2';
@@ -57,6 +58,21 @@ export function AttendanceLedger() {
         userId: d.staffId, type: 'attendance_flagged', title: 'Attendance flagged for review',
         message: `${d.exceptionType} recorded — a manager will review your attendance.`,
       }).catch(() => { /* best-effort */ });
+      // Derived flags are advisory only; the authoritative decision is the
+      // verified record written below, so this entry only records the flag.
+      writeAuditEntry({
+        action: AUDIT_ACTIONS.attendanceExceptionRaised,
+        entity: 'attendance_exceptions',
+        entityId: `${d.staffId}|${d.clockInAt || ''}`,
+        afterStatus: 'exception_review',
+        summary: `${d.exceptionType} flagged for ${d.staffName || d.staffId}`,
+        metadata: {
+          staffId: d.staffId,
+          shiftId: d.shiftId ?? null,
+          clockInAt: d.clockInAt ?? null,
+          hoursWorked: d.hoursWorked ?? null,
+        },
+      }).catch(() => { /* best-effort */ });
     }
   }, [derived]);
 
@@ -68,23 +84,27 @@ export function AttendanceLedger() {
     }
     setBusy(true);
     try {
-      const now = new Date().toISOString();
       if (selected.existingDocId) {
         await reviewAttendanceException({
           exceptionDocId: selected.existingDocId, reviewerUid: staffId,
           approve: true, adjustedHours: hours ? Number(hours) : undefined, reason,
         });
       } else {
-        const originalValue = JSON.stringify({ hoursWorked: selected.hoursWorked, reviewStatus: 'exception_review' });
-        await addDoc(collection(db, 'attendance_exceptions'), {
-          staffId: selected.staffId, staffName: selected.staffName || null,
-          shiftId: selected.shiftId || null, rosterId: selected.rosterId || null,
-          clockInAt: selected.clockInAt || null, clockOutAt: selected.clockOutAt || null,
-          hoursWorked: hours ? Number(hours) : selected.hoursWorked ?? null,
-          exceptionType: selected.exceptionType, reviewStatus: 'verified',
-          adjustedBy: staffId, adjustedAt: now, adjustmentReason: reason,
-          originalValue, newValue: JSON.stringify({ hoursWorked: hours ? Number(hours) : selected.hoursWorked, reviewStatus: 'verified' }),
-          createdAt: now, timestamp: serverTimestamp(),
+        // Goes through the service (not addDoc) so the manager check,
+        // self-approval guard and audit entry all apply.
+        await createVerifiedAttendanceException({
+          seed: {
+            staffId: selected.staffId,
+            staffName: selected.staffName,
+            shiftId: selected.shiftId,
+            rosterId: selected.rosterId,
+            clockInAt: selected.clockInAt,
+            clockOutAt: selected.clockOutAt,
+            hoursWorked: selected.hoursWorked,
+            exceptionType: selected.exceptionType as AttendanceException['exceptionType'],
+          },
+          hoursWorked: hours ? Number(hours) : undefined,
+          reason,
         });
       }
       setSelected(null); setHours(''); setReason('');

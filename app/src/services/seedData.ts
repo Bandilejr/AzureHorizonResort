@@ -3,6 +3,9 @@ import { doc, setDoc, collection, addDoc, getDocs, getDoc, deleteDoc, query, whe
 import { ref, set } from 'firebase/database';
 import { seedTables } from './tableSeedData';
 import { signQrPayload } from './qr-signing';
+import { writeSeedAuditEntries, type AuditInput } from './audit-services';
+import { AUDIT_ACTIONS } from '../types/index';
+import type { AuditAction } from '../types/index';
 
 // ==========================================
 // ONLINE IMAGE LIBRARY (Unsplash CDN)
@@ -1146,15 +1149,16 @@ export const seedDatabase = async (opts: { silent?: boolean } = {}) => {
       publishedAt: new Date().toISOString(), publishedBy: 'bandile_maqeda',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
-    await addDoc(collection(db, 'shift_swaps'), {
+    const swapRef = await addDoc(collection(db, 'shift_swaps'), {
       requesterStaffId: 'sibusiso_khoza', requesterShiftId: 'SH-SEED-01',
       targetStaffId: 'marco_rossi', targetShiftId: 'SH-SEED-02', rosterId: rosterRef.id,
       status: 'pending_peer', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
-    for (const os of [
+    const seedOpenShifts = [
       { shiftId: 'OS-SEED-01', department: 'Food & Beverage', date: dayStr(3), startTime: '18:00', endTime: '23:00', role: 'chef', requiredSkill: 'hot-kitchen', hours: 5, urgency: 'urgent', status: 'open' },
       { shiftId: 'OS-SEED-02', department: 'Front Office', date: dayStr(4), startTime: '08:00', endTime: '14:00', role: 'front_desk', requiredSkill: 'check-in', hours: 6, urgency: 'normal', status: 'open' },
-    ]) {
+    ];
+    for (const os of seedOpenShifts) {
       await addDoc(collection(db, 'open_shifts'), { ...os, rosterId: rosterRef.id, createdAt: new Date().toISOString(), createdBy: 'bandile_maqeda' });
     }
     await addDoc(collection(db, 'punch_records'), {
@@ -1172,6 +1176,203 @@ export const seedDatabase = async (opts: { silent?: boolean } = {}) => {
       createdAt: new Date(Date.now() - 1 * 86400000).toISOString(),
     });
     console.log(`✅ Added workforce seed: availability, leave, roster, swap, open shifts, punches, exception`);
+
+    // ==========================================
+    // 22. AUDIT BACKFILL FOR SEEDED RECORDS
+    // ==========================================
+    // These records were written directly above rather than through the
+    // instrumented services, so the journal knows nothing about them. Emit one
+    // entry per meaningful seeded state so the trail is not misleadingly empty
+    // on a fresh database. Guarded by a dated marker because the journal is
+    // append-only (there is no delete rule) — reseeding must not duplicate.
+    //
+    // clientAt on these entries is the backfill time, not the historical date of
+    // the record: the journal is hash-chained and sorted by clientAt, so writing
+    // a fabricated past timestamp would corrupt the chain's ordering claims. The
+    // real dates live in each entry's summary/metadata instead.
+    try {
+      const marker = await getDoc(doc(db, 'meta', 'auditSeed'));
+      if (marker.exists() && marker.data()?.lastAuditSeedDate === todayStr) {
+        console.log('📅 Audit backfill already run for', todayStr);
+      } else {
+        const entries: AuditInput[] = [];
+
+        for (const b of bookings) {
+          entries.push({
+            action: AUDIT_ACTIONS.bookingCreated,
+            entity: 'bookings',
+            entityId: b.id,
+            afterStatus: b.status,
+            summary: `Booking ${b.id} seeded for ${b.guestName} in room ${b.roomNumber}`,
+            metadata: { roomNumber: b.roomNumber, totalAmount: b.totalAmount, paymentStatus: b.paymentStatus },
+          });
+          if (b.status === 'checked_in') {
+            entries.push({
+              action: AUDIT_ACTIONS.bookingCheckedIn,
+              entity: 'bookings',
+              entityId: b.id,
+              beforeStatus: 'confirmed',
+              afterStatus: 'checked_in',
+              summary: `${b.guestName} checked in to room ${b.roomNumber}`,
+              metadata: { roomNumber: b.roomNumber },
+            });
+          }
+          if (b.status === 'checked_out') {
+            entries.push({
+              action: AUDIT_ACTIONS.bookingCheckedOut,
+              entity: 'bookings',
+              entityId: b.id,
+              beforeStatus: 'checked_in',
+              afterStatus: 'checked_out',
+              summary: `${b.guestName} checked out of room ${b.roomNumber}`,
+              metadata: { roomNumber: b.roomNumber, balanceDue: b.balanceDue },
+            });
+          }
+        }
+
+        for (const inc of incidentals) {
+          entries.push({
+            action: AUDIT_ACTIONS.roomChargeAdded,
+            entity: 'incidental_charges',
+            entityId: inc.bookingId,
+            summary: `Charge added to booking ${inc.bookingId}: ${inc.description}`,
+            metadata: { bookingId: inc.bookingId, amount: inc.amount, description: inc.description },
+          });
+        }
+
+        for (const req of serviceRequests) {
+          entries.push({
+            action: AUDIT_ACTIONS.serviceRequestRaised,
+            entity: 'service_requests',
+            entityId: req.id,
+            afterStatus: 'pending',
+            summary: `${req.type} request raised in room ${req.roomNumber}: ${req.description}`,
+            metadata: { roomNumber: req.roomNumber, priority: req.priority },
+          });
+          if (req.status === 'completed') {
+            entries.push({
+              action: AUDIT_ACTIONS.serviceRequestResolved,
+              entity: 'service_requests',
+              entityId: req.id,
+              beforeStatus: 'in_progress',
+              afterStatus: 'completed',
+              summary: `Service request ${req.id} completed`,
+              metadata: { assignedTo: req.assignedTo },
+            });
+          }
+        }
+
+        for (const npo of seedNpos) {
+          if (npo.verificationStatus === 'approved') {
+            entries.push({
+              action: AUDIT_ACTIONS.npoApproved,
+              entity: 'npo_partners',
+              entityId: npo.npoId,
+              beforeStatus: 'under_review',
+              afterStatus: 'approved',
+              summary: `${npo.organisationName} approved as an NPO partner`,
+              metadata: { registrationNumber: npo.registrationNumber, serviceAreas: npo.serviceAreas },
+            });
+          }
+          // The pending partner is deliberately not recorded: no decision has
+          // happened yet, and inventing one would misstate the ledger.
+        }
+
+        const BATCH_ACTION: Record<string, AuditAction> = {
+          safety_verified_unassigned: AUDIT_ACTIONS.donationCertified,
+          allocated_awaiting_claim: AUDIT_ACTIONS.donationAllocated,
+          claimed_ready_for_scheduling: AUDIT_ACTIONS.donationClaimed,
+          collection_scheduled: AUDIT_ACTIONS.collectionScheduled,
+          collected_completed: AUDIT_ACTIONS.collectionCompleted,
+        };
+        for (const b of seedBatches) {
+          const action = BATCH_ACTION[String(b.status)];
+          if (!action) continue;
+          entries.push({
+            action,
+            entity: 'donation_batches',
+            entityId: batchDocIds[b.batchId] ?? b.batchId,
+            afterStatus: String(b.status),
+            summary: `${b.batchId}: ${b.itemName} (${b.portionCount} portions, ${b.estimatedWeightKg}kg)`,
+            metadata: { batchId: b.batchId, allocatedNpoId: (b as Record<string, unknown>).allocatedNpoId ?? null },
+          });
+        }
+        // DON-SEED-06 was created unscheduled and then moved by updateDoc, so it
+        // is not in seedBatches but has a real collection window worth recording.
+        entries.push({
+          action: AUDIT_ACTIONS.collectionScheduled,
+          entity: 'donation_batches',
+          entityId: schedRef.id,
+          beforeStatus: 'claimed_ready_for_scheduling',
+          afterStatus: 'collection_scheduled',
+          summary: 'DON-SEED-06: Lamb biryani trays collection scheduled for today, Bay A',
+          metadata: { batchId: 'DON-SEED-06', npoId: 'NPO-DURBAN-CARE', loadingBay: 'Bay A' },
+        });
+
+        entries.push({
+          action: AUDIT_ACTIONS.rosterPublished,
+          entity: 'shift_rosters',
+          entityId: rosterRef.id,
+          afterStatus: 'published',
+          summary: `Roster published for Food & Beverage, week of ${todayStr}`,
+          metadata: { weekStart: todayStr, shiftCount: 4 },
+        });
+        entries.push({
+          action: AUDIT_ACTIONS.shiftSwapRequested,
+          entity: 'shift_swaps',
+          entityId: swapRef.id,
+          afterStatus: 'pending_peer',
+          summary: 'Chef Sibusiso Khoza requested a shift swap with Chef Marco Rossi',
+          metadata: { rosterId: rosterRef.id },
+        });
+        for (const os of seedOpenShifts) {
+          entries.push({
+            action: AUDIT_ACTIONS.openShiftCreated,
+            entity: 'open_shifts',
+            entityId: os.shiftId,
+            afterStatus: 'open',
+            summary: `Open shift posted: ${os.role}, ${os.date} ${os.startTime}–${os.endTime}`,
+            metadata: { department: os.department, urgency: os.urgency },
+          });
+        }
+        entries.push({
+          action: AUDIT_ACTIONS.leaveApproved,
+          entity: 'leave_requests',
+          entityId: 'seed-elena-meyer',
+          beforeStatus: 'pending',
+          afterStatus: 'approved',
+          summary: 'Elena Meyer annual leave approved',
+          metadata: { staffId: 'elena_meyer', dates: `${dayStr(14)} → ${dayStr(16)}` },
+        });
+        entries.push({
+          action: AUDIT_ACTIONS.leaveRequested,
+          entity: 'leave_requests',
+          entityId: 'seed-marco-rossi',
+          afterStatus: 'pending',
+          summary: 'Chef Marco Rossi sick leave requested, awaiting review',
+          metadata: { staffId: 'marco_rossi', dates: `${dayStr(3)} → ${dayStr(4)}` },
+        });
+        entries.push({
+          action: AUDIT_ACTIONS.attendanceExceptionRaised,
+          entity: 'attendance_exceptions',
+          entityId: 'seed-marco-rossi-late',
+          afterStatus: 'exception_review',
+          summary: 'late_arrival flagged for Chef Marco Rossi, awaiting review',
+          metadata: { staffId: 'marco_rossi', hoursWorked: 8 },
+        });
+
+        await writeSeedAuditEntries(entries);
+        await setDoc(doc(db, 'meta', 'auditSeed'), {
+          lastAuditSeedDate: todayStr,
+          lastAuditSeedAt: new Date().toISOString(),
+          entryCount: entries.length,
+        });
+        console.log(`📝 Backfilled ${entries.length} audit entries for seeded records`);
+      }
+    } catch (err) {
+      // The trail is best-effort; a failed backfill must not fail the seed.
+      console.warn('Audit backfill skipped:', err);
+    }
 
     await setDoc(doc(db, 'meta', 'seedMarker'), {
       lastSeedDate: todayStr,

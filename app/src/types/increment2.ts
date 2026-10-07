@@ -53,6 +53,53 @@ export interface FileMeta {
   uploadedBy: string;
 }
 
+/**
+ * Public NPO application, submitted from the unauthenticated /npo-apply page.
+ *
+ * Deliberately a separate record type from NpoPartner. Public intake is
+ * untrusted input from anonymous Firebase sessions, so it lands in its own
+ * collection where the security rules can be narrow (create-only, fixed field
+ * set, no update) without loosening the rules that govern verified partner
+ * records. An admin promotes a reviewed application into `npo_partners`, which
+ * reuses the existing admin-gated createNpoApplication path unchanged.
+ */
+export interface NpoApplication {
+  id: string;
+  organisationName: string;
+  registrationNumber: string;
+  pboNumber: string;
+  contactName: string;
+  email: string;
+  phone: string;
+  /** Comma-separated on entry; stored as an array. Drives rankNpoPartners. */
+  serviceAreas: string[];
+  beneficiaryCapacity: number;
+  transportType: string;
+  refrigerationAvailable: boolean;
+  /** How the application reached the resort. */
+  source: ApplicationSource;
+  /** Anonymous Firebase uid, or null when the session was lost before submit. */
+  applicantUid: string | null;
+  /** Always 'pending' on create; advanced by the admin promote/reject flow. */
+  verificationStatus: NpoVerificationStatus;
+  /** Set when an admin promotes this into npo_partners. */
+  promotedToNpoId: string | null;
+  promotedAt: string | null;
+  rejectionReason: string | null;
+  submittedAt: string;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+  /**
+   * Manifest of compliance documents attached at submission. Storage holds the
+   * bytes under npo_applications/{id}/documents/; this is what the reviewer
+   * sees. Empty when the applicant attached nothing, or when every upload
+   * failed while the application itself was still created.
+   */
+  documents: FileMeta[];
+}
+
+export type ApplicationSource = 'public_web' | 'admin_walk_in';
+
 export interface AuditDecision {
   performedBy: string;
   performedAt: string;
@@ -74,6 +121,12 @@ export interface NpoPartner {
   transportType: string;
   refrigerationAvailable: boolean;
   complianceDocuments: FileMeta[];
+  /**
+   * Set when this partner was created by promoting a public application, holding
+   * that npo_applications doc id. Makes the intake -> verification handoff
+   * traceable in the admin queue; absent for walk-ins recorded directly.
+   */
+  sourceApplicationId?: string;
   verificationStatus: NpoVerificationStatus;
   rejectionReason?: string;
   verifiedBy?: string;
@@ -257,16 +310,107 @@ export interface AttendanceException {
   createdAt: string;
 }
 
-// Impact calculation constants — labelled estimates, never magic numbers elsewhere.
-export const IMPACT_MEALS_PER_KG = 2.5;
-export const IMPACT_CARBON_KG_PER_KG = 2.5;
+// ---------- Impact reporting ----------
+//
+// Two different kinds of number live in the impact report, and they must not be
+// confused. The distinction is carried in the field names and in
+// ImpactReport.assumptions, which the report and the PDF both print.
+//
+// MEASURED — read straight from operational records, no assumption applied:
+//   weight, batches, portion counts, collection confirmations, seal checks.
+//
+// MODELLED — a measurement multiplied by an assumed factor:
+//   carbon avoided. The app records no CO2e per batch, so this is the one
+//   figure that cannot be derived from the data and depends entirely on the
+//   emission factor below.
+//
+// Meals are MEASURED, not modelled. DonationBatch.portionCount is entered by
+// the kitchen when the batch is created and safety-verified, so "meals
+// provided" sums real portion counts. It used to be kg x IMPACT_MEALS_PER_KG,
+// which discarded a recorded number and invented one in its place.
+
+// Fallback meals-per-kg for a legacy batch that predates portionCount, or one
+// where the field is missing. Only used when a batch reports no portions.
+export const FALLBACK_MEALS_PER_KG = 2.5;
+
+// Emission factor for avoided greenhouse-gas emissions, kg CO2e avoided per kg
+// of food rescued.
+//
+// THIS IS AN ASSUMPTION, NOT A MEASUREMENT, and it is the single largest
+// source of uncertainty in the report. It is a single blended figure covering
+// food that would otherwise be landfilled or, for some categories, composted;
+// it does not vary by mealCategory, transport mode, or whether the food was
+// edible surplus versus unavoidable waste.
+//
+// Before any figure derived from this is published externally, replace it with
+// a factor from a cited source and record that source in the comment below.
+// Changing this constant changes every historical report's rendered number, so
+// past PDFs retain the factor that was in force when they were generated — see
+// ImpactReport.assumptions, which is snapshotted per report for that reason.
+export const EMISSION_KG_CO2E_PER_KG = 2.5;
+
+/**
+ * Emission-factor provenance. Printed in the PDF so a reader can tell what the
+ * carbon figure rests on rather than being handed a bare number.
+ */
+export const EMISSION_FACTOR_PROVENANCE = {
+  factor: EMISSION_KG_CO2E_PER_KG,
+  unit: 'kg CO2e avoided per kg of food rescued',
+  basis: 'Operator-set planning estimate. No external dataset is currently cited.',
+  /** False until a sourced factor replaces the placeholder. */
+  externallySourced: false,
+} as const;
 
 export interface ImpactReport {
   periodStart: string; periodEnd: string;
-  totalDonatedKg: number; totalCollectedKg: number;
-  mealsDiverted: number; carbonOffsetKg: number;
+
+  // --- Measured ---
+  /** Sum of estimatedWeightKg over batches created in the period. */
+  totalDonatedKg: number;
+  /**
+   * Weight covered by an actual collection confirmation, not merely a batch
+   * status. See confirmedCollectedKg for the reconciled figure.
+   */
+  totalCollectedKg: number;
+  /** Sum of portionCount over collected batches. Measured, not modelled. */
+  mealsDiverted: number;
   npoCount: number; batchCount: number; completionRate: number;
-  byNpo: Array<{ npoId: string; batches: number; kg: number; meals: number }>;
+  /** Collection confirmations recorded in the period. */
+  confirmedCollections: number;
+  /** Weight of batches confirmed collected via a checkin record. */
+  confirmedCollectedKg: number;
+  /**
+   * Weight of batches marked collected_completed but with no matching
+   * confirmation. Non-zero means the two records disagree, which for a
+   * food-safety audit is the number worth looking at first.
+   */
+  unverifiedCollectedKg: number;
+  /** Collections where the seal was checked. */
+  sealVerifiedCollections: number;
+  /** Collections scanned offline and reconciled later. */
+  offlineScannedCollections: number;
+  /** Mean hours from a batch's expiry to its collection confirmation. */
+  avgHoursToCollection: number | null;
+
+  // --- Modelled ---
+  /** modelled: measured kg x EMISSION_KG_CO2E_PER_KG. */
+  carbonOffsetKg: number;
+
+  /** Snapshot of the factors used, so a rendered report stays self-describing. */
+  assumptions: {
+    emissionKgCo2ePerKg: number;
+    emissionFactorBasis: string;
+    /** True when any collected batch lacked portionCount and used the fallback. */
+    mealsFallbackUsed: boolean;
+    /** True when carbon is reported from an unsourced operator-set factor. */
+    carbonIsUnsourcedEstimate: boolean;
+  };
+
+  byNpo: Array<{
+    npoId: string; batches: number; kg: number; meals: number;
+    /** Collection confirmations attributed to this NPO. */
+    confirmations: number;
+  }>;
 }
 
 export type Increment2Permission =

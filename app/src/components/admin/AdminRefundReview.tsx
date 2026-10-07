@@ -6,6 +6,8 @@ import {
 import { db } from '@/services/firebase-services';
 import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import emailjs from '@emailjs/browser';
+import { writeAuditEntry } from '@/services/audit-services';
+import { AUDIT_ACTIONS } from '@/types/index';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -130,6 +132,23 @@ export function AdminRefundReview() {
         actionType === 'Approve' ? finalAmount : 0,
         actionType === 'Decline' ? declineReason : 'Your refund has been approved and is being processed.'
       );
+
+      await writeAuditEntry({
+        action: actionType === 'Approve' ? AUDIT_ACTIONS.refundApproved : AUDIT_ACTIONS.refundDeclined,
+        entity: 'refund_requests',
+        entityId: activeRequest.id,
+        beforeStatus: 'pending',
+        afterStatus: newStatus,
+        summary: actionType === 'Approve'
+          ? `Refund of R ${finalAmount.toLocaleString()} approved for ${activeRequest.guestEmail}`
+          : `Refund request declined for ${activeRequest.guestEmail}`,
+        metadata: {
+          requestedAmount: activeRequest.requestedAmount || 0,
+          approvedAmount: actionType === 'Approve' ? finalAmount : 0,
+          reason: actionType === 'Decline' ? declineReason : 'Approved standard refund.',
+          eventId: activeRequest.eventId || null,
+        },
+      });
 
       window.alert(`Refund request successfully ${newStatus}!`);
       
