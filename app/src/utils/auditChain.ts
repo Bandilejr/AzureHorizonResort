@@ -78,7 +78,17 @@ export function computeEntryHash(entry: HashableEntry, prevHash: string | null):
  * policy. Not implemented; see the Activity Trail copy for the honest wording.
  */
 export async function verifyAuditChain(entries: AuditEntry[]): Promise<AuditChainResult> {
-  const ordered = [...entries].sort((a, b) => String(a.clientAt).localeCompare(String(b.clientAt)));
+  // Entries sharing a clientAt millisecond have no defined order, so sorting by
+  // that field alone can order them differently from the order they were
+  // written in. Two writers that resolve the same chain head — concurrent tabs,
+  // a retried write, a loop appending several entries at once — each link to the
+  // correct predecessor, and the fork is invisible unless those entries keep
+  // their document ids, which are assigned in write order. Sort by id as the
+  // tiebreak so a same-millisecond group is walked in the order it was written.
+  const ordered = [...entries].sort((a, b) => {
+    const byTime = String(a.clientAt).localeCompare(String(b.clientAt));
+    return byTime !== 0 ? byTime : String(a.id).localeCompare(String(b.id));
+  });
   let prev: string | null = null;
   for (let i = 0; i < ordered.length; i++) {
     const e = ordered[i];

@@ -14,6 +14,8 @@ import {
   Loader2, ScrollText, ShieldCheck, ShieldAlert, RefreshCw, Download, Layers,
 } from 'lucide-react';
 import { listenAuditEntries, verifyAuditChain } from '@/services/audit-services';
+import { buildDerivedTimeline } from '@/services/derivedTimeline';
+import type { DerivedEntry } from '@/services/derivedTimeline';
 import { formatStatus } from '@/utils/statusLabels';
 import {
   AUDIT_ACTIONS, AUDIT_SECTIONS, auditSectionFor,
@@ -51,7 +53,7 @@ function csvCell(value: unknown): string {
 }
 
 function toCsv(entries: AuditEntry[]): string {
-  const header = ['when', 'section', 'action', 'entity', 'entityId', 'beforeStatus', 'afterStatus', 'actorEmail', 'actorId', 'actorRole', 'summary', 'metadata', 'hash'];
+  const header = ['when', 'section', 'action', 'entity', 'entityId', 'beforeStatus', 'afterStatus', 'actorEmail', 'actorId', 'actorRole', 'summary', 'metadata', 'hash', 'source'];
   const rows = entries.map((e) => [
     e.clientAt,
     auditSectionFor(e.action) ?? '',
@@ -66,6 +68,7 @@ function toCsv(entries: AuditEntry[]): string {
     e.summary,
     e.metadata ? JSON.stringify(e.metadata) : '',
     e.hash ?? '',
+    (e as DerivedEntry).derived ? `derived from ${(e as DerivedEntry).sourceCollection}` : 'journal',
   ]);
   return [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n');
 }
@@ -76,6 +79,13 @@ export function AuditTrailView() {
   const [error, setError] = useState<string | null>(null);
   const [chain, setChain] = useState<AuditChainResult | null>(null);
   const [verifying, setVerifying] = useState(false);
+
+  // Rows reconstructed from current Firestore state (seeded batches, checkins,
+  // bookings, leave) rather than journalled at the time. They are shown
+  // alongside the journal so the trail covers the whole system, and are labelled
+  // `derived` so nobody reads them as contemporaneously recorded.
+  const [derived, setDerived] = useState<DerivedEntry[]>([]);
+  const [includeDerived, setIncludeDerived] = useState(true);
 
   const [cap, setCap] = useState(PAGE);
   const [rows, setRows] = useState(ROW_STEP);
@@ -105,35 +115,62 @@ export function AuditTrailView() {
     return () => unsub();
   }, [cap]);
 
+  // Derived rows are read-only queries, so they load once and on demand.
+  useEffect(() => {
+    let cancelled = false;
+    // Re-derived when the journal grows, so a fact the journal has since
+    // recorded is no longer repeated by a derived row.
+    buildDerivedTimeline(entries)
+      .then((d) => { if (!cancelled) setDerived(d); })
+      // A failure here must not take the journal down with it.
+      .catch((err) => { if (!cancelled) console.warn('could not derive timeline:', err.message); });
+    return () => { cancelled = true; };
+  }, [entries]);
+
   // A new write invalidates a previous verdict; never show a stale "verified".
   useEffect(() => { setChain(null); }, [entries.length]);
+
+  /**
+   * The chain covers journalled entries ONLY. Derived rows sit outside it by
+   * construction (null prevHash/hash), so including them would report a false
+   * tampering verdict — which is worse than not showing the check at all.
+   */
+  const journalled = useMemo(
+    () => entries.filter((e) => !(e as DerivedEntry).derived),
+    [entries],
+  );
+
+  const allRows = useMemo(
+    () => (includeDerived ? [...entries, ...derived] : entries),
+    [entries, derived, includeDerived],
+  );
 
   // A narrower window invalidates any row limit beyond it.
   useEffect(() => { setRows(ROW_STEP); }, [section, action, role, from, to]);
 
   const actions = useMemo(() => {
-    const present = new Set(entries.map((e) => e.action));
+    const present = new Set(allRows.map((e) => e.action));
     return (Object.values(AUDIT_ACTIONS) as AuditAction[]).filter((a) => present.has(a));
-  }, [entries]);
+  }, [allRows]);
 
   const roles = useMemo(
-    () => [...new Set(entries.map((e) => e.actorRole || 'unspecified'))].sort(),
-    [entries],
+    () => [...new Set(allRows.map((e) => e.actorRole || 'unspecified'))].sort(),
+    [allRows],
   );
 
   const sectionCounts = useMemo(() => {
     const counts = new Map<AuditSection, number>();
-    for (const e of entries) {
+    for (const e of allRows) {
       const s = auditSectionFor(e.action);
       if (s) counts.set(s, (counts.get(s) ?? 0) + 1);
     }
     return counts;
-  }, [entries]);
+  }, [allRows]);
 
   const filtered = useMemo(() => {
     const fromMs = from ? new Date(`${from}T00:00:00`).getTime() : null;
     const toMs = to ? new Date(`${to}T23:59:59.999`).getTime() : null;
-    return entries.filter((e) => {
+    return allRows.filter((e) => {
       if (section !== ALL && auditSectionFor(e.action) !== section) return false;
       if (action !== ALL && e.action !== action) return false;
       if (role !== ALL && (e.actorRole || 'unspecified') !== role) return false;
@@ -145,14 +182,14 @@ export function AuditTrailView() {
       }
       return true;
     });
-  }, [entries, section, action, role, from, to]);
+  }, [allRows, section, action, role, from, to]);
 
   const visible = filtered.slice(0, rows);
 
   const runVerify = async () => {
     setVerifying(true);
     try {
-      setChain(await verifyAuditChain(entries));
+      setChain(await verifyAuditChain(journalled));
     } finally {
       setVerifying(false);
     }
@@ -214,13 +251,25 @@ export function AuditTrailView() {
         <CardHeader className="flex flex-row items-center justify-between gap-3 flex-wrap">
           <CardTitle className="flex items-center gap-2">
             <ScrollText className="h-5 w-5" /> Activity Trail ({filtered.length}
-            {filtered.length !== entries.length ? ` of ${entries.length}` : ''})
+            {filtered.length !== allRows.length ? ` of ${allRows.length}` : ''})
           </CardTitle>
           <div className="flex items-center gap-2">
+            <label
+              className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-1.5 text-xs text-slate-700 cursor-pointer dark:border-slate-700 dark:text-slate-300"
+              title="Show activity reconstructed from current records (seeded batches, collections, bookings, leave) alongside the journal."
+            >
+              <input
+                type="checkbox"
+                checked={includeDerived}
+                onChange={(e) => setIncludeDerived(e.target.checked)}
+                className="h-3.5 w-3.5"
+              />
+              Include system records ({derived.length})
+            </label>
             <Button variant="outline" size="sm" disabled={filtered.length === 0} onClick={exportCsv}>
               <Download className="h-4 w-4 mr-1" /> Export CSV
             </Button>
-            <Button variant="outline" size="sm" disabled={verifying || entries.length === 0} onClick={runVerify}>
+            <Button variant="outline" size="sm" disabled={verifying || journalled.length === 0} onClick={runVerify}>
               {verifying
                 ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
                 : chain?.ok ? <ShieldCheck className="h-4 w-4 mr-1" /> : <ShieldAlert className="h-4 w-4 mr-1" />}
@@ -237,6 +286,16 @@ export function AuditTrailView() {
             chained by SHA-256, so edits, reordering and deletions are detectable — truncating the
             newest entries is not, and entries are written by the browser rather than a trusted server,
             so treat this as a strong deterrent and an investigation aid, not a tamper-proof record.
+          </p>
+
+          <p className="text-xs text-slate-500">
+            <span className="font-medium text-slate-700 dark:text-slate-300">System records</span>{' '}
+            are reconstructed from the current state of batches, collection confirmations, bookings and
+            leave requests — every field they cite is already on the record, and no timestamp is
+            invented. They are marked <span className="italic">reconstructed</span> because the
+            journal has no entry for them: data loaded outside the app bypasses the rules and so was
+            never journalled. They sit outside the hash chain, which is why chain verification covers
+            the {journalled.length} journalled entries only.
           </p>
 
           {/* Section toggle. Counts are of the loaded window, so they describe what
@@ -354,8 +413,23 @@ export function AuditTrailView() {
                   {visible.map((e) => {
                     const s = auditSectionFor(e.action);
                     return (
-                      <tr key={e.id} className="border-b hover:bg-slate-50 dark:hover:bg-slate-800 align-top">
-                        <td className="py-2 pr-4 whitespace-nowrap text-xs text-slate-500">{when(e.clientAt)}</td>
+                      <tr
+                          key={e.id}
+                          className={`border-b align-top hover:bg-slate-50 dark:hover:bg-slate-800 ${
+                            (e as DerivedEntry).derived ? 'bg-slate-50/60 dark:bg-slate-800/40' : ''
+                          }`}
+                        >
+                        <td className="py-2 pr-4 whitespace-nowrap text-xs text-slate-500">
+                          {when(e.clientAt)}
+                          {(e as DerivedEntry).derived && (
+                            <div
+                              className="text-[10px] text-amber-700 dark:text-amber-300 mt-1"
+                              title="Reconstructed from the current record, not journalled when the event happened. Excluded from chain verification."
+                            >
+                              reconstructed
+                            </div>
+                          )}
+                        </td>
                         <td className="py-2 pr-4">
                           <Badge className={s ? SECTION_TONE[s] : 'bg-slate-100 text-slate-700'}>
                             {formatStatus(e.action)}

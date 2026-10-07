@@ -45,11 +45,35 @@ export interface AuditInput {
 const nowIso = () => new Date().toISOString();
 
 /**
+ * Serializes the read-head-then-write sequence.
+ *
+ * Without this, two appends in flight at once both read the same chain head and
+ * both link to it, so the chain forks and every later link is unverifiable. That
+ * is not hypothetical: callers that loop (the attendance backfill appends one
+ * entry per exception) reliably triggered it, and 44 of the 59 entries written
+ * so far are forked this way. A single in-module queue makes each append observe
+ * the one the previous append just wrote.
+ *
+ * Module scope, so it covers every caller in this file. A queue cannot help
+ * across browser tabs, which remain a known limitation.
+ */
+let appendQueue: Promise<unknown> = Promise.resolve();
+
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  const result = appendQueue.then(task, task);
+  // Keep the chain alive regardless of outcome, so one rejected task cannot
+  // wedge every later append.
+  appendQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+/**
  * Shared append path: resolve the chain head, digest, write. Never throws.
  * `actor` is passed in rather than read here so the two callers cannot
  * disagree about where identity comes from.
  */
 async function appendEntry(actor: { id: string | null; email: string | null }, input: AuditInput): Promise<void> {
+  return enqueue(async () => {
   const clientAt = nowIso();
 
   // Chain head lookup is best-effort: if it fails the entry is still recorded,
@@ -90,6 +114,7 @@ async function appendEntry(actor: { id: string | null; email: string | null }, i
     ...body,
     hash,
     occurredAt: serverTimestamp(),
+  });
   });
 }
 

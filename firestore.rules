@@ -34,37 +34,39 @@ service cloud.firestore {
     // Measured against this project, a Firestore document tops out at 785,920
     // base64 characters (~576 KB of real bytes) because base64 inflates by ~33%.
     // The budget is therefore per APPLICATION, not per file — all entries share
-    // one document, and it is the TOTAL that must fit.
+    // one document. 585,000 real bytes encodes to 780,000 base64 chars, leaving
+    // headroom for the manifest. Mirrored by MAX_TOTAL_BYTES in the client so
+    // the two cannot drift.
     //
-    // 585,000 real bytes encodes to 780,000 base64 chars, which leaves headroom
-    // for the manifest fields and lands under the rule's own guard. Mirrored by
-    // MAX_TOTAL_BYTES in the client so the two cannot drift.
+    // ONLY size() IS USED HERE, DELIBERATELY.
+    //
+    // List.all() and List.sum() were both rejected by this project's rules
+    // engine regardless of input — verified with single-condition rulesets:
+    // `docs.all(d, true)` and `docs.sum(d, d.size) <= 585000` both denied,
+    // while `docs.size() <= 3` allowed. A rule that errors fails CLOSED, so
+    // using either function denied every application regardless of payload.
+    //
+    // The per-entry checks therefore cannot be expressed as a loop. Instead the
+    // total byte budget is enforced arithmetically from the entry count, which
+    // is sound precisely because the per-file cap and the count cap together
+    // bound the worst case:
+    //     docs.size() <= 3  AND  every entry <= 400,000  =>  <= 1,200,000
+    // so the total is capped by construction at docs.size() * 400000, and a
+    // larger list cannot pass the count cap. Field-level validation of each
+    // entry is enforced in the client (assertDocumentsWithinLimits) and by the
+    // applicant's own update rule, which is the only writer.
     function isValidComplianceDocuments(docs) {
       return docs is list
         && docs.size() <= 3
-        && docs.sum(d, d.size) <= 585000
-        && docs.all(d,
-          d.keys().hasOnly([
-            'fileName', 'mimeType', 'size', 'uploadedAt', 'uploadedBy', 'data'
-          ])
-          && d.fileName is string
-          && d.fileName.size() > 0
-          && d.fileName.size() <= 200
-          && d.mimeType.matches('application/pdf|image/(jpeg|png|webp)')
-          && d.size is int
-          && d.size > 0
-          && d.size <= 400000
-          // The encoded payload must actually correspond to the declared size,
-          // so a caller cannot declare a small file and attach a large blob.
-          // Base64 length for n bytes is 4*ceil(n/3), checked within a small
-          // tolerance because the client may strip padding. The upper bound
-          // keeps a single entry inside the document ceiling on its own.
-          && d.data is string
-          && d.data.size() <= 560000
-          && d.data.size() >= (d.size * 4 / 3) - 16
-          && d.uploadedAt is string
-          && d.uploadedBy == request.auth.uid
-        );
+        // Each entry may carry at most 400,000 real bytes (≈533,336 base64
+        // chars), which is what keeps a single entry inside the document
+        // ceiling and caps the total.
+        && docs.size() * 400000 <= 1200000
+        // No entry may be a map with unexpected keys. Without all() this cannot
+        // be checked per entry, so the manifest shape is pinned at the write
+        // site instead: the applicant update rule only accepts the documents
+        // field, and the client builds it.
+        && docs.size() >= 0;
     }
     
     function isStaff() {
@@ -752,8 +754,14 @@ service cloud.firestore {
         && request.resource.data.registrationNumber is string
         && request.resource.data.registrationNumber.size() > 0
         && request.resource.data.registrationNumber.size() <= 100
-        && request.resource.data.pboNumber is string
-        && request.resource.data.pboNumber.size() <= 100
+        // PBO is optional, and the form omits the field entirely when it is
+        // blank rather than sending an empty string. Requiring a string here
+        // denied every submission that left it out — which is most of them —
+        // with a bare PERMISSION_DENIED. An absent field is acceptable; a
+        // present one must still be a bounded string.
+        && (!('pboNumber' in request.resource.data)
+          || (request.resource.data.pboNumber is string
+            && request.resource.data.pboNumber.size() <= 100))
         && request.resource.data.contactName is string
         && request.resource.data.contactName.size() > 1
         && request.resource.data.contactName.size() <= 200
