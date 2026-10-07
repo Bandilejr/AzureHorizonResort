@@ -25,22 +25,26 @@ import { StaffQRTools } from '@/pages/StaffQRTools';
 import { 
   TrendingUp, Users, Hotel, DollarSign, AlertCircle, BarChart3,
   Download, Star, Building2, Loader2, Compass, UserCheck,
-  LayoutDashboard, Sparkles, MessageSquare, Gavel, ScanLine, Leaf, ClipboardCheck, ScrollText
+  LayoutDashboard, Sparkles, MessageSquare, Gavel, ScanLine, Leaf, ScrollText
 } from 'lucide-react';
 
 type AdminTab = 'overview' | 'tour-management' | 'tour-checkin' | 'reviews' | 'refunds' | 'damage-claims' | 'qr-tools' | 'npo-verification' | 'impact' | 'attendance' | 'audit-trail';
 
+// 'attendance' is deliberately absent from the visible tabs. The ledger is a
+// workforce-monitoring tool built around attendance exceptions, and nothing else
+// in the admin surface produces those records, so it presented as a tab with no
+// incoming activity and no clear purpose. The tab id, the component and its
+// route-free render are kept so it can be restored by adding one line here.
 const ADMIN_TABS: { id: AdminTab; label: string; icon: React.ElementType }[] = [
   { id: 'overview',         label: 'Executive Overview',  icon: LayoutDashboard },
   { id: 'tour-management',  label: 'Tour Catalogue',      icon: Compass },
   { id: 'tour-checkin',     label: 'Tour Check-In',       icon: UserCheck },
   { id: 'reviews',          label: 'Guest Reviews',       icon: MessageSquare },
   { id: 'refunds',          label: 'Refund Requests',     icon: DollarSign },
-  { id: 'damage-claims',    label: 'Damage Claims',       icon: Gavel }, // 🚨 Added Tab link
+  { id: 'damage-claims',    label: 'Damage Claims',       icon: Gavel },
   { id: 'qr-tools',         label: 'QR Tools',            icon: ScanLine },
   { id: 'npo-verification', label: 'NPO Verification',    icon: Building2 },
   { id: 'impact',           label: 'Impact Reports',      icon: Leaf },
-  { id: 'attendance',       label: 'Attendance',          icon: ClipboardCheck },
   { id: 'audit-trail',      label: 'Activity Trail',      icon: ScrollText },
 ];
 
