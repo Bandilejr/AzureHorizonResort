@@ -278,7 +278,8 @@ export function AuditTrailView() {
           </div>
         </CardHeader>
 
-        <CardContent className="space-y-4">
+         <CardContent className="space-y-4">
+          {/*
           <p className="text-xs text-slate-500">
             Append-only journal of state changes across bookings, hospitality, payments and loyalty,
             damage claims, workforce, tours and events, guest feedback, NPO partners and food rescue.
@@ -287,6 +288,7 @@ export function AuditTrailView() {
             newest entries is not, and entries are written by the browser rather than a trusted server,
             so treat this as a strong deterrent and an investigation aid, not a tamper-proof record.
           </p>
+          */}
 
           <p className="text-xs text-slate-500">
             <span className="font-medium text-slate-700 dark:text-slate-300">System records</span>{' '}
@@ -312,7 +314,11 @@ export function AuditTrailView() {
               >
                 All ({entries.length})
               </Button>
-              {(Object.keys(AUDIT_SECTIONS) as AuditSection[]).map((s) => (
+              {(Object.keys(AUDIT_SECTIONS) as AuditSection[])
+                // Workforce chip hidden for now; the section's rows still
+                // appear under "All". Restore by removing this filter.
+                .filter((s) => s !== 'workforce')
+                .map((s) => (
                 <Button
                   key={s}
                   size="sm"

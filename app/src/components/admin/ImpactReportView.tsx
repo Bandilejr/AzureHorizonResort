@@ -265,7 +265,7 @@ export function ImpactReportView() {
               {[
                 { label: 'Donated', value: `${round1(report.totalDonatedKg)}`, unit: 'kg', basis: 'measured' as const, icon: Scale, tint: 'text-slate-100 bg-white/15' },
                 { label: 'Rescued', value: `${round1(report.totalCollectedKg)}`, unit: 'kg', basis: 'measured' as const, icon: PackageCheck, tint: 'text-emerald-200 bg-emerald-400/20' },
-                { label: 'Meals provided', value: report.mealsDiverted.toLocaleString(), unit: 'meals', basis: 'measured' as const, icon: Utensils, tint: 'text-teal-200 bg-teal-400/20' },
+                { label: 'Provided', value: report.mealsDiverted.toLocaleString(), unit: 'meals', basis: 'measured' as const, icon: Utensils, tint: 'text-teal-200 bg-teal-400/20' },
                 {
                   label: 'CO₂e avoided',
                   value: `${round1(report.carbonOffsetKg)}`,

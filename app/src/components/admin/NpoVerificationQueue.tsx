@@ -377,9 +377,13 @@ export function NpoVerificationQueue() {
                     <tr className="text-left text-slate-500">
                       <th className="px-3 py-2 font-medium">Organisation</th>
                       <th className="px-3 py-2 font-medium">Reg No</th>
-                      <th className="px-3 py-2 font-medium">PBO No</th>
-                      <th className="px-3 py-2 font-medium">Origin</th>
+<th className="px-3 py-2 font-medium">PBO No</th>
+                      {/* Approved-date column commented out: the heading
+                          already says "Approved", so the date read the same
+                          information twice. Restore to un-comment. */}
+                      {/*
                       <th className="px-3 py-2 font-medium">Approved</th>
+                      */}
                     </tr>
                   </thead>
                   <tbody>
@@ -388,12 +392,9 @@ export function NpoVerificationQueue() {
                         <td className="px-3 py-2 font-medium">{row.organisationName}</td>
                         <td className="px-3 py-2">{row.registrationNumber}</td>
                         <td className="px-3 py-2 font-mono text-xs">{row.pboNumber || '—'}</td>
-                        <td className="px-3 py-2">
-                          <Badge className={row.sourceApplicationId ? 'bg-sky-100 text-sky-800' : 'bg-indigo-100 text-indigo-800'}>
-                            {row.sourceApplicationId ? 'Web intake' : 'Walk-in'}
-                          </Badge>
-                        </td>
+                        {/*
                         <td className="px-3 py-2 text-xs text-slate-500">{row.decidedAt?.slice(0, 10) || '—'}</td>
+                        */}
                       </tr>
                     ))}
                   </tbody>
@@ -415,9 +416,6 @@ export function NpoVerificationQueue() {
                       <span className="text-xs text-slate-500 ml-2">{n.reason || 'No reason recorded'}</span>
                     </span>
                     <span className="flex items-center gap-2">
-                      {n.sourceApplicationId
-                        ? <Badge className="bg-sky-100 text-sky-800">Web intake</Badge>
-                        : <Badge className="bg-indigo-100 text-indigo-800">Walk-in</Badge>}
                       {n.reviewedBy && <span className="text-xs text-slate-500">by {n.reviewedBy} · {n.reviewedAt}</span>}
                     </span>
                   </div>
@@ -532,12 +530,6 @@ export function NpoVerificationQueue() {
                 <div className="col-span-2"><span className="text-slate-500">Service areas:</span> {selected.serviceAreas.join(', ') || '—'}</div>
                 <div><span className="text-slate-500">Transport:</span> {selected.transportType}</div>
                 <div><span className="text-slate-500">Refrigeration:</span> {selected.refrigerationAvailable ? 'Available' : 'Not available'}</div>
-                <div className="col-span-2">
-                  <span className="text-slate-500">Intake:</span>{' '}
-                  {selected.sourceApplicationId
-                    ? <Badge className="bg-sky-100 text-sky-800">Promoted from a website application</Badge>
-                    : <Badge className="bg-slate-100 text-slate-700">Recorded as a walk-in — no web application on file</Badge>}
-                </div>
               </div>
               <div>
                 <span className="text-slate-500">Compliance documents ({selected.complianceDocuments.length}):</span>
