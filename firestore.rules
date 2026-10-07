@@ -25,36 +25,43 @@ service cloud.firestore {
       return getUserRole() == 'admin';
     }
 
-    // Validates the compliance-document manifest on an NPO application. Storage
-    // holds the bytes; this list is what an admin reviewer actually reads, so
-    // it is treated as untrusted input from an anonymous browser session:
-    //   * at most 10 files, each a PDF/JPEG/PNG/WebP under 5MB
-    //   * url pinned to the Firebase Storage host, so a submission cannot smuggle
-    //     in a link to an attacker-controlled page for an admin to click
-    //   * uploadedBy must be the session filing the application, so one
-    //     applicant cannot attach documents to another's record
+// Validates the compliance-document manifest on an NPO application.
+    //
+    // Bytes are NOT stored in Firebase Storage: that requires a paid plan, so a
+    // Spark project cannot deploy storage rules at all. The file is instead
+    // base64-encoded into the `data` field of its manifest entry.
+    //
+    // Measured against this project, a Firestore document tops out at 785,920
+    // base64 characters (~576 KB of real bytes) because base64 inflates by ~33%.
+    // The budget is therefore per APPLICATION, not per file — all entries share
+    // one document, and it is the TOTAL that must fit.
+    //
+    // 585,000 real bytes encodes to 780,000 base64 chars, which leaves headroom
+    // for the manifest fields and lands under the rule's own guard. Mirrored by
+    // MAX_TOTAL_BYTES in the client so the two cannot drift.
     function isValidComplianceDocuments(docs) {
       return docs is list
-        && docs.size() <= 10
+        && docs.size() <= 3
+        && docs.sum(d, d.size) <= 585000
         && docs.all(d,
           d.keys().hasOnly([
-            'url', 'fileName', 'mimeType', 'size', 'uploadedAt', 'uploadedBy'
+            'fileName', 'mimeType', 'size', 'uploadedAt', 'uploadedBy', 'data'
           ])
-          && d.url is string
-          // getDownloadURL() on a default (non-legacy) bucket returns
-          // https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<path>;
-          // legacy buckets use firebasestorage.appspot.com. Accept both, but
-          // pin to a Google-owned host so an applicant cannot smuggle in a
-          // link to an attacker-controlled page for an admin to click.
-          && (d.url.matches('https://firebasestorage.googleapis.com/.*')
-            || d.url.matches('https://firebasestorage.appspot.com/.*'))
           && d.fileName is string
           && d.fileName.size() > 0
           && d.fileName.size() <= 200
           && d.mimeType.matches('application/pdf|image/(jpeg|png|webp)')
           && d.size is int
           && d.size > 0
-          && d.size <= 5242880
+          && d.size <= 400000
+          // The encoded payload must actually correspond to the declared size,
+          // so a caller cannot declare a small file and attach a large blob.
+          // Base64 length for n bytes is 4*ceil(n/3), checked within a small
+          // tolerance because the client may strip padding. The upper bound
+          // keeps a single entry inside the document ceiling on its own.
+          && d.data is string
+          && d.data.size() <= 560000
+          && d.data.size() >= (d.size * 4 / 3) - 16
           && d.uploadedAt is string
           && d.uploadedBy == request.auth.uid
         );
@@ -779,7 +786,7 @@ service cloud.firestore {
           'transportType', 'refrigerationAvailable', 'source', 'applicantUid',
           'verificationStatus', 'promotedToNpoId', 'promotedAt',
           'rejectionReason', 'submittedAt', 'reviewedAt', 'reviewedBy',
-          'documents'
+          'documents', 'documentsExpectedByEmail'
         ]);
 
       // Attach compliance documents once the row exists.
@@ -797,7 +804,9 @@ service cloud.firestore {
         && resource.data.applicantUid == request.auth.uid
         && resource.data.verificationStatus == 'pending'
         && request.resource.data.verificationStatus == 'pending'
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['documents'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'documents', 'documentsExpectedByEmail'
+          ])
         && isValidComplianceDocuments(request.resource.data.documents);
 
       // Admin review: advance pending -> approved|rejected and record who/when.

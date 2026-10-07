@@ -17,15 +17,16 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertModal } from '@/components/ui/AlertModal';
-import { Loader2, Building2, CheckCircle2, XCircle, FileText, Plus, Inbox } from 'lucide-react';
+import { Loader2, Building2, CheckCircle2, XCircle, FileText, Plus, Inbox, Paperclip } from 'lucide-react';
 import {
   listenNpoPartners, reviewNpoApplication,
   listenNpoApplications, promoteNpoApplication, rejectNpoApplication,
 } from '@/services/increment2-services';
 import { formatStatus } from '@/utils/statusLabels';
-import type { NpoApplication, NpoPartner } from '@/types/increment2';
+import type { ApplicationDocument, NpoApplication, NpoPartner } from '@/types/increment2';
 import { useAuth } from '@/hooks/useAuth';
 import { NpoApplicationForm } from '@/components/npo/NpoApplicationForm';
+import { documentToObjectUrl } from '@/services/increment2-services';
 
 const STATUS_COLOR: Record<string, string> = {
   pending: 'bg-amber-100 text-amber-800',
@@ -33,6 +34,55 @@ const STATUS_COLOR: Record<string, string> = {
   approved: 'bg-emerald-100 text-emerald-800',
   rejected: 'bg-red-100 text-red-800',
 };
+
+function formatDocBytes(bytes: number): string {
+  return bytes >= 1024 * 1024
+    ? `${(bytes / 1024 / 1024).toFixed(1)}MB`
+    : `${Math.max(1, Math.round(bytes / 1024))}KB`;
+}
+
+/**
+ * One attached document, with a download link.
+ *
+ * The object URL is created on demand rather than on render, and revoked
+ * immediately after the click: a long-lived blob URL pins the decoded bytes in
+ * memory for as long as the dialog stays open, and every application carries
+ * its documents inline.
+ */
+function DocumentDownload({ doc }: { doc: ApplicationDocument }) {
+  const [error, setError] = useState('');
+
+  const download = () => {
+    let url = '';
+    try {
+      url = documentToObjectUrl(doc);
+      const a = window.document.createElement('a');
+      a.href = url;
+      a.download = doc.fileName;
+      a.click();
+    } catch {
+      setError('This file could not be decoded.');
+    } finally {
+      if (url) URL.revokeObjectURL(url);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <Paperclip className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+      <span className="min-w-0 flex-1 truncate text-slate-800">{doc.fileName}</span>
+      <span className="shrink-0 text-slate-500">{formatDocBytes(doc.size)}</span>
+      <button
+        type="button"
+        onClick={download}
+        className="shrink-0 rounded border border-slate-300 bg-white px-2 py-1 font-medium text-slate-700 hover:bg-slate-100"
+      >
+        Open
+      </button>
+      {error && <span className="text-red-600">{error}</span>}
+    </div>
+  );
+}
 
 export function NpoVerificationQueue() {
   const { user } = useAuth();
@@ -399,9 +449,30 @@ export function NpoVerificationQueue() {
                 <div><span className="text-slate-500">Cold chain:</span> {picked.refrigerationAvailable ? 'Yes' : 'No'}</div>
               </div>
               <div><span className="text-slate-500">Service areas:</span> {picked.serviceAreas.join(', ')}</div>
+
+              {/* Documents live on the application as inline base64, because this
+                  project is on the free plan and cannot use Storage. Decoding to
+                  an object URL keeps the reviewer from ever handling a bare
+                  data string in the DOM. */}
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <p className="text-xs font-semibold text-slate-700">
+                  Supporting documents ({picked.documents?.length ?? 0})
+                </p>
+                {!picked.documents?.length && (
+                  <p className="text-xs text-slate-600">
+                    {picked.documentsExpectedByEmail
+                      ? 'None attached. The applicant was asked to email documents using the reference on their confirmation.'
+                      : 'No documents were attached with this application.'}
+                  </p>
+                )}
+                {(picked.documents ?? []).map((doc, i) => (
+                  <DocumentDownload key={`${doc.fileName}-${i}`} doc={doc} />
+                ))}
+              </div>
+
               <p className="text-xs text-slate-500">
                 Promoting creates a pending partner record for a second approval step, which is what
-                provisions portal access. Compliance documents are attached after promotion.
+                provisions portal access.
               </p>
               <div className="space-y-2">
                 <Input placeholder="Rejection reason (required to reject)" value={reason} onChange={(e) => setReason(e.target.value)} />

@@ -54,6 +54,28 @@ export interface FileMeta {
 }
 
 /**
+ * A compliance document attached to a public NPO application.
+ *
+ * Distinct from FileMeta because the bytes are INLINE, not in Storage: this
+ * project is on the free Spark plan, which cannot deploy storage rules and has
+ * no bucket. `data` is the raw base64 payload with no `data:` prefix.
+ *
+ * The Firestore rule validates that `data` actually corresponds to `size`, so a
+ * caller cannot declare a small file and attach a much larger blob. The total
+ * size of every document on one application shares a single budget, because
+ * they all sit in the same Firestore document.
+ */
+export interface ApplicationDocument {
+  fileName: string;
+  mimeType: 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp';
+  size: number;
+  uploadedAt: string;
+  uploadedBy: string;
+  /** Base64 payload, no data-URL prefix. */
+  data: string;
+}
+
+/**
  * Public NPO application, submitted from the unauthenticated /npo-apply page.
  *
  * Deliberately a separate record type from NpoPartner. Public intake is
@@ -90,12 +112,17 @@ export interface NpoApplication {
   reviewedAt: string | null;
   reviewedBy: string | null;
   /**
-   * Manifest of compliance documents attached at submission. Storage holds the
-   * bytes under npo_applications/{id}/documents/; this is what the reviewer
-   * sees. Empty when the applicant attached nothing, or when every upload
-   * failed while the application itself was still created.
+   * Compliance documents attached at submission, with bytes inline as base64.
+   * Empty when the applicant attached nothing, or chose the email route, or
+   * every attachment failed while the application itself was still created.
    */
-  documents: FileMeta[];
+  documents: ApplicationDocument[];
+  /**
+   * Set when the applicant was told to email their documents instead because
+   * they exceeded the upload limit. Surfaces in the review queue so a reviewer
+   * knows to look for an email rather than assume nothing arrived.
+   */
+  documentsExpectedByEmail: boolean;
 }
 
 export type ApplicationSource = 'public_web' | 'admin_walk_in';

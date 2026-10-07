@@ -10,8 +10,7 @@ import {
   collection, doc, addDoc, setDoc, updateDoc, query, where, limit,
   onSnapshot, getDocs, getDoc, runTransaction, serverTimestamp,
 } from 'firebase/firestore';
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { auth, db, storage } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 import { signQrPayload, verifyQrSignature } from './qr-signing';
 import { writeAuditEntry } from './audit-services';
 import { AUDIT_ACTIONS } from '@/types/index';
@@ -19,7 +18,7 @@ import type {
   NpoPartner, NpoVerificationStatus, DonationBatch, DonationStatus, SafetyChecklist,
   DonationCheckin, StaffAvailability, LeaveRequest, ShiftRoster, RosterShift,
   ShiftSwap, SwapStatus, OpenShift, AttendanceException, AttendanceExceptionType,
-  FileMeta, ImpactReport, NpoApplication,
+  ApplicationDocument, FileMeta, ImpactReport, NpoApplication,
 } from '@/types/increment2';
 import {
   FALLBACK_MEALS_PER_KG, EMISSION_KG_CO2E_PER_KG, EMISSION_FACTOR_PROVENANCE,
@@ -231,17 +230,119 @@ export const NPO_TRANSPORT_OPTIONS = [
   'On foot',
 ] as const;
 
-// Compliance-document intake limits. These values are duplicated in the
-// Firestore and Storage rules, which are authoritative — the client checks
-// them only to avoid a wasted upload and to give a readable error.
-export const MAX_UPLOAD_COUNT = 10;
-export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+// Compliance-document intake limits.
+//
+// Firebase Storage is not an option on this project: the Spark (free) plan cannot
+// deploy storage rules, and the app has no bucket. So the bytes ride along inside
+// the application document as base64 instead.
+//
+// The caps below come from a measurement against the live project, not from
+// documentation. A Firestore document tops out at 785,920 base64 characters
+// (~576 KB of real bytes) because base64 inflates by ~33%. That budget is
+// therefore shared across ALL files on one application, not granted per file,
+// and it is the TOTAL that has to fit — not any single file.
+//
+// 1 MB per file is not achievable on the free plan: a 1 MB file encodes to
+// ~1.4M base64 characters, roughly 1.8x the ceiling.
+//
+// These values are mirrored in firestore.rules, which is authoritative — these
+// checks only produce a readable message instead of a permission error.
+export const MAX_UPLOAD_COUNT = 3;
+
+/**
+ * Largest single file. Leaves room for siblings within the total budget.
+ * 400,000 bytes x 3 would be 800,000 base64 chars — over the ceiling — which
+ * is why the total below is the binding constraint, not this.
+ */
+export const MAX_FILE_BYTES = 400_000;
+
+/**
+ * Combined real bytes across all files on one application. This is the number
+ * that must respect the ceiling, since all documents share one Firestore
+ * document: 585,000 real bytes encodes to exactly 780,000 base64 characters,
+ * which fits under the measured 785,920 ceiling with ~6KB of room for the
+ * manifest, and sits under the rule's own 785,920 guard.
+ */
+export const MAX_TOTAL_BYTES = 585_000;
+
 export const ACCEPTED_UPLOAD_TYPES = [
   'application/pdf',
   'image/jpeg',
   'image/png',
   'image/webp',
 ] as const;
+
+/** Where an applicant sends documents that will not fit the upload limit. */
+export const DOCUMENTS_EMAIL = 'npo.applications@azurehorizonresort.co.za';
+
+/**
+ * Rejects a document selection that cannot be stored. Returns nothing when the
+ * selection is fine; throws with an applicant-readable reason otherwise.
+ *
+ * Kept separate from the submit path so the form can call it on every change and
+ * show the problem before the applicant fills in the rest of the form.
+ */
+export function assertDocumentsWithinLimits(files: File[]): void {
+  if (!files.length) return;
+
+  if (files.length > MAX_UPLOAD_COUNT) {
+    throw new Error(`Attach at most ${MAX_UPLOAD_COUNT} documents. You selected ${files.length}.`);
+  }
+
+  const badType = files.filter(
+    (f) => !(ACCEPTED_UPLOAD_TYPES as readonly string[]).includes(f.type),
+  );
+  if (badType.length) {
+    throw new Error(
+      badType.length === 1
+        ? `${badType[0].name} is not a supported type. Use PDF, JPEG, PNG or WebP.`
+        : `${badType.length} files are not a supported type. Use PDF, JPEG, PNG or WebP.`,
+    );
+  }
+
+  const tooBig = files.filter((f) => f.size > MAX_FILE_BYTES);
+  if (tooBig.length) {
+    throw new Error(
+      tooBig.length === 1
+        ? `${tooBig[0].name} is ${formatBytesForApplicant(tooBig[0].size)}. The limit is ${formatBytesForApplicant(MAX_FILE_BYTES)} per file. Email it instead, or export a smaller PDF.`
+        : `${tooBig.length} files are over the ${formatBytesForApplicant(MAX_FILE_BYTES)} per-file limit. Email them instead, or export smaller PDFs.`,
+    );
+  }
+
+  const total = files.reduce((a, f) => a + f.size, 0);
+  if (total > MAX_TOTAL_BYTES) {
+    throw new Error(
+      `Those files total ${formatBytesForApplicant(total)}. The limit is ${formatBytesForApplicant(MAX_TOTAL_BYTES)} per application. Email the rest instead, or attach fewer.`,
+    );
+  }
+}
+
+function formatBytesForApplicant(bytes: number): string {
+  return bytes >= 1000 ? `${Math.round(bytes / 1000)}KB` : `${bytes}B`;
+}
+
+/**
+ * Reads a File as base64 without the `data:` URL prefix. The prefix would waste
+ * ~30 characters per file and is not part of what we store.
+ */
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read the file.'));
+    reader.onload = () => {
+      const result = String(reader.result ?? '');
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Reconstructs a downloadable object URL from a stored manifest entry. */
+export function documentToObjectUrl(doc: ApplicationDocument): string {
+  const bytes = Uint8Array.from(atob(doc.data), (c) => c.charCodeAt(0));
+  return URL.createObjectURL(new Blob([bytes], { type: doc.mimeType }));
+}
 
 /**
  * Submits a public application. Requires an authenticated session, but NOT a
@@ -255,7 +356,7 @@ export async function submitPublicNpoApplication(input: {
   contactName: string; email: string; phone: string; serviceAreas: string[];
   beneficiaryCapacity: number; transportType: string; refrigerationAvailable: boolean;
   documents?: File[];
-}): Promise<{ id: string; uploaded: number; failed: number }> {
+}): Promise<{ id: string; uploaded: number; failed: number; emailedInstead: boolean }> {
   const missing = validatePublicApplication(input);
   if (missing.length) throw new Error(`Still needed: ${missing.join(', ')}.`);
 
@@ -265,25 +366,11 @@ export async function submitPublicNpoApplication(input: {
   if (!uid) throw new Error('Your session expired. Please try again.');
 
   const files = input.documents ?? [];
-  const rejected = files.filter(
-    (f) => !(ACCEPTED_UPLOAD_TYPES as readonly string[]).includes(f.type) || f.size > MAX_UPLOAD_BYTES,
-  );
-  if (rejected.length) {
-    throw new Error(
-      rejected.length === 1 && rejected[0] === files[0]
-        ? `${rejected[0].name} is not an accepted file. Use a PDF, JPEG, PNG or WebP under ${MAX_UPLOAD_BYTES / 1024 / 1024}MB.`
-        : `${rejected.length} files are not accepted. Use PDF, JPEG, PNG or WebP, each under ${MAX_UPLOAD_BYTES / 1024 / 1024}MB.`,
-    );
-  }
-  if (files.length > MAX_UPLOAD_COUNT) {
-    throw new Error(`Attach at most ${MAX_UPLOAD_COUNT} documents.`);
-  }
+  assertDocumentsWithinLimits(files);
 
-  // Write ordering is dictated by the rules, not preference: the Storage rule
-  // requires a real, still-pending application document before anything can be
-  // written under its folder, and the applicant update rule permits exactly one
-  // field to change. So: mint the id -> create with an empty manifest ->
-  // upload the bytes -> fill the manifest in.
+  // Create first, attach second. The applicant update rule permits exactly one
+  // field to change and only while pending, and it needs a real application to
+  // point at, so the row is created with an empty manifest and filled after.
   const ref = doc(collection(db, 'npo_applications'));
 
   await setDoc(ref, {
@@ -309,19 +396,20 @@ export async function submitPublicNpoApplication(input: {
     documents: [],
   });
 
-  const documents: FileMeta[] = [];
+  const documents: ApplicationDocument[] = [];
   let uploadFailures = 0;
 
-  for (const [index, file] of files.entries()) {
+  for (const file of files) {
     try {
-      const url = await uploadComplianceDocument(ref.id, index, file);
       documents.push({
-        url,
         fileName: file.name,
-        mimeType: file.type,
+        // Narrowed to the accepted union: assertDocumentsWithinLimits has
+        // already rejected anything else, and the type reflects that.
+        mimeType: file.type as ApplicationDocument['mimeType'],
         size: file.size,
         uploadedAt: nowIso(),
         uploadedBy: uid,
+        data: await readFileAsBase64(file),
       });
     } catch {
       // One bad file must not discard an application the applicant already
@@ -331,8 +419,21 @@ export async function submitPublicNpoApplication(input: {
   }
 
   // Empty when everything failed, which the rule still accepts (docs.all() on
-  // an empty list is true).
+  // an empty list is true). The page then points the applicant at the email
+  // route rather than implying their documents arrived.
   if (documents.length) await updateDoc(ref, { documents });
+
+  // Records that this applicant knows to email documents, so a reviewer is not
+  // left assuming a silent upload failed. Only written when it would be true.
+  const emailedInstead = files.length > 0 && documents.length === 0;
+  if (emailedInstead) {
+    try {
+      await updateDoc(ref, { documentsExpectedByEmail: true });
+    } catch {
+      // Non-essential. The review queue also infers this from an empty manifest
+      // plus a pending status, so a failure here costs context, not function.
+    }
+  }
 
   // Journalled best-effort. A rejected audit write must never lose the
   // application itself, and an anonymous session has no role to attribute.
@@ -347,31 +448,24 @@ export async function submitPublicNpoApplication(input: {
       source: 'public_web',
       documentCount: documents.length,
       uploadFailures,
+      documentsExpectedByEmail: false,
+      // Bytes travel inline, so record the weight rather than a count alone.
+      documentsBytes: documents.reduce((a, d) => a + d.size, 0),
     },
   });
 
-  return { id: ref.id, uploaded: documents.length, failed: uploadFailures };
+  return {
+    id: ref.id,
+    uploaded: documents.length,
+    failed: uploadFailures,
+    emailedInstead,
+  };
 }
 
-/**
- * Uploads one compliance document under the application's Storage folder.
- * The path is prefixed with an index so two files called "proof.pdf" cannot
- * collide, and the original name is sanitised down to a safe subset rather
- * than trusted as a path segment.
- */
-async function uploadComplianceDocument(
-  applicationId: string,
-  index: number,
-  file: File,
-): Promise<string> {
-  const safeName = file.name.replace(/[^A-Za-z0-9._-]/g, '_').slice(-80) || 'document';
-  const target = storageRef(
-    storage,
-    `npo_applications/${applicationId}/documents/${index}_${safeName}`,
-  );
-  await uploadBytes(target, file, { contentType: file.type });
-  return getDownloadURL(target);
-}
+// NOTE: there is deliberately no Storage upload path here. Firebase Storage
+// needs a paid plan, so the bytes are base64-encoded onto the application
+// document instead — see MAX_TOTAL_BYTES for the measured ceiling and why the
+// budget is shared across files.
 
 /** Returns a list of missing/invalid fields; empty means valid. */
 export function validatePublicApplication(input: {

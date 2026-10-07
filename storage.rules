@@ -1,12 +1,24 @@
+// STATUS: NOT DEPLOYED, AND NOT USED BY THE CURRENT CODE.
+//
+// This project is on the Firebase Spark (free) plan, which cannot deploy Storage
+// rules at all, and it has no bucket. The compliance-document intake therefore
+// does NOT use Firebase Storage: bytes are base64-encoded inline onto the
+// NPO application document instead (see firestore.rules
+// isValidComplianceDocuments, and MAX_TOTAL_BYTES in
+// app/src/services/increment2-services.ts).
+//
+// This file is kept as the ready-to-apply ruleset for the day the project moves
+// to the Blaze (pay-as-you-go) plan. It is deliberately narrow: it covers only
+// the compliance-document folder, so applying it on its own would leave every
+// other bucket path denied. If other features start using Storage, add explicit
+// matches here rather than loosening this file.
+//
+// Applying it requires creating the bucket first (a Storage release cannot
+// exist until the project has one), and the deploying identity needs
+// firebaserules.releases.create.
+
 rules_version = '2';
 
-// Storage rules for Firebase Storage.
-//
-// Scope note: this ruleset covers ONLY the public NPO compliance-document
-// intake. Every other bucket path is left undeclared on purpose, so it is
-// denied by default rather than silently opened. If other features later need
-// Storage (room photos, event assets), add explicit matches below rather than
-// loosening this file.
 service firebase.storage {
   match /b/{bucket}/o {
 
@@ -32,9 +44,9 @@ service firebase.storage {
     //   * the anonymous session created by signInAnonymously may write, but may
     //     never read back, enumerate or delete
     //
-    // The document itself must already exist and still be awaiting review:
-    // that is what stops an anonymous session from attaching files to an
-    // application that was already approved or rejected.
+    // The document must already exist and still be awaiting review: that is
+    // what stops an anonymous session from attaching files to an application
+    // that was already approved or rejected.
     match /npo_applications/{applicationId}/documents/{fileName} {
 
       allow write: if isSignedIn()

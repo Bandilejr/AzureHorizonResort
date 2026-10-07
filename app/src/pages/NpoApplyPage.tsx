@@ -14,7 +14,11 @@ import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signInAnonymously, signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
-import { submitPublicNpoApplication, validatePublicApplication, NPO_TRANSPORT_OPTIONS, MAX_UPLOAD_COUNT, MAX_UPLOAD_BYTES, ACCEPTED_UPLOAD_TYPES } from '@/services/increment2-services';
+import {
+  submitPublicNpoApplication, validatePublicApplication, NPO_TRANSPORT_OPTIONS,
+  assertDocumentsWithinLimits, MAX_UPLOAD_COUNT, MAX_FILE_BYTES, MAX_TOTAL_BYTES,
+  DOCUMENTS_EMAIL,
+} from '@/services/increment2-services';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,7 +32,7 @@ import {
 } from '@/components/ui/card';
 
 import {
-  ArrowLeft, Building2, CheckCircle2, HandHeart, Loader2, Leaf, Paperclip,
+  ArrowLeft, Building2, CheckCircle2, HandHeart, Loader2, Leaf, Mail, Paperclip,
   ShieldCheck, Truck, X,
 } from 'lucide-react';
 
@@ -72,50 +76,30 @@ export function NpoApplyPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [fileWarning, setFileWarning] = useState<string | null>(null);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const [uploadedCount, setUploadedCount] = useState(0);
+  const [attemptedCount, setAttemptedCount] = useState(0);
+  // Held because the form is cleared on submit, but the confirmation screen
+  // still needs the organisation name to address the email.
+  const [submittedOrg, setSubmittedOrg] = useState('');
 
   const set = (k: keyof typeof EMPTY, v: string | boolean) => {
     setForm((p) => ({ ...p, [k]: v }));
     setError(null);
   };
 
-  // Validates against the same limits the Storage rule enforces, so an
-  // oversized or unsupported file is refused before any bytes are sent. The
-  // rules remain authoritative; this only saves a wasted upload.
+  // Validation lives in the service so the Firestore rule and the form cannot
+  // drift apart. Rejects the whole selection rather than silently dropping a
+  // file the applicant believed they attached.
   const addFiles = (list: FileList | null) => {
     if (!list?.length) return;
-    const incoming = Array.from(list);
-
-    const badType = incoming.filter(
-      (f) => !(ACCEPTED_UPLOAD_TYPES as readonly string[]).includes(f.type),
-    );
-    if (badType.length) {
-      setFileWarning(
-        `${badType.length === 1 ? badType[0].name : `${badType.length} files`} ${
-          badType.length === 1 ? 'is' : 'are'
-        } not a supported type. Use PDF, JPEG, PNG or WebP.`,
-      );
-      return;
-    }
-
-    const tooBig = incoming.filter((f) => f.size > MAX_UPLOAD_BYTES);
-    if (tooBig.length) {
-      setFileWarning(
-        `${tooBig.length === 1 ? tooBig[0].name : `${tooBig.length} files`} exceed${
-          tooBig.length === 1 ? 's' : ''
-        } ${MAX_UPLOAD_BYTES / 1024 / 1024}MB.`,
-      );
-      return;
-    }
-
-    setFiles((prev) => {
-      const merged = [...prev, ...incoming];
-      if (merged.length > MAX_UPLOAD_COUNT) {
-        setFileWarning(`You can attach at most ${MAX_UPLOAD_COUNT} documents.`);
-        return prev;
-      }
+    const merged = [...files, ...Array.from(list)];
+    try {
+      assertDocumentsWithinLimits(merged);
+      setFiles(merged);
       setFileWarning(null);
-      return merged;
-    });
+    } catch (e) {
+      setFileWarning(e instanceof Error ? e.message : 'Those files cannot be attached.');
+    }
   };
 
   const removeFile = (name: string) => {
@@ -127,6 +111,21 @@ export function NpoApplyPage() {
     bytes >= 1024 * 1024
       ? `${(bytes / 1024 / 1024).toFixed(1)}MB`
       : `${Math.max(1, Math.round(bytes / 1024))}KB`;
+
+  const totalBytes = files.reduce((a, f) => a + f.size, 0);
+
+  // Prefills a mailto so the applicant only has to press send and attach. The
+  // reference is only known after submit, so the link is offered on the
+  // confirmation screen where it matters.
+  const documentsMailto = (reference: string, name: string) =>
+    `mailto:${DOCUMENTS_EMAIL}`
+    + `?subject=${encodeURIComponent(`NPO application ${reference} — supporting documents`)}`
+    + `&body=${encodeURIComponent(
+      `Please find the supporting documents for our NPO partner application.\n\n`
+      + `Application reference: ${reference}\nOrganisation: ${name}\n\n`
+      + `Attachments: registration certificate, bank confirmation letter, proof of address.\n\n`
+      + `Thank you.`,
+    )}`;
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -171,18 +170,26 @@ export function NpoApplyPage() {
         documents: files,
       });
 
+      const attempted = files.length;
+      const orgName = form.organisationName.trim();
+
       setReference(id);
       setForm(EMPTY);
       setFiles([]);
+      // Counts are kept for the confirmation screen, which offers the email
+      // route when documents did not all land. Captured before clearing state.
+      setUploadedCount(uploaded);
+      setAttemptedCount(attempted);
+      setSubmittedOrg(orgName);
       // The application is stored either way; say plainly when documents did
       // not make it, rather than implying a clean submit.
       setUploadNotice(
         failed > 0
-          ? `Your application was received, but ${failed} of ${files.length} document${
-              files.length === 1 ? '' : 's'
+          ? `Your application was received, but ${failed} of ${attempted} document${
+              attempted === 1 ? '' : 's'
             } failed to upload${
               uploaded > 0 ? ` (${uploaded} attached)` : ''
-            }. An administrator can still proceed on your registration details, or you can email the documents to us.`
+            }. An administrator can still proceed on your registration details.`
           : uploaded > 0
             ? `${uploaded} document${uploaded === 1 ? '' : 's'} attached for review.`
             : null,
@@ -240,6 +247,24 @@ export function NpoApplyPage() {
             <p className="rounded-md bg-slate-50 border border-slate-200 p-3 font-mono text-xs break-all">
               {reference}
             </p>
+            {uploadedCount < attemptedCount && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-2">
+                <p className="text-sm font-medium text-blue-900">
+                  Send your documents by email
+                </p>
+                <p className="text-xs text-blue-800">
+                  Your application is already in, so nothing needs re-sending — only the
+                  {attemptedCount - uploadedCount === 1 ? ' document' : ' documents'}{' '}
+                  that did not upload. Include the reference above.
+                </p>
+                <a
+                  href={documentsMailto(reference, submittedOrg)}
+                  className="inline-flex items-center gap-2 rounded-md bg-[#1e3a5f] px-3 py-2 text-sm font-medium text-white hover:bg-[#2c5282]"
+                >
+                  <Mail className="h-4 w-4" /> Email documents to {DOCUMENTS_EMAIL}
+                </a>
+              </div>
+            )}
             <div className="flex flex-col sm:flex-row gap-3">
               <Button onClick={() => navigate('/')} className="bg-[#1e3a5f] hover:bg-[#2c5282] text-white">
                 Back to Azure Horizon
@@ -391,8 +416,10 @@ export function NpoApplyPage() {
                 <Label htmlFor="documents">Supporting documents (optional)</Label>
                 <p className="text-xs text-slate-700">
                   Registration certificate, bank confirmation letter or proof of address. Up to{' '}
-                  {MAX_UPLOAD_COUNT} files, PDF/JPEG/PNG/WebP, {MAX_UPLOAD_BYTES / 1024 / 1024}MB
-                  each. Only an administrator can open what you attach.
+                  {MAX_UPLOAD_COUNT} files, PDF/JPEG/PNG/WebP, {formatBytes(MAX_FILE_BYTES)} each and{' '}
+                  {formatBytes(MAX_TOTAL_BYTES)} in total. Only an administrator can open what you
+                  attach. If your documents are larger, submit this form and email them using the
+                  reference you are given.
                 </p>
                 <Input
                   id="documents"
@@ -405,6 +432,12 @@ export function NpoApplyPage() {
                 {fileWarning && (
                   <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
                     {fileWarning}
+                  </p>
+                )}
+                {files.length > 0 && (
+                  <p className="text-xs text-slate-700">
+                    {files.length} of {MAX_UPLOAD_COUNT} attached ·{' '}
+                    {formatBytes(totalBytes)} of {formatBytes(MAX_TOTAL_BYTES)} used
                   </p>
                 )}
                 {files.length > 0 && (
